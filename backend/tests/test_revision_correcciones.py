@@ -236,14 +236,20 @@ async def test_adjudication_rejects_foreign_proposal_and_reports_include_cost_br
         headers=cargador,
     )
     project_id = created.json()["id"]
-    name = "Propuesta_923_Grupo_Digital_Miranda_CA.pdf"
+    sample_files = [
+        ("Propuesta_923_Grupo_Digital_Miranda_CA.pdf", "application/pdf"),
+        ("Propuesta_638_TecnoAndes_Soluciones_CA.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        ("Propuesta_841_Avila_Hardware__Redes_CA.png", "image/png"),
+    ]
     up = await app_client.post(
         f"/api/v1/projects/{project_id}/proposals",
-        files=[("files", (name, (RETO_DIR / "propuestas" / name).read_bytes(), "application/pdf"))],
+        files=[("files", (fname, (RETO_DIR / "propuestas" / fname).read_bytes(), mime)) for fname, mime in sample_files],
         headers=cargador,
     )
     assert up.status_code == 201, up.text
-    proposal_id = up.json()[0]["id"]
+    proposal_id = next(
+        p["id"] for p in up.json() if p["proposal_identifier"] == "Propuesta_923_Grupo_Digital_Miranda_CA"
+    )
 
     ev = await app_client.post(
         f"/api/v1/projects/{project_id}/evaluate",

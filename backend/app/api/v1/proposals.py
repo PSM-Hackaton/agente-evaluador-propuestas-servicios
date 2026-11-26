@@ -22,6 +22,8 @@ from app.services.storage.encrypted_storage import EncryptedFileStorage
 router = APIRouter(tags=["Propuestas de Proveedores"])
 
 ALLOWED_EXTENSIONS = SUPPORTED_DOCUMENT_EXTENSIONS
+MIN_PROPOSALS_PER_PROJECT = 3
+MAX_PROPOSALS_PER_PROJECT = 20
 
 
 @router.post("/projects/{project_id}/proposals", response_model=list[ProposalOut], status_code=status.HTTP_201_CREATED)
@@ -32,14 +34,35 @@ async def upload_proposals_bulk(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(ROLES_UPLOAD)),
 ) -> list[Proposal]:
-    """Upload multiple supplier proposals (PDF, JPG, PNG, XLSX) encrypted at rest with AES-256-GCM."""
+    """Upload supplier proposals (3 to 20 per project; PDF, JPG, PNG, XLSX, etc.) encrypted with AES-256-GCM."""
     project = await db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado.")
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debe adjuntar al menos un archivo.")
-    if len(files) > 50:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Máximo 50 archivos por carga masiva.")
+    if len(files) > MAX_PROPOSALS_PER_PROJECT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Máximo {MAX_PROPOSALS_PER_PROJECT} propuestas permitidas por proyecto "
+                f"(recibidas: {len(files)})."
+            ),
+        )
+
+    existing_hashes_res = await db.execute(
+        select(Proposal.proposal_identifier_hash).where(Proposal.project_id == project_id)
+    )
+    existing_hashes = {h for h in existing_hashes_res.scalars().all() if h}
+    incoming_hashes = {blind_index(Path(up.filename or "propuesta.pdf").stem) or "" for up in files}
+    projected_total = len(existing_hashes | incoming_hashes)
+    if projected_total > MAX_PROPOSALS_PER_PROJECT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Un proyecto admite entre {MIN_PROPOSALS_PER_PROJECT} y {MAX_PROPOSALS_PER_PROJECT} "
+                f"propuestas (con esta carga quedaría con {projected_total})."
+            ),
+        )
 
     settings = get_settings()
     storage = EncryptedFileStorage()

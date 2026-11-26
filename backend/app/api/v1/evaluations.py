@@ -95,10 +95,13 @@ async def trigger_evaluation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado.")
 
     props = (await db.execute(select(Proposal).where(Proposal.project_id == project_id))).scalars().all()
-    if len(props) < 1:
+    if not (3 <= len(props) <= 20):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Debe cargar propuestas antes de iniciar la evaluación.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"El proyecto debe tener entre 3 y 20 propuestas cargadas para evaluarse "
+                f"(actualmente tiene {len(props)})."
+            ),
         )
 
     bcv = await get_active_bcv_rate(db)
