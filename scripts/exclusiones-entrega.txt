@@ -1,0 +1,92 @@
+# Exclusiones de la entrega pública (GitLab del evento) del Agente Evaluador de Propuestas de Servicios.
+# Las usa scripts/preparar-entrega.sh sobre la copia exportada con `git archive`; el repositorio no se toca.
+#
+# Sintaxis (parecida a .gitignore, evaluada archivo por archivo):
+#   nombre          coincide con ese nombre en cualquier carpeta        (p. ej. *.db)
+#   ruta/con/barra  anclada a la raíz del proyecto                      (p. ej. backend/data/)
+#   carpeta/        todo lo que haya dentro de esa carpeta, en cualquier nivel
+#   *  no cruza "/";  **  sí cruza carpetas;  !patrón  vuelve a incluir
+#   La última regla que coincide decide. Las líneas vacías y las que empiezan por # se ignoran.
+
+# --- Material interno de coordinación del equipo --------------------------------
+# Plan de reparto de trabajo entre personas (rama javier): organiza el desarrollo, no describe el producto.
+# README.md y docs/cumplimiento/ documentan la solución.
+docs/PLAN_DE_TRABAJO.md
+AGENTS.md
+TASKS.md
+
+# --- Herramientas de preparación de la entrega -------------------------------------
+scripts/preparar-entrega.sh
+scripts/exclusiones-entrega.txt
+scripts/entrega-herramientas.mjs
+scripts/entrega-comun.sh
+scripts/README-entrega.md
+scripts/permitidos-entrega.txt
+scripts/etapas-entrega.txt
+scripts/subir-por-etapas.sh
+scripts/sincronizar-gitlab.sh
+
+# --- Carpetas locales de editores y herramientas ------------------------------------
+.claude/
+.vscode/
+.idea/
+
+# --- Variables de entorno reales --------------------------------------------------
+# Claves de API (Gemini/OpenAI/Tavily), MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY. Solo se publican las plantillas.
+.env
+*.env
+.env.*
+!.env.example
+
+# --- Entornos y cachés de Python ----------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# --- Dependencias y artefactos del frontend ---------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# --- Datos locales del backend ------------------------------------------------------
+# Base SQLite, almacenamiento cifrado (*.enc) y resultados de ejecuciones locales.
+backend/data/
+backend/storage/
+*.enc
+resultados/
+backend/salida*.json
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+# Nota: salida.json en la RAÍZ no se excluye a propósito. El enunciado (3.C) indica que GitLab revisa su
+# formato en cada commit; si el equipo decide versionarlo, debe ser el generado por el modo lote.
+
+# --- Certificados y llaves --------------------------------------------------------
+# Los certificados TLS locales se generan con backend/scripts/generate_tls_certs.sh; nunca se publican.
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ecdsa*
+id_ed25519*
+
+# --- Basura del sistema operativo y registros --------------------------------------
+.DS_Store
+Thumbs.db
+*.log

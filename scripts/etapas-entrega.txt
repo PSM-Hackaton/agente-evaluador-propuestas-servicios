@@ -1,0 +1,111 @@
+# Etapas de la subida progresiva al GitLab del evento (día 1). Las usa scripts/subir-por-etapas.sh.
+#
+# Cada etapa es un commit sobre la copia limpia (la de scripts/preparar-entrega.sh) y AÑADE sus archivos
+# a lo ya subido. El reparto sigue la AUTORÍA REAL de cada parte, tal como la acordó el equipo:
+#   - frontend/ (React + Vite + TypeScript), rama javier de GitHub  -> Javier Rodríguez, rama javier
+#   - backend/  (Python + FastAPI, agente e ingesta), rama enggel  -> Enggel Rodríguez, rama enggel
+#   - estructura inicial, material del reto y documentación de entrega -> Diego Landaeta, rama diego
+# El orden sigue la cronología de GitHub (git log --date=iso): estructura (11:34), backend (13:42-14:27),
+# frontend (14:08) y, al final, la documentación de entrega.
+#
+# AVISO DE AUTORÍA (ver scripts/README-entrega.md, «Autoría»): en GitHub los 4 commits de la rama enggel
+# figuran firmados por "Diego Landaeta" y el de la rama javier por "Javier <javier@equipo.local>" (correo
+# que no es real). Por eso el autor de esas etapas NO se toma de git: se indica con --autor-enggel y
+# --autor-javier ("Nombre Apellido <correo con el que cada uno entra al GitLab del evento>").
+#
+# Formato: una línea "clave valor"; "etapa <id>" abre una etapa nueva.
+#   etapa    identificador corto (único)
+#   mensaje  mensaje del commit, en castellano
+#   autor    "Nombre Apellido <correo>", o AUTOR_JAVIER / AUTOR_ENGGEL (se sustituyen por --autor-javier /
+#            --autor-enggel, obligatorios)
+#   rama     rama de trabajo de GitLab que recibe el commit: diego, javier o enggel
+#   ruta     archivos que incorpora (repetible). Misma sintaxis que exclusiones-entrega.txt:
+#            sin "/" coincide en cualquier carpeta, por eso los archivos de la raíz llevan "/" delante;
+#            "carpeta/" es todo su contenido; "*" no cruza carpetas; "!patrón" lo quita de ESTA etapa.
+#
+# Reglas de reparto: cada archivo de la copia limpia va a la PRIMERA etapa que lo incluye; ningún
+# archivo puede quedar sin etapa, ninguna etapa puede quedar vacía y una ruta que no coincide con nada
+# es un error (así se detectan erratas y archivos renombrados). Lo excluido nunca llega aquí.
+
+etapa    estructura
+mensaje  Estructura del repositorio y material del reto (enunciado, proyecto y 10 propuestas de ejemplo)
+autor    Diego Landaeta <diego.a.programmer@gmail.com>
+rama     diego
+ruta     /.gitignore
+ruta     backend/.gitkeep
+ruta     docs/reto/
+
+etapa    backend-nucleo
+mensaje  Backend: configuración, cifrado AES-256-GCM en reposo, modelos de datos, roles y almacenamiento cifrado
+autor    AUTOR_ENGGEL
+rama     enggel
+ruta     backend/pyproject.toml
+ruta     backend/.env.example
+ruta     backend/app/__init__.py
+ruta     backend/app/core/
+ruta     backend/app/db/
+ruta     backend/app/schemas/
+ruta     backend/app/services/__init__.py
+ruta     backend/app/services/storage/
+ruta     backend/app/services/audit/
+ruta     backend/tests/conftest.py
+ruta     backend/tests/test_crypto_and_storage.py
+
+etapa    backend-agente
+mensaje  Backend: ingesta multimodal (PDF, imágenes con OCR o visión, XLSX), auditoría técnica, TCO, tasa BCV y búsqueda de precios
+autor    AUTOR_ENGGEL
+rama     enggel
+ruta     backend/app/services/ingestion/
+ruta     backend/app/services/llm/
+ruta     backend/app/services/agent/
+ruta     backend/app/services/market/
+ruta     backend/app/services/finance/
+ruta     backend/tests/test_ingestion_and_security.py
+
+etapa    backend-api
+mensaje  Backend: API REST y SSE, informes PDF/Markdown/Excel/CSV, modo lote salida.json, TLS y pruebas de extremo a extremo
+autor    AUTOR_ENGGEL
+rama     enggel
+ruta     backend/app/
+ruta     backend/nginx/
+ruta     backend/scripts/
+ruta     backend/tests/
+ruta     backend/README.md
+# Cualquier otro archivo nuevo de backend/ (p. ej. migraciones) entra aquí.
+ruta     backend/
+
+etapa    frontend-base
+mensaje  Frontend: proyecto React + Vite + TypeScript, cliente de la API, sesión, roles y componentes base
+autor    AUTOR_JAVIER
+rama     javier
+ruta     frontend/package.json
+ruta     frontend/package-lock.json
+ruta     frontend/index.html
+ruta     frontend/postcss.config.js
+ruta     frontend/tailwind.config.js
+ruta     frontend/tsconfig.json
+ruta     frontend/vite.config.ts
+ruta     frontend/.env.example
+ruta     frontend/public/
+ruta     frontend/src/main.tsx
+ruta     frontend/src/App.tsx
+ruta     frontend/src/index.css
+ruta     frontend/src/api/
+ruta     frontend/src/lib/
+ruta     frontend/src/context/
+ruta     frontend/src/layouts/
+ruta     frontend/src/components/ui/
+ruta     frontend/src/components/ProtectedRoute.tsx
+
+etapa    frontend-modulos
+mensaje  Frontend: proyectos, carga de propuestas, trazabilidad en vivo, informe comparativo, revisión, proveedores, auditoría y chat
+autor    AUTOR_JAVIER
+rama     javier
+ruta     frontend/
+
+etapa    documentacion
+mensaje  Documentación de entrega: README de 6 apartados y matriz de cumplimiento del reto
+autor    Diego Landaeta <diego.a.programmer@gmail.com>
+rama     diego
+ruta     /README.md
+ruta     docs/cumplimiento/

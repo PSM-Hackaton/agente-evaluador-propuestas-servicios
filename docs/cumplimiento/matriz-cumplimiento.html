@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matriz de cumplimiento — Agente Evaluador de Propuestas de Servicios</title>
+<style>
+  @page { size: A4 landscape; margin: 14mm 12mm 14mm 12mm; }
+  :root { --ink:#1b1f24; --muted:#5b6470; --line:#d9dee4; --accent:#0b5c4a; --soft:#eef5f2; --warn:#8a4b00; --warnbg:#fff5e6; --bad:#8a1c1c; --badbg:#fdecec; }
+  * { box-sizing: border-box; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; color: var(--ink); background: #fff; font-size: 9.6pt; line-height: 1.42; margin: 0 auto; max-width: 1180px; padding: 0 16px; }
+  h1 { font-size: 19pt; margin: 14px 0 4px; color: var(--accent); }
+  h2 { font-size: 12.5pt; margin: 18px 0 8px; padding-bottom: 3px; border-bottom: 2px solid var(--accent); color: var(--accent); page-break-after: avoid; }
+  p { margin: 0 0 7px; }
+  ul, ol { margin: 0 0 8px; padding-left: 18px; }
+  li { margin-bottom: 2px; }
+  code { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 7.9pt; background: #f2f4f6; padding: 0 3px; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 8.4pt; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); color: var(--accent); font-weight: 700; }
+  tr { page-break-inside: avoid; }
+  td.req { font-style: italic; width: 24%; }
+  td.id { width: 4%; font-weight: 700; white-space: nowrap; }
+  td.est { width: 7%; }
+  .sub { color: var(--muted); font-size: 10pt; margin-bottom: 10px; }
+  .meta { color: var(--muted); font-size: 8.6pt; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 5px 0; margin-bottom: 12px; }
+  .box { background: var(--soft); border-left: 4px solid var(--accent); padding: 7px 11px; border-radius: 4px; margin: 8px 0 10px; page-break-inside: avoid; }
+  .warn { background: var(--warnbg); border-left: 4px solid var(--warn); padding: 7px 11px; border-radius: 4px; margin: 8px 0 10px; page-break-inside: avoid; }
+  .st { display: inline-block; font-weight: 700; font-size: 7.6pt; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+  .ok { background: var(--soft); color: var(--accent); border: 1px solid #b9d8cd; }
+  .par { background: var(--warnbg); color: var(--warn); border: 1px solid #f0cf9c; }
+  .pen { background: var(--badbg); color: var(--bad); border: 1px solid #f0b4b4; }
+  .na { background: #f2f4f6; color: var(--muted); border: 1px solid var(--line); }
+  .resumen td, .resumen th { text-align: center; font-size: 9.5pt; }
+  .small { font-size: 8pt; color: var(--muted); }
+  .wrap { overflow-x: auto; }
+  @media (max-width: 700px) { body { font-size: 9pt; } td.req { width: auto; } }
+</style>
+</head>
+<body>
+
+<h1>Matriz de cumplimiento — Agente Evaluador de Propuestas de Servicios</h1>
+<div class="sub">Reto Grupal 3 (IA, Desarrollo de Software y Ciberseguridad) · Hackatón Venezuela INNOVA 2026</div>
+<div class="meta">
+  Revisión del 26 de noviembre de 2026 sobre el código de GitHub: backend en la rama <code>enggel</code> (commit
+  <code>5c49b50</code>) y frontend en la rama <code>javier</code> (commit <code>9617b59</code>). Los requisitos se citan del
+  enunciado (<code>docs/reto/IA_RETO_GRUPAL_PROPUESTA_DE_SERVICIOS_enunciado_.pdf</code>); en los textos con caracteres
+  dañados por la fuente del PDF se restituyen las letras (p. ej. «En recepción»). Rutas relativas a la raíz del repositorio.
+</div>
+
+<div class="box">
+  <b>Cómo leer los estados.</b> <span class="st ok">CUMPLE</span> implementado y verificado en el código, con prueba o
+  ejecución. <span class="st par">PARCIAL</span> implementado con brechas, o implementado en cada rama por separado pero
+  sin funcionar todavía de extremo a extremo. <span class="st pen">FALTA</span> no implementado.
+  <span class="st na">N/A</span> no corresponde a esa capa. La columna <b>Global</b> es el estado de la solución integrada.
+</div>
+
+<div class="warn">
+  <b>Hallazgo principal: la integración frontend ↔ backend está pendiente.</b> El frontend llama a rutas bajo
+  <code>/api</code> con nombres y campos propios (<code>frontend/src/api/http.ts</code>: <code>PATCH /projects/{id}/estado</code>,
+  <code>/evaluations/{id}/revisiones</code>, <code>/currency/bcv</code>, <code>/audit</code>, <code>/users</code>…) y el backend publica
+  <code>/api/v1</code> con otras (<code>POST /projects/{id}/status</code>, <code>/evaluations/{id}/reviews</code>,
+  <code>/finance/bcv-rate</code>, <code>/audit-logs</code>, <code>/auth/users</code>…). Por defecto el frontend usa datos simulados
+  (<code>VITE_USE_MOCK=true</code>, <code>frontend/src/api/mock/</code>). Por eso todos los requisitos de interfaz y plataforma
+  (D y E) quedan en <b>PARCIAL</b> globalmente aunque cada capa los tenga. Se sigue en los issues #3 y #4.
+</div>
+
+<h2>Resumen</h2>
+<table class="resumen">
+  <tr><th>Bloque</th><th>Requisitos</th><th>Cumple</th><th>Parcial</th><th>Falta</th></tr>
+  <tr><td>A. Ingesta documental multimodal</td><td>4</td><td>1</td><td>3</td><td>0</td></tr>
+  <tr><td>B. Razonamiento agéntico y letra pequeña</td><td>4</td><td>2</td><td>2</td><td>0</td></tr>
+  <tr><td>3.B Causas de descarte (calificación)</td><td>6</td><td>3</td><td>3</td><td>0</td></tr>
+  <tr><td>C. Investigación de precios en internet</td><td>1</td><td>0</td><td>1</td><td>0</td></tr>
+  <tr><td>D. Interfaz e informe</td><td>4</td><td>0</td><td>4</td><td>0</td></tr>
+  <tr><td>E.1–E.5 Plataforma</td><td>10</td><td>0</td><td>10</td><td>0</td></tr>
+  <tr><td>F. Seguridad de la información</td><td>2</td><td>0</td><td>2</td><td>0</td></tr>
+  <tr><td>2 y 3.C Solución de extremo a extremo y <code>salida.json</code></td><td>2</td><td>0</td><td>2</td><td>0</td></tr>
+  <tr><td>Instructivo de GitLab (README y ramas)</td><td>2</td><td>1</td><td>0</td><td>1</td></tr>
+  <tr><th>Total</th><th>35</th><th>7</th><th>27</th><th>1</th></tr>
+</table>
+
+<h2>Verificaciones ejecutadas</h2>
+<p>Sobre una fusión local temporal de <code>enggel</code> + <code>javier</code> (sin publicar), con Python 3.14, Node 22 y Tesseract instalados:</p>
+<ul>
+  <li><code>cd backend &amp;&amp; pip install -e ".[dev]" &amp;&amp; pytest</code>: <b>9 pruebas, 9 correctas</b> (3 de cifrado, 5 de ingesta y auditoría, 1 de plataforma completa con roles). <code>ruff check app tests</code>: sin hallazgos.</li>
+  <li><code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> (<code>tsc --noEmit</code> + <code>vite build</code>): <b>correcto</b>. El frontend no tiene pruebas automatizadas.</li>
+  <li>Modo lote sin clave de IA ni búsqueda web (<code>LLM_PROVIDER=heuristic python -m app.cli.batch --lote ../docs/reto --no-web-search --bcv-rate 52.5</code>): 10 propuestas procesadas en 13 s, 5 válidas y 5 descartadas, <code>salida.json</code> validado por el propio programa. El campo <code>repositorio</code> salió como la ruta local del clon, porque se toma del remoto <code>origin</code> si no se define <code>HACKATHON_REPO_PATH</code>.</li>
+  <li>No se probó con clave real de Gemini u OpenAI, con búsqueda web activa ni con TLS activado.</li>
+</ul>
+
+<h2>A. Ingesta documental multimodal</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">A.1</td><td class="req">«PDFs Nativos Digitales: Propuestas de servicios y ofertas formales generadas por software de oficina.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>backend/app/services/ingestion/pdf_parser.py</code> (<code>extract_pdf</code>, PyMuPDF), <code>pipeline.py</code> (<code>ingest_document</code>). Separa el texto visible del oculto (blanco, ≤ 3 pt, fuera de página) y revisa metadatos. Prueba: <code>test_detects_hidden_white_text_prompt_injection_and_am5_am4_mismatch</code>. La interfaz acepta <code>.pdf</code> (<code>frontend/src/lib/files.ts</code>).</td></tr>
+<tr><td class="id">A.2</td><td class="req">«Documentos Escaneados con Ruido: Imágenes o PDFs escaneados (con sellos húmedos, inclinación o baja resolución).»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Un PDF con menos de 50 caracteres por página se trata como escaneado y se renderiza a 180 ppp; con clave de API lo transcribe la visión del modelo y sin ella Tesseract (<code>image_parser.py</code>, <code>_preprocess_for_ocr</code>: autocontraste y nitidez). Brechas: solo procesa las 4 primeras páginas (<code>max_vision_pages=4</code>), no corrige la inclinación ni limpia el ruido, y no hay prueba específica.</td></tr>
+<tr><td class="id">A.3</td><td class="req">«Presupuestos Manuscritos: Notas de entrega, tablas de costos o presupuestos llenados a mano y fotografiados.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>image_parser.extract_image</code> + visión del modelo, con OCR de doble pasada como respaldo. Prueba: <code>test_dual_pass_ocr_recovers_lined_paper_proposal_832</code> (un manuscrito del reto). Sin clave de API depende de Tesseract, que es débil con letra manuscrita; la visión con clave real está sin validar (issue #5).</td></tr>
+<tr><td class="id">A.4</td><td class="req">«Hojas de cálculo (XLSX) y capturas de pantalla (PNG) de conversaciones de chat empresarial o de mensajes telefónicos con el proveedor.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>XLSX: <code>xlsx_parser.py</code> (<code>extract_xlsx</code>: celdas, fórmulas evaluadas con un evaluador aritmético seguro, celdas ocultas) y <code>tabular_parser.py</code> (XLS, CSV, TSV). Prueba: <code>test_xlsx_formula_evaluation_and_dimm_overflow_detection</code>. PNG: misma ruta que cualquier imagen; no hay tratamiento propio de conversaciones (quién dice qué, varios mensajes).</td></tr>
+</table></div>
+
+<h2>B. Razonamiento agéntico y detección de «letra pequeña»</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">B.1</td><td class="req">«Cláusulas y Costos Ocultos: … en una nota marginal (“letra chiquita”) especifica “No incluye flete” o “El envío especializado tiene un recargo del 50% sobre el valor de la factura”, el agente debe calcular autónomamente dicho recargo y consolidarlo antes de emitir la comparación.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>backend/app/services/finance/tco.py</code> (<code>compute_tco_breakdown</code>: flete o instalación no incluidos, recargo porcentual sobre lo declarado, recargo por pago en Bs, IVA, pasos) y <code>services/agent/technical_audit.py</code> (recargo ≥ 30 % se descarta). Resultado consolidado en <code>adjusted_tco_usd/ves</code>; la interfaz lo muestra en <code>frontend/src/components/CostBreakdown.tsx</code>. Prueba: <code>test_arithmetic_and_tco_normalization_with_hidden_freight_and_iva</code>. Matiz: la detección del porcentaje depende de expresiones regulares o del modelo.</td></tr>
+<tr><td class="id">B.2</td><td class="req">«Verificación Aritmética: El agente debe emplear herramientas de cálculo (tool calling / ejecución de código) para validar que el producto de Cantidad x Precio Unitario y la suma de subtotales coincidan exactamente con el total declarado en la propuesta, alertando discrepancias aritméticas y descartando la propuesta que las tenga.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>tco.py</code> (<code>verify_arithmetic</code>, con <code>Decimal</code> y tolerancia 0,05) invocado como herramienta <code>tool_verify_arithmetic</code> (<code>services/agent/tools.py</code>); descarte <code>error_aritmetico</code>. Pruebas: la de B.1 (diferencia de 500) y <code>test_xlsx_…</code>. El cálculo lo hace código, no el modelo; si la extracción de ítems falla, el resultado también.</td></tr>
+<tr><td class="id">B.3</td><td class="req">«Cumplimiento del Alcance del Proyecto: Verificar que la propuesta contemple la totalidad de los ítems y especificaciones técnicas exigidas en el documento del proyecto, descartando propuestas incompletas.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>technical_audit.py</code> (sección 5): revisa monitor, protección eléctrica e instalación por palabras clave y el requisito de 10 + 1 equipos, que está fijo en el código (solo se activa si el proyecto menciona «10» y «11»). No hay cruce genérico contra los ítems extraídos del documento del proyecto.</td></tr>
+<tr><td class="id">B.4</td><td class="req">«Desarrollar un Agente de Inteligencia Artificial Autónomo … (conectada a modelos de IA vía API …)»: el razonamiento con herramientas.</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>services/agent/orchestrator.py</code> (<code>evaluate_proposals_core</code>) llama a las herramientas de <code>AgentToolbox</code> en un orden fijo; el modelo (<code>services/llm/client.py</code>, Gemini u OpenAI compatible) extrae un JSON estructurado y puede desempatar el ranking, pero no decide qué herramienta usar (no hay <i>tool calling</i> del modelo). Sin clave funciona en modo heurístico.</td></tr>
+</table></div>
+
+<h2>3.B Causas de descarte que se usan para calificar</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Causa (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">3B.1</td><td class="req">«Incompatibilidad técnica: componentes que no funcionan juntos (por ejemplo, memoria que no cabe o no corresponde a la placa, procesador de un socket distinto, tarjeta gráfica que no entra en el gabinete).»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>technical_audit.py</code>: AM5/AM4, DDR4/DDR5, LGA1700/1200, módulos de RAM frente a ranuras, GPU en gabinete slim. Pruebas: <code>test_detects_…_am5_am4_mismatch</code>, <code>test_xlsx_…_dimm_overflow_detection</code>. Basado en reglas para los modelos del caso de prueba.</td></tr>
+<tr><td class="id">3B.2</td><td class="req">«Capacidad insuficiente: fuente de poder o UPS que no soportan el equipo que acompañan.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Umbrales fijos (fuente &lt; 450 W; UPS &lt; 600 VA o &lt; 360 W, solo con GPU dedicada); no calcula la carga real. Sin prueba propia.</td></tr>
+<tr><td class="id">3B.3</td><td class="req">«Equipos obsoletos, reciclados o de calidad inferior a lo que se cobra.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td>Reglas para Xeon E5/X99, DDR3, Core de 2.ª a 8.ª generación y «reacondicionado/usado». En el lote de ejemplo descarta <code>Propuesta_898</code> por esta causa. Sin prueba unitaria propia.</td></tr>
+<tr><td class="id">3B.4</td><td class="req">«Costos o condiciones abusivas: sobreprecio desproporcionado frente al mercado, recargos de envío desmedidos, garantía válida solo fuera del país, o software de prueba que pasa a cobrarse al vencer.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Recargos (≥ 30 %), garantía fuera del país y software de prueba: reglas en <code>technical_audit.py</code> (en el lote de ejemplo descarta <code>Propuesta_331</code>). El sobreprecio (≥ 85 %) depende de la búsqueda de precios, que es parcial (ver C).</td></tr>
+<tr><td class="id">3B.5</td><td class="req">«Error aritmético: cantidad por precio unitario, o la suma de los subtotales, no coincide con el total declarado.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td>Ver B.2.</td></tr>
+<tr><td class="id">3B.6</td><td class="req">«Instrucciones ocultas dirigidas al sistema de IA para manipular la evaluación.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>services/agent/security_guard.py</code> (<code>scan_for_prompt_injection</code> redacta el texto; <code>wrap_untrusted_document</code> lo marca como datos); revisa texto oculto en PDF, DOCX y XLSX; descarte <code>inyeccion_prompt</code> y alerta crítica del proveedor. Pruebas: <code>test_detects_hidden_white_text…</code>, <code>test_word_docx_…_hidden_injection</code>. Basado en patrones (no cubre codificaciones como base64).</td></tr>
+</table></div>
+
+<h2>C. Investigación y contraste de precios en internet</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">C.1</td><td class="req">«Debe ejecutar autónomamente herramientas de búsqueda web (Web Search / Scraping) para validar si los precios unitarios propuestos son consistentes con los valores de mercado vigentes o si presentan sobrecostos injustificados.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>backend/app/services/market/search.py</code> (<code>search_market_price</code>): Tavily con <code>TAVILY_API_KEY</code> o DuckDuckGo (<code>ddgs</code>, sin clave), caché de 30 min. Brechas: extrae montos solo de títulos y fragmentos (no visita páginas); si el ítem coincide con el catálogo fijo <code>BASELINE_MARKET_REFERENCES</code>, este pesa en la referencia; sin coincidencia ni resultados la referencia es el propio precio ± 25 %; revisa hasta 2 ítems por propuesta. Sin prueba (las pruebas desactivan la web). La interfaz muestra las consultas en la traza (<code>TraceTimeline.tsx</code>).</td></tr>
+</table></div>
+
+<h2>D. Interfaz de usuario e informe de factibilidad financiera</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">D.1</td><td class="req">«Campo de carga del Proyecto: Para ingresar el documento de requerimientos, ubicación de ejecución y presupuesto referencial.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>POST /api/v1/projects</code> (JSON: <code>execution_location</code>, <code>reference_budget</code>, moneda) + <code>POST /projects/{id}/document</code> (<code>backend/app/api/v1/projects.py</code>). Frontend: formulario en <code>frontend/src/pages/DashboardPage.tsx</code>, que envía un solo <i>multipart</i> con <code>datos</code> y <code>archivo</code>. Contratos distintos (issue #3).</td></tr>
+<tr><td class="id">D.2</td><td class="req">«Campo de carga masiva de Propuestas: Para subir desde 3 hasta 20 archivos (PDF, JPG, PNG o XLSX) de las empresas o prestadores de servicio.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>POST /projects/{id}/proposals</code> acepta de 1 a 50 archivos (campo <code>files</code>; el frontend envía <code>archivos</code>). Frontend: <code>FileDropzone.tsx</code> filtra pdf/xlsx/xls/jpg/jpeg/png; el mínimo de 3 solo bloquea el botón de evaluar y el máximo de 20 no se valida en ninguna capa.</td></tr>
+<tr><td class="id">D.3</td><td class="req">«Botón de Acción (“Evaluar Propuestas de Servicios”): Inicia la ejecución del agente mostrando la trazabilidad de sus acciones (lectura de documentos, consultas web de precios, cómputo de fletes y recargos).»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>POST /projects/{id}/evaluate</code> y SSE <code>GET /evaluations/{id}/stream?token=</code> (<code>sse-starlette</code>; cada paso se guarda en <code>AgentTraceStep</code>; el streaming no tiene prueba). Frontend: botón con el texto exacto en <code>ProjectDetailPage.tsx</code> y <code>TraceTimeline.tsx</code> con <code>EventSource</code>, que espera mensajes <code>message</code> y un evento final <code>done</code>. Hoy la traza que se ve es la simulada (<code>frontend/src/api/mock/index.ts</code>).</td></tr>
+<tr><td class="id">D.4</td><td class="req">«Generación de Informe de Análisis y Factibilidad Financiera: Reporte estructurado en pantalla (y exportable a PDF/Markdown) que presente: Propuesta Recomendada … Tabla Comparativa … Dictamen de Descarte …»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>services/reports/exporter.py</code> con las tres secciones y <code>GET /evaluations/{id}/export/{pdf|markdown|xlsx|csv|salida-json}</code> (probado en <code>test_full_platform_workflow_and_rbac</code>). Frontend: <code>ProjectDetailPage.tsx</code>, <code>ComparisonTable.tsx</code>, <code>ExportButtons.tsx</code>, <code>lib/export.ts</code> (Markdown y CSV en el navegador; PDF pide <code>/export?formato=pdf</code>, ruta que el backend no tiene, y si falla usa la impresión del navegador).</td></tr>
+</table></div>
+
+<h2>E. Plataforma completa de gestión y evaluación (alcance grupal, 75 puntos)</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">E.1.1</td><td class="req">«Historial de evaluaciones: Permitir crear, guardar y consultar varios proyectos o procesos de compra (no solo una ejecución temporal), conservando sus propuestas, resultados y reportes anteriores.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: modelos <code>Project</code>, <code>Proposal</code>, <code>Evaluation</code> en SQLite (<code>backend/app/db/models.py</code>), <code>GET /projects/{id}/evaluations</code>. Frontend: <code>DashboardPage.tsx</code> y pestaña de historial; espera <code>GET /projects/{id}/evaluations/latest</code>, que el backend no publica. Los informes se generan al vuelo (no se guardan como archivo).</td></tr>
+<tr><td class="id">E.1.2</td><td class="req">«Estados del proceso: Organizar cada evaluación en etapas claras (por ejemplo: En recepción → En evaluación → En revisión del comité → Adjudicado / Cerrado) …»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>ProjectStatus</code> y <code>ALLOWED_STATUS_TRANSITIONS</code>; <code>POST /projects/{id}/status</code>; adjudicar o cerrar exige aprobador (prueba e2e con el 403). Frontend: <code>lib/roles.ts</code> (TRANSICIONES) con <code>PATCH /projects/{id}/estado</code> y <code>GET /projects/{id}/historial</code>. Rutas distintas.</td></tr>
+<tr><td class="id">E.2.1</td><td class="req">«Acceso por roles: Inicio de sesión con permisos diferenciados según la función de cada persona (… quien carga los documentos, quien revisa …, quien aprueba la decisión final y un perfil de solo lectura para consulta o auditoría).»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: JWT HS256, contraseñas con scrypt, roles admin/cargador/revisor/aprobador/auditor (<code>core/security.py</code>, <code>api/deps.py</code>), prueba <code>test_full_platform_workflow_and_rbac</code>. Frontend: <code>LoginPage.tsx</code>, <code>ProtectedRoute.tsx</code>, <code>lib/roles.ts</code>, <code>UsersPage.tsx</code>. Las cuentas de demostración difieren (<code>@evaluador.ve</code> frente a <code>@demo.ve</code>) y la forma de la respuesta de login también.</td></tr>
+<tr><td class="id">E.2.2</td><td class="req">«Revisión y registro de cambios: Permitir que un evaluador revise lo que encontró la IA, agregue notas o confirme la decisión, guardando un historial automático de quién realizó cada acción y en qué fecha.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>POST /evaluations/{id}/reviews</code> (confirmed/observed/overridden/approved + notas cifradas) y bitácora <code>services/audit/service.py</code> (<code>record_audit</code>: actor, rol, IP, fecha), <code>GET /audit-logs</code>. Frontend: <code>ReviewPanel.tsx</code> (<code>/revisiones</code>) y <code>AuditPage.tsx</code> (<code>/audit</code>). Rutas distintas.</td></tr>
+<tr><td class="id">E.3.1</td><td class="req">«Ficha de proveedores: Registrar y centralizar los datos básicos de cada proveedor que participa en los procesos (nombre, identificación fiscal, ubicación y contacto).»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>backend/app/api/v1/suppliers.py</code> (alta, edición, detalle); el proveedor se crea al evaluar. Frontend: <code>SuppliersPage.tsx</code>, <code>SupplierDetailPage.tsx</code>. Sin integración probada.</td></tr>
+<tr><td class="id">E.3.2</td><td class="req">«Antecedentes del proveedor: Mostrar el historial de participaciones previas y alertas automáticas si un proveedor ya fue descartado antes (por ejemplo, por errores de cálculo, sobrecostos o intentos de manipular la evaluación).»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: cada descarte crea un <code>SupplierAlert</code> y hay historial de participación; <code>tool_check_supplier_history</code> solo añade un aviso a la traza (no influye en la evaluación) y el modo lote no usa base de datos. Frontend: filtro «solo alertas» y ficha con motivo.</td></tr>
+<tr><td class="id">E.4.1</td><td class="req">«Comparación en una misma moneda (USD / Bolívares): … la plataforma debe convertir todos los montos a una sola moneda usando la tasa oficial vigente (BCV) para compararlos en igualdad de condiciones.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>services/finance/bcv.py</code> (consulta <code>ve.dolarapi.com</code> y luego <code>bcv.org.ve</code>; si fallan, <code>BCV_FALLBACK_RATE</code>), tasa manual por el aprobador, historial <code>BcvRateSnapshot</code>, IVA configurable. Frontend: tasa en la cabecera (<code>AppLayout.tsx</code>, ruta <code>/currency/bcv</code> frente a <code>/finance/bcv-rate</code>); en modo simulado la tasa es fija.</td></tr>
+<tr><td class="id">E.4.2</td><td class="req">«Desglose claro del costo real: Mostrar paso a paso cómo se llega al costo final de cada propuesta (monto declarado + fletes o traslados + recargos + impuestos).»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>tco_breakdown.steps</code> en <code>tco.py</code>. Frontend: <code>CostBreakdown.tsx</code> (declarado → BCV → ajustes con cita → total); el IVA solo se ve si llega como ajuste <code>iva</code>.</td></tr>
+<tr><td class="id">E.5.1</td><td class="req">«Exportación a PDF y Excel/CSV: Permitir descargar el informe ejecutivo en PDF (listo para presentar o firmar) y la tabla comparativa detallada en Excel o CSV …»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: PDF (ReportLab), XLSX y CSV, probados en el e2e. Frontend: <code>ExportButtons.tsx</code>; en modo simulado el «Excel» es una tabla HTML con extensión <code>.xls</code> y el PDF es la impresión del navegador; la ruta real esperada (<code>/export?formato=</code>) no coincide con la del backend (<code>/export/{formato}</code>).</td></tr>
+<tr><td class="id">E.5.2</td><td class="req">«Consulta en lenguaje natural: Incluir un chat o buscador sobre el proyecto evaluado … con respuestas basadas únicamente en los documentos cargados.»</td>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Backend: <code>services/agent/chat_service.py</code> (<code>answer_project_question</code>: contexto limitado al proyecto, propuestas y evaluación, con citas; sin clave, respuesta por palabras clave), probado en el e2e. Frontend: <code>ProjectChat.tsx</code>; mismas rutas en ambos (<code>GET/POST /projects/{id}/chat</code>), salvo el prefijo y el campo del mensaje.</td></tr>
+</table></div>
+
+<h2>F. Seguridad de la información</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">F.1</td><td class="req">«Cifrado en tránsito: Usar TLS moderno (preferiblemente TLS 1.2 o TLS 1.3) en todas las conexiones entre la interfaz gráfica, el backend/orquestador del agente, el almacenamiento, las bases de datos y cualquier servicio o consulta web.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st pen">FALTA</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>backend/nginx/tls.conf</code> fija <code>ssl_protocols TLSv1.2 TLSv1.3</code> (pero <code>proxy_ssl_verify off</code> hacia el backend); <code>backend/app/run.py</code> sirve HTTPS si <code>TLS_ENABLED=true</code> (desactivado por defecto) con <code>ssl.PROTOCOL_TLS_SERVER</code> sin fijar mínimo TLS 1.2; <code>scripts/generate_tls_certs.sh</code>; HSTS en <code>main.py</code>. Salidas a BCV y Tavily con mínimo TLS 1.2; DuckDuckGo y los SDK de IA usan HTTPS por defecto. Frontend: servidor de desarrollo HTTP y proxy a <code>http://localhost:8000</code>; token en <code>localStorage</code> y en la URL del SSE. Sin prueba de TLS (issue #6).</td></tr>
+<tr><td class="id">F.2</td><td class="req">«Cifrado en reposo: Cifrar con estándares vigentes (como AES-256) los documentos originales, archivos temporales/OCR, bases de datos, registros de auditoría y resoluciones guardadas.»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>core/crypto.py</code> (AES-256-GCM, nonce de 96 bits) y <code>services/storage/encrypted_storage.py</code> (documentos cifrados, borrado con sobrescritura); el OCR trabaja en memoria. Campos cifrados (<code>db/base.py</code>: <code>EncryptedText/EncryptedJSON</code>): texto extraído, hallazgos, traza, notas de revisión, resoluciones, detalle de bitácora, chat, contacto del proveedor, <code>salida_json_payload</code>. Pruebas: <code>test_aes256_gcm_text_and_json_roundtrip</code>, <code>test_aes256_gcm_tamper_detection</code>, <code>test_encrypted_file_storage_no_plaintext_on_disk</code>. Quedan en claro: el archivo SQLite, nombre/RIF/ubicación del proveedor, datos del proyecto, actor y acción de la bitácora y los montos. Si no se configura <code>MASTER_ENCRYPTION_KEY</code> se usa una clave de desarrollo conocida.</td></tr>
+</table></div>
+
+<h2>Solución de extremo a extremo y prueba automática (sección 3, 25 puntos)</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
+<tr><td class="id">2</td><td class="req">«Cada equipo deberá construir una solución funcional de extremo a extremo (conectada a modelos de IA vía API y con acceso a internet) …»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td>Cada capa compila y pasa sus pruebas, pero no están unidas (contratos distintos) y no se ha validado con clave de IA real ni búsqueda web activa (issues #3, #4, #5 y #8).</td></tr>
+<tr><td class="id">3.C</td><td class="req">«Tu modo lote debe escribir automáticamente un archivo salida.json con esta estructura: … reto, repositorio, commit, inicio, fin, procesados, ranking»</td>
+<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
+<td><code>backend/app/cli/batch.py</code> y <code>services/reports/salida_json.py</code> (<code>build_salida_json</code>, <code>validate_salida_json</code>): estructura completa, horas ISO 8601 con <code>-04:00</code>, ranking sin repetidos (válidas y luego descartadas). Ejecutado sobre <code>docs/reto</code> (ver arriba). Brechas: <code>repositorio</code> sale del remoto <code>origin</code> si no se define <code>HACKATHON_REPO_PATH</code> (en la prueba fue una ruta local); si <code>git rev-parse HEAD</code> falla escribe 40 ceros y lo da por válido; no hay prueba de la CLI; falta correrlo sobre el lote oficial y el validador (issue #7).</td></tr>
+</table></div>
+
+<h2>Instructivo de GitLab del evento</h2>
+<div class="wrap"><table>
+<tr><th>Id</th><th>Requisito</th><th colspan="3">Global</th><th>Estado</th></tr>
+<tr><td class="id">G.1</td><td class="req">README en la raíz con 6 apartados: 1 Nombre del proyecto, 2 Participantes (nombre completo y rol), 3 Descripción, 4 Alcance, 5 Requerimientos del sistema, 6 Instalación y despliegue.</td>
+<td colspan="3" class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>README.md</code> (rama <code>entrega</code>), comprobado automáticamente por las herramientas internas de preparación de la entrega. Los pasos de instalación que dependen de la integración están marcados «a confirmar tras la integración».</td></tr>
+<tr><td class="id">G.2</td><td class="req">Commits en las ramas de trabajo, Merge Request diario hacia <code>avance</code> y final hacia <code>terminado</code>, con los autores reales.</td>
+<td colspan="3" class="est"><span class="st pen">FALTA</span></td>
+<td>Aún no hay URL del proyecto en GitLab. Las herramientas de subida están preparadas y probadas con un remoto local. Pendiente corregir la autoría: los commits de <code>enggel</code> figuran firmados por Diego Landaeta y el de <code>javier</code> con un correo no real.</td></tr>
+</table></div>
+
+<h2>Criterios de evaluación (sección 3.D)</h2>
+<div class="wrap"><table>
+<tr><th>Criterio</th><th>Peso</th><th>Cómo se mide</th><th>Situación</th></tr>
+<tr><td>Evaluación de la plataforma (sección 2.E)</td><td><b>75 puntos</b></td><td>«Funcionamiento real de los módulos grupales, claridad de la interfaz, trazabilidad, normalización financiera y calidad de los reportes», con el baremo de desarrollo de software y ciberseguridad.</td><td>Módulos presentes en ambas capas; falta la integración real para que funcionen de verdad (E y D en PARCIAL).</td></tr>
+<tr><td>Evaluación automática (<code>salida.json</code>)</td><td><b>25 puntos</b> (0–20 × 1,25)</td><td>Filtro 8 × Vk/k (8 pts); Orden 8 × (1 − D/Dmax) (8 pts); Primera propuesta correcta (4 pts). Un ranking con repetidos vale 0. Desempate: mayor filtro y menor tiempo de proceso.</td><td>Modo lote operativo; el resultado depende de la calidad de la extracción (mejor con visión por API) y de las reglas de 3.B.</td></tr>
+<tr><td colspan="4" class="small">Puntaje final = Plataforma (0–75) + 1,25 × Evaluación automática (0–20). Si algo de las secciones anteriores difiere de la sección 3, manda la sección 3.</td></tr>
+</table></div>
+
+<h2>Brechas y seguimiento</h2>
+<ul>
+  <li><b>Integración de contratos REST/SSE</b> (prefijo, rutas, campos, login, eventos SSE, exportación): issues #3 y #4.</li>
+  <li><b>Visión por API, búsqueda web real y migraciones</b>: issue #5. <b>TLS de extremo a extremo y claves</b>: issue #6. <b>Lote oficial y validador</b>: issue #7. <b>E2E y cierre</b>: issue #8.</li>
+  <li><b>Entrega, documentación y autoría en GitLab</b>: issues <code>R3-E</code> creados con esta matriz.</li>
+</ul>
+
+</body>
+</html>
