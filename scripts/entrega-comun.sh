@@ -80,6 +80,10 @@ entrega_preparar_salida() {
 # 0 si "$1 $2" (nombre y correo) parece una persona del equipo, no una cuenta automática o una herramienta.
 entrega_identidad_valida() {
   [ -n "$1" ] && [ -n "$2" ] || return 1
+  # Correo noreply personal del GitLab del evento: es de una persona (solo se revisa el nombre).
+  if printf '%s\n' "$2" | grep -Eiq '^[0-9]+-[a-z0-9._-]+@users\.noreply\.gitlab\.nube\.gob\.ve$'; then
+    ! printf '%s\n' "$1" | grep -Eiq "$LIMITE_PALABRAS"; return
+  fi
   printf '%s\n' "$2" | grep -Eiq "$CORREOS_FALSOS" && return 1
   ! printf '%s %s\n' "$1" "$2" | grep -Eiq "$LIMITE_PALABRAS"
 }

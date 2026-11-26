@@ -149,7 +149,7 @@ exec 3<&0
 while IFS="$TAB" read -r N ID RAMA NOMBRE CORREO N_ARCH MENSAJE; do
   printf '\n  -- Etapa %s/%s: %s (%s, rama %s, %s archivos)\n' "$N" "$N_ETAPAS" "$ID" "$NOMBRE" "$RAMA" "$N_ARCH"
   node "$HERRAMIENTAS" copiar "$LIMPIA" "$PLAN/etapa-$N.lista" "$SALIDA" || falla "no se pudieron copiar los archivos de la etapa $ID"
-  # El README de 6 apartados entra en una etapa concreta; antes de ella no se exige.
+  # El README con los apartados de la plantilla del evento entra en una etapa concreta; antes de ella no se exige.
   OPCION_README=--sin-readme
   [ -f "$SALIDA/README.md" ] && OPCION_README=
   entrega_verificar "$SALIDA" "$OPCION_README" > "$TMP/verificacion.log" \

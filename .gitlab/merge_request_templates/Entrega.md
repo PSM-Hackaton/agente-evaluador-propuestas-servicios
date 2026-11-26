@@ -2,7 +2,7 @@
 
 <!-- Una o dos frases: qué cambia y por qué. -->
 
-- **Rama de origen → destino:** `javier` / `enggel` / `diego` → `avance` (cierre del día) · `avance` → `terminado` (entrega final)
+- **Rama de origen → destino:** `javier` / `enggel` → `desarrollo` (registro del commit ya validado en `pruebas` y subido sin forzar)
 - **Issue relacionado:** Closes #
 - **Aprobación previa:** Pull Request de GitHub hacia `staging` aprobado por Diego Landaeta o Juan Laya: #
 - **Parte del enunciado que cubre:** <!-- p. ej. 2.D.3 trazabilidad, 2.E.4 normalización BCV, 3.C salida.json -->
@@ -12,7 +12,7 @@
 Quien abre el Merge Request marca cada punto; quien lo aprueba (Diego Landaeta o Juan Laya) lo comprueba.
 
 ### Documentación
-- [ ] `README.md` en la raíz con los 6 apartados en orden: 1 Nombre del proyecto · 2 Participantes (nombre completo y rol) · 3 Descripción del proyecto · 4 Alcance · 5 Requerimientos del sistema · 6 Instalación y despliegue.
+- [ ] `README.md` en la raíz con la plantilla del evento, en orden: `# <título>` · `## Participantes` (nombre completo y rol) · `## Descripción del proyecto` · `## Alcance` · `## Requerimientos del sistema` · `## Paso a paso de instalación / despliegue`.
 - [ ] Si cambia la instalación, las variables de entorno o los comandos, el README y el `.env.example` correspondiente están actualizados.
 
 ### Pruebas en verde
@@ -28,6 +28,7 @@ Quien abre el Merge Request marca cada punto; quien lo aprueba (Diego Landaeta o
 ### Autoría y requisitos de la competencia
 - [ ] Todo lo que sube este Merge Request fue **aprobado antes** por Diego Landaeta o Juan Laya (Pull Request de GitHub enlazado arriba).
 - [ ] Todos los commits son de la persona que hizo el trabajo, con su nombre completo y su correo de GitLab (nada de correos `@*.local`, cuentas automáticas ni identidades de otra persona).
+- [ ] Cada commit lleva título `tipo(ámbito): descripción concreta (#issue)` y cuerpo con qué se cambió, por qué, cómo se verificó y riesgos.
 - [ ] Sin rastros de herramientas de autoría ni líneas de coautoría en commits, código o documentos.
 - [ ] Los ganchos del proyecto están activos en mi clon (`sh scripts/instalar-hooks.sh`) y no usé `--no-verify` (si lo usé, explico aquí por qué).
 - [ ] Commits pequeños, con mensajes en castellano que dicen qué cambia.
