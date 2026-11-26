@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.crypto import blind_index
 from app.db.models import (
     AgentTraceStep,
     DiscardReasonCode,
@@ -34,6 +35,7 @@ from app.services.agent.tools import (
 )
 from app.services.ingestion.pipeline import IngestedDocument, ingest_document
 from app.services.llm.client import UnifiedLLMClient
+from app.services.market.search import extract_market_searchable_items
 from app.services.reports.salida_json import build_salida_json
 from app.services.storage.encrypted_storage import EncryptedFileStorage
 
@@ -220,10 +222,30 @@ Devuelve exclusivamente un objeto JSON válido con estas claves:
   ],
   "fine_print_notes": ["lista de notas marginales o condiciones comerciales"],
   "llm_detected_issues": [
-    {"code": "alcance_incompleto|incompatibilidad_tecnica|capacidad_insuficiente|equipos_obsoletos_reciclados|costos_condiciones_abusivas|error_aritmetico|inyeccion_prompt", "detail": "string"}
+    {
+      "code": "alcance_incompleto|incompatibilidad_tecnica|capacidad_insuficiente|equipos_obsoletos_reciclados|costos_condiciones_abusivas|error_aritmetico|inyeccion_prompt",
+      "detail": "string",
+      "evidence_quote": "fragmento literal exacto del documento que sustenta la causal"
+    }
   ],
   "technical_summary": "resumen breve objetivo de hardware, periféricos, protección eléctrica y garantía"
 }"""
+
+
+def _verify_llm_issue_evidence(issue: dict[str, Any], sanitized_text: str) -> bool:
+    """Require a verifiable literal quote from the document before accepting an LLM discard issue."""
+    quote = str(issue.get("evidence_quote") or "").strip()
+    if len(quote) < 6 or not sanitized_text:
+        return False
+    norm_doc = re.sub(r"\s+", " ", sanitized_text.lower())
+    norm_q = re.sub(r"\s+", " ", quote.lower())
+    if norm_q in norm_doc:
+        return True
+    tokens = [tok for tok in re.findall(r"[a-z0-9áéíóúñ]+", norm_q) if len(tok) >= 4]
+    if len(tokens) < 2:
+        return False
+    hits = sum(1 for tok in tokens if tok in norm_doc)
+    return hits / len(tokens) >= 0.75
 
 
 @dataclass
@@ -390,22 +412,96 @@ async def evaluate_proposals_core(
                 metadata={"evidence_count": len(doc.injection_scan.evidence)},
             )
 
-        # Step 3: Structured extraction (LLM + deterministic heuristic fusion)
+        # Step 3: Agentic Tool-Calling Loop + Structured Extraction (LLM + deterministic heuristic fusion)
         heuristic = extract_proposal_structured_heuristic(doc.identifier, doc.sanitized_text)
         structured = dict(heuristic)
+        llm_tool_market_results: list[dict[str, Any]] = []
+
         if llm.is_available and doc.sanitized_text:
             user_prompt = (
                 f"Proyecto: {project_name} (Ubicación: {project_location})\n"
+                f"Tasa oficial BCV vigente: {bcv_rate:.4f} Bs/USD\n"
                 f"Requisitos clave del proyecto:\n{project_requirements_text[:2500]}\n\n"
+                "Usa tus herramientas disponibles (verify_arithmetic, compute_tco, check_hardware_compatibility, "
+                "web_search_market_prices) para auditar la propuesta y luego devuelve el JSON estructurado final.\n\n"
                 f"{wrap_untrusted_document(doc.identifier, doc.sanitized_text[:7000])}"
             )
-            llm_data = await llm.generate_json(
-                LLM_EXTRACTION_SYSTEM_PROMPT,
-                user_prompt,
-                images_b64=doc.images_b64[:2] if not doc.used_vision_llm and doc.images_b64 else None,
-            )
+
+            async def _dispatch_llm_tool(
+                tool_name: str,
+                args: dict[str, Any],
+                _doc: IngestedDocument = doc,
+                _heur: dict[str, Any] = heuristic,
+                _mkt: list[dict[str, Any]] = llm_tool_market_results,
+            ) -> dict[str, Any]:
+                if tool_name == "verify_arithmetic":
+                    res_t = toolbox.tool_verify_arithmetic(
+                        line_items=list(args.get("line_items") or []),
+                        declared_total=_to_float(args.get("declared_total")),
+                    )
+                elif tool_name == "compute_tco":
+                    res_t = toolbox.tool_compute_tco(
+                        declared_total=_to_float(args.get("declared_total")),
+                        currency=str(args.get("currency") or "USD"),
+                        bcv_rate=_to_float(args.get("bcv_rate"), bcv_rate),
+                        shipping_included_in_total=bool(args.get("shipping_included_in_total", True)),
+                        shipping_cost=_to_float(args.get("shipping_cost")),
+                        installation_included_in_total=bool(args.get("installation_included_in_total", True)),
+                        installation_cost=_to_float(args.get("installation_cost")),
+                        hidden_surcharge_flat=_to_float(args.get("hidden_surcharge_flat")),
+                        hidden_surcharge_pct=_to_float(args.get("hidden_surcharge_pct")),
+                        iva_applies=bool(args.get("iva_applies", False)),
+                        iva_included=bool(args.get("iva_included", True)),
+                        iva_rate=_to_float(args.get("iva_rate"), iva_rate),
+                        payment_surcharge_pct=_to_float(args.get("payment_surcharge_pct")),
+                    )
+                elif tool_name == "check_hardware_compatibility":
+                    res_t = toolbox.tool_check_hardware_compatibility(
+                        raw_text=_doc.sanitized_text,
+                        structured={**_heur, **args},
+                        project_requirements_text=project_requirements_text,
+                    )
+                elif tool_name == "web_search_market_prices":
+                    res_t = await toolbox.tool_web_search_market_prices(
+                        item_description=str(args.get("item_description") or ""),
+                        proposed_unit_price_usd=_to_float(args.get("proposed_unit_price_usd")),
+                        enable_web=enable_web_search,
+                    )
+                    _mkt.append(res_t)
+                elif tool_name == "check_supplier_history":
+                    res_t = await toolbox.tool_check_supplier_history(
+                        args.get("supplier_name"), args.get("supplier_rif")
+                    )
+                elif tool_name == "get_bcv_exchange_rate":
+                    res_t = {"usd_to_ves": bcv_rate, "source": bcv_source}
+                else:
+                    res_t = {"error": f"Herramienta desconocida: {tool_name}"}
+
+                await emit(
+                    "llm_tool_call",
+                    f"Agente IA invocó '{tool_name}' -> {str(res_t)[:180]}",
+                    proposal_identifier=_doc.identifier,
+                    tool_name=tool_name,
+                    metadata={"requested_by": "llm", "arguments": args, "result": res_t},
+                )
+                return res_t
+
+            llm_data = None
+            if hasattr(llm, "run_agent_tool_loop"):
+                loop_res = await llm.run_agent_tool_loop(
+                    LLM_EXTRACTION_SYSTEM_PROMPT,
+                    user_prompt,
+                    tool_executor=_dispatch_llm_tool,
+                    images_b64=doc.images_b64[:2] if not doc.used_vision_llm and doc.images_b64 else None,
+                )
+                llm_data = loop_res.structured_json
+            if not llm_data:
+                llm_data = await llm.generate_json(
+                    LLM_EXTRACTION_SYSTEM_PROMPT,
+                    user_prompt,
+                    images_b64=doc.images_b64[:2] if not doc.used_vision_llm and doc.images_b64 else None,
+                )
             if llm_data:
-                # Merge LLM structured fields while preserving reliable heuristic defaults if null
                 for k, v in llm_data.items():
                     if v is not None and v != "" and v != []:
                         structured[k] = v
@@ -487,12 +583,12 @@ async def evaluate_proposals_core(
             if not any(existing["code"] == dr["code"] and existing["detail"] == dr["detail"] for existing in discard_reasons):
                 discard_reasons.append(dr)
 
-        # Merge any additional LLM-detected valid discard issues
+        # Merge only LLM-detected issues backed by a verifiable quote from the document
         valid_codes = {c.value for c in DiscardReasonCode}
         for issue in structured.get("llm_detected_issues") or []:
             code = str(issue.get("code") or "")
             detail = str(issue.get("detail") or "").strip()
-            if code in valid_codes and detail:
+            if code in valid_codes and detail and _verify_llm_issue_evidence(issue, doc.sanitized_text):
                 if not any(existing["code"] == code for existing in discard_reasons):
                     discard_reasons.append({"code": code, "detail": detail})
 
@@ -508,34 +604,28 @@ async def evaluate_proposals_core(
             metadata={"technical_score": tech["technical_score"], "issues": len(tech["discard_reasons"])},
         )
 
-        # Step 8: Autonomous Market Price Web Search Tool (on primary workstation items)
-        market_comparisons: list[dict[str, Any]] = []
-        primary_items = [
-            it
-            for it in line_items
-            if it.get("category") in ("estaciones_estudiantes", "estacion_docente")
-            and _to_float(it.get("unit_price")) > 0
-        ]
-        if not primary_items and line_items:
-            primary_items = [
-                it
-                for it in line_items
-                if it.get("category") not in ("envio", "instalacion", "opcional", "software")
-                and _to_float(it.get("unit_price")) > 100
-            ][:1]
+        # Step 8: Autonomous Market Price Web Search Tool (multi-component + cited sources)
+        market_comparisons: list[dict[str, Any]] = list(llm_tool_market_results)
+        already_checked = {mc.get("item", "").lower() for mc in market_comparisons}
+        search_targets = extract_market_searchable_items(
+            doc.sanitized_text,
+            line_items,
+            spec_context_fn=_spec_context_for_price,
+            max_items=4,
+        )
 
-        for item in primary_items[:2]:
-            # Enrich search query with the technical specs written next to the item's price
-            desc_for_search = str(item.get("description") or "")
-            if len(desc_for_search) < 35:
-                context = _spec_context_for_price(doc.sanitized_text, _to_float(item.get("unit_price")))
-                desc_for_search = f"{desc_for_search} {context}".strip()
+        for target in search_targets:
+            desc_for_search = str(target["description"])
+            if desc_for_search[:140].lower() in already_checked:
+                continue
             m_res = await toolbox.tool_web_search_market_prices(
                 item_description=desc_for_search,
-                proposed_unit_price_usd=_to_float(item.get("unit_price")),
+                proposed_unit_price_usd=_to_float(target["unit_price"]),
                 enable_web=enable_web_search,
             )
             market_comparisons.append(m_res)
+
+        for m_res in market_comparisons:
             if m_res.get("is_abusive_overprice"):
                 discard_reasons.append(
                     {
@@ -740,10 +830,8 @@ async def run_project_evaluation_in_db(
     await db.commit()
 
     # Load project proposals
-    props_res = await db.execute(
-        select(Proposal).where(Proposal.project_id == project_id).order_by(Proposal.original_filename)
-    )
-    proposals = list(props_res.scalars().all())
+    props_res = await db.execute(select(Proposal).where(Proposal.project_id == project_id))
+    proposals = sorted(props_res.scalars().all(), key=lambda p: p.original_filename)
     if not proposals:
         run.status = EvaluationStatus.FAILED.value
         run.error_message = "El proyecto no tiene propuestas cargadas para evaluar."
@@ -818,18 +906,22 @@ async def run_project_evaluation_in_db(
                 prop_orm.hidden_text_findings = res.ingested_doc.hidden_findings
                 prop_orm.extracted_structured_data = res.structured_data
 
-            # Upsert Supplier in Directory (Section 2.E.3)
+            # Upsert Supplier in Directory (Section 2.E.3) using encrypted blind indexes
             supplier = None
-            if res.supplier_rif:
-                s_res = await db.execute(select(Supplier).where(Supplier.rif == res.supplier_rif))
+            rif_h = blind_index(res.supplier_rif)
+            name_h = blind_index(res.supplier_name)
+            if rif_h:
+                s_res = await db.execute(select(Supplier).where(Supplier.rif_hash == rif_h))
                 supplier = s_res.scalar_one_or_none()
-            if supplier is None:
-                s_res = await db.execute(select(Supplier).where(Supplier.name == res.supplier_name))
+            if supplier is None and name_h:
+                s_res = await db.execute(select(Supplier).where(Supplier.name_hash == name_h))
                 supplier = s_res.scalar_one_or_none()
             if supplier is None:
                 supplier = Supplier(
                     name=res.supplier_name,
+                    name_hash=name_h or "",
                     rif=res.supplier_rif,
+                    rif_hash=rif_h,
                     location=res.supplier_location,
                     representative=res.supplier_representative,
                     phone=res.supplier_phone,
@@ -840,6 +932,7 @@ async def run_project_evaluation_in_db(
             else:
                 if res.supplier_rif and not supplier.rif:
                     supplier.rif = res.supplier_rif
+                    supplier.rif_hash = rif_h
                 if res.supplier_representative and not supplier.representative:
                     supplier.representative = res.supplier_representative
                 if res.supplier_phone and not supplier.phone:

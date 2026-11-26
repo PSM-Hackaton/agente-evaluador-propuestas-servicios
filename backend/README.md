@@ -108,3 +108,10 @@ python -m app.cli.batch --lote ../docs/reto --output ../salida.json --verbose
 source .venv/bin/activate
 pytest -v
 ```
+
+## Seguridad en Reposo, Rotación de Claves y Criterio TCO
+
+- **Separación de subclaves (HKDF-SHA256):** A partir de `MASTER_ENCRYPTION_KEY`, el sistema deriva subclaves criptográficas independientes para almacenamiento en disco (`storage`), columnas de base de datos (`db_fields`) e índices ciegos HMAC-SHA256 (`blind_index`).
+- **Base de datos cifrada:** Todas las columnas sensibles (proveedores, RIF, ubicaciones, correos, nombres de archivo, montos declarados/TCO, puntajes, dictámenes y auditoría) se almacenan cifradas con **AES-256-GCM** (`enc:v1:...`), manteniendo únicamente hashes HMAC para búsquedas exactas. Para PostgreSQL remoto en producción, configurar `DATABASE_URL` con `?sslmode=verify-full` y disco cifrado.
+- **Rotación de claves:** Configurar `PREVIOUS_ENCRYPTION_KEY` temporalmente con la clave anterior al rotar `MASTER_ENCRYPTION_KEY` para descifrar registros previos sin interrupción.
+- **Criterio de recargos de envío (`ABUSIVE_SURCHARGE_PCT_THRESHOLD=50.0`):** Recargos ocultos `< 50 %` (como el ejemplo `+45 %` de la Sección 2.D) se consolidan en el Costo Total Real (TCO) desplazando la propuesta en el ranking; recargos `>= 50 %` (Sección 2.B) causan descarte por `costos_condiciones_abusivas`.

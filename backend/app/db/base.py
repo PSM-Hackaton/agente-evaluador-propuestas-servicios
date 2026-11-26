@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
-from app.core.crypto import ENVELOPE_PREFIX, get_cipher
+from app.core.crypto import ENVELOPE_PREFIX, get_db_cipher
 
 
 class Base(DeclarativeBase):
@@ -30,14 +30,35 @@ class EncryptedText(TypeDecorator):
             return None
         if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
             return value
-        return get_cipher().encrypt_text(str(value))
+        return get_db_cipher().encrypt_text(str(value))
 
     def process_result_value(self, value: str | None, dialect: Any) -> str | None:
         if value is None:
             return None
         if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
-            return get_cipher().decrypt_text(value)
+            return get_db_cipher().decrypt_text(value)
         return value
+
+
+class EncryptedFloat(TypeDecorator):
+    """SQLAlchemy numeric float column stored encrypted at rest as AES-256-GCM text."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value: float | int | None, dialect: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
+            return value
+        return get_db_cipher().encrypt_text(repr(float(value)))
+
+    def process_result_value(self, value: str | None, dialect: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
+            return float(get_db_cipher().decrypt_text(value))
+        return float(value)
 
 
 class EncryptedJSON(TypeDecorator):
@@ -49,13 +70,13 @@ class EncryptedJSON(TypeDecorator):
     def process_bind_param(self, value: Any, dialect: Any) -> str | None:
         if value is None:
             return None
-        return get_cipher().encrypt_json(value)
+        return get_db_cipher().encrypt_json(value)
 
     def process_result_value(self, value: str | None, dialect: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
-            return get_cipher().decrypt_json(value)
+            return get_db_cipher().decrypt_json(value)
         return json.loads(value)
 
 

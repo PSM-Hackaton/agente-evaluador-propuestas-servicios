@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.crypto import blind_index
 from app.db.models import AuditLog, User
 
 
@@ -26,6 +27,7 @@ async def record_audit(
         actor_email=user.email if user else actor_email,
         actor_role=user.role if user else actor_role,
         action=action,
+        action_hash=blind_index(action) or "",
         resource_type=resource_type,
         resource_id=resource_id,
         ip_address=ip_address,

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, get_current_user, require_roles
+from app.core.crypto import blind_index
 from app.core.security import (
     ROLES_ADMIN,
     create_access_token,
@@ -33,7 +34,8 @@ router = APIRouter(prefix="/auth", tags=["Autenticación y Roles"])
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)) -> TokenResponse:
-    res = await db.execute(select(User).where(User.email == payload.email.lower()))
+    email_h = blind_index(payload.email.lower())
+    res = await db.execute(select(User).where(User.email_hash == email_h))
     user = res.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas.")
@@ -68,12 +70,14 @@ async def register_user(
     admin_user: User = Depends(require_roles(ROLES_ADMIN)),
 ) -> User:
     email = payload.email.lower()
-    existing = await db.execute(select(User).where(User.email == email))
+    email_h = blind_index(email) or ""
+    existing = await db.execute(select(User).where(User.email_hash == email_h))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El correo ya está registrado.")
 
     new_user = User(
         email=email,
+        email_hash=email_h,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         role=payload.role.value,

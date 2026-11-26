@@ -42,6 +42,10 @@ class Settings(BaseSettings):
         default="dev-insecure-default-key-replace-in-production-32b",
         description="Base64 32-byte key or passphrase derived via SHA-256 to 256-bit AES key.",
     )
+    previous_encryption_key: str = Field(
+        default="",
+        description="Optional previous master key for zero-downtime key rotation during decryption.",
+    )
     jwt_secret_key: str = Field(
         default="dev-insecure-jwt-secret-replace-in-production",
         description="Secret key for signing JWT access/refresh tokens.",
@@ -70,6 +74,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     bcv_fallback_rate: float = 52.50
     default_iva_rate: float = 0.16
+    abusive_surcharge_pct_threshold: float = 50.0
 
     # Hackathon / Batch metadata
     hackathon_repo_path: str = ""
@@ -86,17 +91,26 @@ class Settings(BaseSettings):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    @property
-    def aes_key_bytes(self) -> bytes:
-        """Return a deterministic 32-byte (256-bit) key for AES-256-GCM."""
-        raw = self.master_encryption_key.strip()
+    @staticmethod
+    def _decode_raw_key(raw: str) -> bytes:
+        cleaned = raw.strip()
         try:
-            decoded = base64.urlsafe_b64decode(raw.encode("ascii"))
+            decoded = base64.urlsafe_b64decode(cleaned.encode("ascii"))
             if len(decoded) == 32:
                 return decoded
         except Exception:
             pass
-        return hashlib.sha256(raw.encode("utf-8")).digest()
+        return hashlib.sha256(cleaned.encode("utf-8")).digest()
+
+    @property
+    def aes_key_bytes(self) -> bytes:
+        """Return a deterministic 32-byte (256-bit) master key."""
+        return self._decode_raw_key(self.master_encryption_key)
+
+    @property
+    def previous_aes_key_bytes(self) -> bytes | None:
+        raw = self.previous_encryption_key.strip()
+        return self._decode_raw_key(raw) if raw else None
 
     def insecure_secret_settings(self) -> list[str]:
         """Names of secrets still using development defaults or `.env.example` placeholders."""

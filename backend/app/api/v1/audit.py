@@ -24,12 +24,15 @@ async def list_audit_logs(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(ROLES_READ)),
 ) -> list[AuditLog]:
-    stmt = select(AuditLog).order_by(desc(AuditLog.created_at)).limit(min(limit, 500))
+    fetch_limit = min(limit, 500) if not action else 1000
+    stmt = select(AuditLog).order_by(desc(AuditLog.created_at)).limit(fetch_limit)
     if resource_type:
         stmt = stmt.where(AuditLog.resource_type == resource_type)
     if resource_id:
         stmt = stmt.where(AuditLog.resource_id == resource_id)
-    if action:
-        stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    logs = list(res.scalars().all())
+    if action:
+        q = action.strip().lower()
+        logs = [entry for entry in logs if q in entry.action.lower()][: min(limit, 500)]
+    return logs

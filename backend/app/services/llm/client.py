@@ -1,19 +1,129 @@
-"""Unified multimodal LLM client (Google Gemini & OpenAI-compatible) with Vision & Tool Calling."""
+"""Unified multimodal LLM client (Gemini & OpenAI) with Vision, JSON Mode, and Real Tool Calling."""
 
 from __future__ import annotations
 
 import base64
 import json
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Tool declarations exposed directly to Gemini & OpenAI during the autonomous evaluation loop (Issue #9 R3-B1)
+AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "verify_arithmetic",
+        "description": "Verifica con aritmética exacta Decimal que cantidad x precio unitario = subtotal y suma(subtotales) = total declarado.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "declared_total": {"type": "number", "description": "Total general declarado en la propuesta."},
+                "line_items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit_price": {"type": "number"},
+                            "declared_subtotal": {"type": "number"},
+                            "category": {"type": "string"},
+                        },
+                        "required": ["description", "quantity", "unit_price"],
+                    },
+                },
+            },
+            "required": ["line_items", "declared_total"],
+        },
+    },
+    {
+        "name": "compute_tco",
+        "description": "Calcula el Costo Total de Propiedad (TCO) normalizado a USD y Bolívares a tasa BCV incluyendo fletes, instalación, recargos ocultos e IVA.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "declared_total": {"type": "number"},
+                "currency": {"type": "string", "enum": ["USD", "VES"]},
+                "bcv_rate": {"type": "number"},
+                "shipping_included_in_total": {"type": "boolean"},
+                "shipping_cost": {"type": "number"},
+                "installation_included_in_total": {"type": "boolean"},
+                "installation_cost": {"type": "number"},
+                "hidden_surcharge_flat": {"type": "number"},
+                "hidden_surcharge_pct": {"type": "number"},
+                "iva_applies": {"type": "boolean"},
+                "iva_included": {"type": "boolean"},
+                "iva_rate": {"type": "number"},
+                "payment_surcharge_pct": {"type": "number"},
+            },
+            "required": ["declared_total", "currency", "bcv_rate"],
+        },
+    },
+    {
+        "name": "web_search_market_prices",
+        "description": "Busca precios reales de mercado en internet para un equipo, componente o servicio y detecta sobrecostos frente al mercado.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "item_description": {"type": "string", "description": "Descripción técnica sin datos personales/RIF del proveedor."},
+                "proposed_unit_price_usd": {"type": "number"},
+            },
+            "required": ["item_description", "proposed_unit_price_usd"],
+        },
+    },
+    {
+        "name": "check_hardware_compatibility",
+        "description": "Audita compatibilidad física/eléctrica (socket, DDR4/DDR5, ranuras DIMM, PSU/UPS), equipos obsoletos y cumplimiento de alcance.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "student_pc_count": {"type": "integer"},
+                "teacher_pc_count": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "name": "check_supplier_history",
+        "description": "Consulta antecedentes y alertas previas del proveedor en el directorio.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "supplier_name": {"type": "string"},
+                "supplier_rif": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "get_bcv_exchange_rate",
+        "description": "Obtiene la tasa oficial vigente del Banco Central de Venezuela (BCV) Bs/USD.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+]
+
+
+@dataclass
+class AgentToolCallRecord:
+    tool_name: str
+    arguments: dict[str, Any]
+    result: dict[str, Any]
+
+
+@dataclass
+class AgentLoopResult:
+    structured_json: dict[str, Any] | None = None
+    tool_calls: list[AgentToolCallRecord] = field(default_factory=list)
+    turns_executed: int = 0
+
+
+ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+
 
 class UnifiedLLMClient:
-    """Provider-agnostic multimodal & structured-output LLM client."""
+    """Provider-agnostic multimodal, structured-output, and real tool-calling LLM client."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -79,6 +189,178 @@ class UnifiedLLMClient:
         except Exception as exc:
             logger.warning("LLM generate_text failed (%s): %s", self.provider, exc)
         return None
+
+    async def run_agent_tool_loop(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tool_executor: ToolExecutor,
+        images_b64: list[tuple[str, str]] | None = None,
+        max_steps: int = 6,
+    ) -> AgentLoopResult:
+        """Execute a bounded multi-turn tool-calling loop where the LLM decides which tools to invoke."""
+        result = AgentLoopResult()
+        if not self.is_available:
+            return result
+
+        try:
+            if self.provider == "gemini":
+                return await self._gemini_tool_loop(system_prompt, user_prompt, tool_executor, images_b64, max_steps)
+            if self.provider == "openai":
+                return await self._openai_tool_loop(system_prompt, user_prompt, tool_executor, images_b64, max_steps)
+        except Exception as exc:
+            logger.warning("LLM tool loop fallback (%s): %s", self.provider, exc)
+        return result
+
+    async def _gemini_tool_loop(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tool_executor: ToolExecutor,
+        images_b64: list[tuple[str, str]] | None,
+        max_steps: int,
+    ) -> AgentLoopResult:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.settings.gemini_api_key)
+        declarations = [
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters_json_schema=t["parameters"],
+            )
+            for t in AGENT_TOOL_SCHEMAS
+        ]
+        tool_cfg = types.Tool(function_declarations=declarations)
+
+        parts: list[Any] = [types.Part.from_text(text=user_prompt)]
+        for b64, mime in images_b64 or []:
+            parts.append(types.Part.from_bytes(data=base64.b64decode(b64), mime_type=mime))
+
+        contents: list[Any] = [types.Content(role="user", parts=parts)]
+        model_name = self.settings.gemini_vision_model if images_b64 else self.settings.gemini_model
+        out = AgentLoopResult()
+
+        for _ in range(max_steps):
+            out.turns_executed += 1
+            resp = await client.aio.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.1,
+                    tools=[tool_cfg],
+                ),
+            )
+            fn_calls = getattr(resp, "function_calls", None) or []
+            if resp.candidates and resp.candidates[0].content:
+                contents.append(resp.candidates[0].content)
+
+            if not fn_calls:
+                if getattr(resp, "text", None):
+                    out.structured_json = _parse_json_safely(resp.text)
+                break
+
+            response_parts: list[Any] = []
+            for call in fn_calls:
+                args = dict(call.args or {})
+                tool_res = await tool_executor(call.name, args)
+                out.tool_calls.append(
+                    AgentToolCallRecord(tool_name=call.name, arguments=args, result=tool_res)
+                )
+                response_parts.append(
+                    types.Part.from_function_response(name=call.name, response=tool_res)
+                )
+            contents.append(types.Content(role="user", parts=response_parts))
+
+        return out
+
+    async def _openai_tool_loop(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tool_executor: ToolExecutor,
+        images_b64: list[tuple[str, str]] | None,
+        max_steps: int,
+    ) -> AgentLoopResult:
+        from openai import AsyncOpenAI
+
+        client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
+        if self.settings.openai_base_url:
+            client_kwargs["base_url"] = self.settings.openai_base_url
+        client = AsyncOpenAI(**client_kwargs)
+
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["parameters"],
+                },
+            }
+            for t in AGENT_TOOL_SCHEMAS
+        ]
+
+        user_content: Any
+        if images_b64:
+            user_content = [{"type": "text", "text": user_prompt}]
+            for b64, mime in images_b64:
+                user_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        else:
+            user_content = user_prompt
+
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        model_name = self.settings.openai_vision_model if images_b64 else self.settings.openai_model
+        out = AgentLoopResult()
+
+        for _ in range(max_steps):
+            out.turns_executed += 1
+            resp = await client.chat.completions.create(
+                model=model_name,
+                temperature=0.1,
+                messages=messages,
+                tools=tools,
+            )
+            msg = resp.choices[0].message
+            tool_calls = msg.tool_calls or []
+
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_msg)
+
+            if not tool_calls:
+                if msg.content:
+                    out.structured_json = _parse_json_safely(msg.content)
+                break
+
+            for tc in tool_calls:
+                args = _parse_json_safely(tc.function.arguments or "{}") or {}
+                tool_res = await tool_executor(tc.function.name, args)
+                out.tool_calls.append(
+                    AgentToolCallRecord(tool_name=tc.function.name, arguments=args, result=tool_res)
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(tool_res, ensure_ascii=False),
+                    }
+                )
+
+        return out
 
     async def _gemini_vision(self, image_b64: str, mime_type: str, prompt: str) -> str | None:
         return await self._gemini_generate(

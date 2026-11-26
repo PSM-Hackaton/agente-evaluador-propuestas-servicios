@@ -1,4 +1,4 @@
-"""Agentic Tool Registry and deterministic proposal parser fallback."""
+"""Agentic Tool Registry and generalized deterministic proposal parser fallback."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.crypto import blind_index
 from app.db.models import Supplier, SupplierAlert
 from app.services.agent.technical_audit import audit_proposal_technically
 from app.services.finance.bcv import get_active_bcv_rate
@@ -16,7 +17,16 @@ from app.services.market.search import search_market_price
 
 
 def _parse_money(raw: str) -> float:
-    cleaned = raw.replace("$", "").replace(",", "").replace(" ", "").strip()
+    cleaned = re.sub(r"[^0-9.,-]", "", str(raw or ""))
+    if cleaned.count(",") and cleaned.count("."):
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif cleaned.count(",") == 1 and len(cleaned.split(",")[1]) in (1, 2):
+        cleaned = cleaned.replace(",", ".")
+    else:
+        cleaned = cleaned.replace(",", "")
     try:
         return float(cleaned)
     except ValueError:
@@ -30,15 +40,12 @@ _CHAT_APP_PREFIX_RE = re.compile(
 )
 _RIF_SUFFIX_RE = re.compile(r"\s*[+•·|,]?\s*\bRIF\b.*$", re.I)
 _COMPANY_SUFFIX_RE = re.compile(r"\b(?:C\.\s?A\.?|S\.\s?A\.?|S\.R\.L\.?)\s*$", re.I)
+_XLSX_COORD_RE = re.compile(r"^[A-Z]{1,3}\d+:\s*")
+_XLSX_FORMULA_RE = re.compile(r"\s*\[f[oó]rmula:[^\]]+\]", re.I)
 
 
 def clean_supplier_name(raw: str | None) -> str | None:
-    """Normalize supplier names extracted from headers of chats, scans or spreadsheets.
-
-    Removes chat application banners ("Microsoft Teams #canal", "Rocket.Chat #canal"),
-    trailing RIF fragments ("+ RIF J-..."), and the contact person when the header
-    follows the "Persona — Empresa C.A." pattern. All-caps names are title-cased.
-    """
+    """Normalize supplier names extracted from headers of chats, scans or spreadsheets."""
     if not raw:
         return raw
     name = re.sub(r"\s+", " ", str(raw)).strip()
@@ -55,23 +62,160 @@ def clean_supplier_name(raw: str | None) -> str | None:
     return name or raw
 
 
+def _extract_single_charge(pattern: str, text: str) -> float:
+    """Match a shipping/installation/optional fee without crossing into a TOTAL line."""
+    for m in re.finditer(pattern, text, re.I | re.S):
+        between = m.group(0)[: -len(m.group(1)) - 1]
+        if re.search(r"\btotal\b", between, re.I):
+            continue
+        val = _parse_money(m.group(1))
+        if val > 0:
+            return val
+    return 0.0
+
+
+def _categorize_item(description: str) -> str:
+    low = description.lower()
+    if any(k in low for k in ("estudiante", "alumno", "laboratorio", "station", "estación")):
+        if "docente" not in low and "profesor" not in low:
+            return "estaciones_estudiantes"
+    if any(k in low for k in ("docente", "profesor", "instructor")):
+        return "estacion_docente"
+    if any(k in low for k in ("envío", "envio", "flete", "logística", "logistica", "traslado")):
+        return "envio"
+    if any(k in low for k in ("instalación", "instalacion", "puesta en marcha", "montaje")):
+        return "instalacion"
+    if any(k in low for k in ("opcional", "capacitación", "capacitacion", "manual")):
+        return "opcional"
+    if any(k in low for k in ("software", "sistema operativo", "ubuntu", "linux", "windows")):
+        return "software"
+    if any(k in low for k in ("periférico", "periferico", "monitor", "teclado", "ups", "regulador")):
+        return "perifericos"
+    return "item"
+
+
+def _extract_generic_tabular_items(text: str) -> tuple[list[dict[str, Any]], float]:
+    """Parse arbitrary pipe-delimited tables (any XLSX layout, CSV, TSV, DOCX table) into line items."""
+    items: list[dict[str, Any]] = []
+    detected_total = 0.0
+
+    for raw_line in text.splitlines():
+        if "|" not in raw_line:
+            continue
+        cells = [
+            _XLSX_FORMULA_RE.sub("", _XLSX_COORD_RE.sub("", c.strip())).strip()
+            for c in raw_line.split("|")
+        ]
+        cells = [c for c in cells if c]
+        if not cells:
+            continue
+
+        joined = " ".join(cells)
+        joined_low = joined.lower()
+
+        # Total row detection (any cell layout)
+        if re.search(r"\btotal\s*(?:general|usd|bs\.?|a\s+pagar)?\b", joined_low) and not re.search(
+            r"subtotal|precio\s+unit", joined_low
+        ):
+            nums = [_parse_money(c) for c in cells if re.fullmatch(r"[\$USD\s]*[0-9][0-9,\.]*", c, re.I)]
+            nums = [n for n in nums if n > 0]
+            if nums:
+                detected_total = max(nums)
+            continue
+
+        # Skip header/metadata rows
+        if any(h in joined_low for h in ("precio unit", "cant.", "cantidad", "subtotal", "especificación", "descripción")):
+            if sum(1 for c in cells if re.fullmatch(r"[\$\s]*[0-9][0-9,\.]*", c)) == 0:
+                continue
+
+        # Identify numeric cells and text description cells
+        text_cells: list[str] = []
+        numeric_vals: list[float] = []
+        for c in cells:
+            clean_c = c.replace("$", "").replace("USD", "").strip()
+            if re.fullmatch(r"-?[0-9][0-9,\.]*", clean_c):
+                numeric_vals.append(_parse_money(c))
+            elif len(c) > 2:
+                text_cells.append(c)
+
+        if not text_cells or len(numeric_vals) < 2:
+            continue
+
+        desc = " — ".join(text_cells)[:220]
+        cat = _categorize_item(desc)
+        # Convention: (qty, unit_price, [subtotal])
+        qty = numeric_vals[0]
+        unit_p = numeric_vals[1]
+        sub_p = numeric_vals[2] if len(numeric_vals) >= 3 else None
+
+        # Guard against metadata rows where first number is not a reasonable quantity
+        if qty <= 0 or qty > 500 or unit_p < 0:
+            continue
+        if unit_p == 0 and (sub_p is None or sub_p == 0):
+            continue
+
+        items.append(
+            {
+                "description": desc,
+                "quantity": qty,
+                "unit_price": unit_p,
+                "declared_subtotal": sub_p,
+                "category": cat,
+            }
+        )
+
+    return items, detected_total
+
+
+def _extract_generic_line_items(text: str) -> list[dict[str, Any]]:
+    """Fallback line parser for free-form PDF/TXT/chat quotes with `<qty> ... $<unit>` patterns."""
+    items: list[dict[str, Any]] = []
+    # Match lines or clauses like: "10 equipos ... $1,200 c/u" or "10 x Estación ... $1,200.00 | $12,000.00"
+    pattern = re.compile(
+        r"(?:^|\n)\s*(?:[-•*\d\)]+\s*)?(?P<label>[^\n\$]{4,140}?)\b(?P<qty>\d{1,3})\s*(?:x|pcs?|equipos?|estaciones?|unidades?)?"
+        r"[^\n\$]{0,180}?\$\s*(?P<unit>[0-9][0-9,\.]+)(?:\s*(?:c/u|cada\s+uno|unit\.?))?"
+        r"(?:\s*[|\s]+\$\s*(?P<sub>[0-9][0-9,\.]+))?",
+        re.I,
+    )
+    for m in pattern.finditer(text):
+        label = re.sub(r"\s+", " ", m.group("label")).strip(" :-—–•")
+        if re.search(r"total\s*general|rif|fecha|validez|garant[ií]a", label, re.I):
+            continue
+        qty = float(m.group("qty"))
+        unit_p = _parse_money(m.group("unit"))
+        sub_raw = m.group("sub")
+        sub_p = _parse_money(sub_raw) if sub_raw else None
+        if qty <= 0 or qty > 200 or unit_p <= 0:
+            continue
+        items.append(
+            {
+                "description": label[:180],
+                "quantity": qty,
+                "unit_price": unit_p,
+                "declared_subtotal": sub_p,
+                "category": _categorize_item(label),
+            }
+        )
+    return items
+
+
 def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[str, Any]:
-    """Deterministic fallback parser extracting supplier, items, shipping, install, and declared total."""
+    """Generalized deterministic fallback parser extracting supplier, items, shipping, install, and total."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
     # Supplier name: prefer explicit text, fallback to filename identifier
     supplier_name = identifier.replace("_", " ")
-    m_emp = re.search(r"Empresa:\s*([^\n(]+)", text, re.I)
+    m_emp = re.search(r"(?:Empresa|Proveedor|Raz[oó]n\s+Social)\s*:\s*([^\n(]+)", text, re.I)
     if m_emp:
         supplier_name = m_emp.group(1).strip()
     elif lines:
         m_xlsx = re.search(r"COTIZACI[ÓO]N\s*[—–-]\s*([^(\n|]+)", lines[0], re.I)
         if m_xlsx:
             supplier_name = m_xlsx.group(1).strip()
-        elif "C.A." in lines[0] or "S.A." in lines[0]:
+        elif any(sfx in lines[0].upper() for sfx in ("C.A.", "S.A.", "S.R.L.")):
             supplier_name = re.sub(r"COTIZACI[ÓO]N.*$", "", lines[0], flags=re.I).strip(" —–-|•")
         else:
-            m_ca = re.search(r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ0-9&×\s\.]{3,60}C\.A\.)", text)
+            m_ca = re.search(r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ0-9&×\s\.]{3,60}(?:C\.A\.|S\.A\.|S\.R\.L\.))", text)
             if m_ca:
                 supplier_name = m_ca.group(1).strip()
 
@@ -80,7 +224,7 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
     rif_match = re.search(r"\b([JVEGP]-\d{6,9}-\d)\b", text, re.I)
     supplier_rif = rif_match.group(1).upper() if rif_match else None
 
-    rep_match = re.search(r"(?:Rep\.|Representante)[:\s]*([^\n|]{3,60})", text, re.I)
+    rep_match = re.search(r"(?:Rep\.|Representante|Contacto)\s*[:\s]*([^\n|]{3,60})", text, re.I)
     representative = rep_match.group(1).strip(" |") if rep_match else None
 
     phone_match = re.search(r"(\+58\s*\d{3}[-\s]?\d{7}|\+58\d{10})", text)
@@ -94,160 +238,133 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
     if re.search(r"total\s*(?:general)?\s*\(?bs\.?|bol[ií]vares|ves\)?", text, re.I) and "USD" not in text.upper():
         currency = "VES"
 
+    # Generic tabular parser first (works for any XLSX/CSV/TSV/DOCX layout)
+    tabular_items, tabular_total = _extract_generic_tabular_items(text)
+
     # Declared Total extraction
-    declared_total = 0.0
-    total_patterns = [
-        r"TOTAL\s+GENERAL\s*(?:\(USD\))?\s*[:\|]?\s*(?:USD\s*)?\$?\s*([0-9][0-9,\.]+)",
-        r"TOTAL\s*[:\|]\s*(?:USD\s*)?\$?\s*([0-9][0-9,\.]+)",
-        r"E15:\s*([0-9]+(?:\.[0-9]+)?)",
-    ]
-    for pat in total_patterns:
-        m = re.search(pat, text, re.I)
-        if m:
-            val = _parse_money(m.group(1))
-            if val > 100:
-                declared_total = val
-                break
+    declared_total = tabular_total
+    if declared_total <= 0:
+        for pat in (
+            r"TOTAL\s+GENERAL\s*(?:\((?:USD|VES|Bs\.?)\))?\s*[:\|]?\s*(?:USD\s*|Bs\.?\s*)?\$?\s*([0-9][0-9,\.]+)",
+            r"TOTAL\s*(?:A\s+PAGAR)?\s*[:\|]\s*(?:USD\s*|Bs\.?\s*)?\$?\s*([0-9][0-9,\.]+)",
+        ):
+            m = re.search(pat, text, re.I)
+            if m:
+                val = _parse_money(m.group(1))
+                if val > 50:
+                    declared_total = val
+                    break
 
-    # Extract key line items (Students, Teacher, Shipping, Installation, Optional Services)
-    line_items: list[dict[str, Any]] = []
-
-    # 1. Student workstations (10x)
-    student_unit = 0.0
-    student_sub = None
-    student_spec = "Estación Estudiantes (10x)"
-    m_st_xlsx = re.search(r"A8:\s*(.*?)\s*\|\s*B8:\s*(.*?)\s*\|\s*C8:\s*(\d+)\s*\|\s*D8:\s*([0-9\.]+)", text)
-    if m_st_xlsx:
-        student_spec = f"{m_st_xlsx.group(1).strip()} — {m_st_xlsx.group(2).strip()}"
-        qty_s = float(m_st_xlsx.group(3))
-        student_unit = float(m_st_xlsx.group(4))
-        student_sub = qty_s * student_unit
-        line_items.append(
-            {
-                "description": student_spec[:180],
-                "quantity": qty_s,
-                "unit_price": student_unit,
-                "declared_subtotal": student_sub,
-                "category": "estaciones_estudiantes",
-            }
-        )
-    else:
+    # Extract line items: prefer tabular extraction when it captured stations; otherwise merge/parse prose & chats
+    line_items: list[dict[str, Any]] = list(tabular_items)
+    if not any(i["category"] in ("estaciones_estudiantes", "estacion_docente") for i in line_items):
+        # Structured prose / PDF / chat extraction
         m_st_pdf = re.search(
-            r"Estaci[oó]n\s+Estudiantes.*?\b10\s+\$([0-9,\.]+)\s+\$([0-9,\.]+)", text, re.I | re.S
+            r"Estaci[oó]n\s+Estudiantes.*?\b(\d{1,3})\s+\$([0-9,\.]+)\s+\$([0-9,\.]+)", text, re.I | re.S
         )
         m_st_chat = re.search(
-            r"(?:Estudiantes\s*\(10x\)|10\s*PCs?\s*Estudiantes)[^\$]{0,300}\$\s*([0-9,\.]+)", text, re.I | re.S
+            r"(?:Estudiantes\s*\((\d{1,3})x?\)|(\d{1,3})\s*(?:PCs?|equipos?|computadoras?)\s*Estudiantes?)[^\$]{0,300}\$\s*([0-9,\.]+)",
+            text,
+            re.I | re.S,
         )
         if m_st_pdf:
-            student_unit = _parse_money(m_st_pdf.group(1))
-            student_sub = _parse_money(m_st_pdf.group(2))
+            qty_s = float(m_st_pdf.group(1))
+            unit_s = _parse_money(m_st_pdf.group(2))
+            sub_s = _parse_money(m_st_pdf.group(3))
             line_items.append(
                 {
-                    "description": "Estación Estudiantes (10x)",
-                    "quantity": 10,
-                    "unit_price": student_unit,
-                    "declared_subtotal": student_sub,
+                    "description": f"Estación Estudiantes ({int(qty_s)}x)",
+                    "quantity": qty_s,
+                    "unit_price": unit_s,
+                    "declared_subtotal": sub_s,
                     "category": "estaciones_estudiantes",
                 }
             )
         elif m_st_chat:
-            student_unit = _parse_money(m_st_chat.group(1))
+            qty_s = float(m_st_chat.group(1) or m_st_chat.group(2) or 10)
+            unit_s = _parse_money(m_st_chat.group(3))
             line_items.append(
                 {
-                    "description": "Estación Estudiantes (10x)",
-                    "quantity": 10,
-                    "unit_price": student_unit,
+                    "description": f"Estación Estudiantes ({int(qty_s)}x)",
+                    "quantity": qty_s,
+                    "unit_price": unit_s,
                     "declared_subtotal": None,
                     "category": "estaciones_estudiantes",
                 }
             )
 
-    # 2. Teacher workstation (1x)
-    m_doc_xlsx = re.search(r"A9:\s*(.*?)\s*\|\s*B9:\s*(.*?)\s*\|\s*C9:\s*(\d+)\s*\|\s*D9:\s*([0-9\.]+)", text)
-    if m_doc_xlsx:
-        qty_d = float(m_doc_xlsx.group(3))
-        unit_d = float(m_doc_xlsx.group(4))
-        line_items.append(
-            {
-                "description": f"{m_doc_xlsx.group(1).strip()} — {m_doc_xlsx.group(2).strip()}"[:180],
-                "quantity": qty_d,
-                "unit_price": unit_d,
-                "declared_subtotal": qty_d * unit_d,
-                "category": "estacion_docente",
-            }
-        )
-    else:
         m_doc_pdf = re.search(
-            r"Estaci[oó]n\s+Docente.*?\b1\s+\$([0-9,\.]+)\s+\$([0-9,\.]+)", text, re.I | re.S
+            r"Estaci[oó]n\s+Docente.*?\b(\d{1,2})\s+\$([0-9,\.]+)\s+\$([0-9,\.]+)", text, re.I | re.S
         )
         m_doc_chat = re.search(
-            r"(?:Docente\s*\(1x\)|1\s*PC\s*Docente)[^\$]{0,260}\$\s*([0-9,\.]+)", text, re.I | re.S
+            r"(?:Docente\s*\((\d{1,2})x?\)|(\d{1,2})\s*(?:PC|equipo|computadora)\s*Docente)[^\$]{0,260}\$\s*([0-9,\.]+)",
+            text,
+            re.I | re.S,
         )
         if m_doc_pdf:
+            qty_d = float(m_doc_pdf.group(1))
             line_items.append(
                 {
-                    "description": "Estación Docente (1x)",
-                    "quantity": 1,
-                    "unit_price": _parse_money(m_doc_pdf.group(1)),
-                    "declared_subtotal": _parse_money(m_doc_pdf.group(2)),
+                    "description": f"Estación Docente ({int(qty_d)}x)",
+                    "quantity": qty_d,
+                    "unit_price": _parse_money(m_doc_pdf.group(2)),
+                    "declared_subtotal": _parse_money(m_doc_pdf.group(3)),
                     "category": "estacion_docente",
                 }
             )
         elif m_doc_chat:
+            qty_d = float(m_doc_chat.group(1) or m_doc_chat.group(2) or 1)
             line_items.append(
                 {
-                    "description": "Estación Docente (1x)",
-                    "quantity": 1,
-                    "unit_price": _parse_money(m_doc_chat.group(1)),
+                    "description": f"Estación Docente ({int(qty_d)}x)",
+                    "quantity": qty_d,
+                    "unit_price": _parse_money(m_doc_chat.group(3)),
                     "declared_subtotal": None,
                     "category": "estacion_docente",
                 }
             )
 
-    # 3. Shipping / Envío
-    shipping_cost = 0.0
-    m_ship_xlsx = re.search(r"Env[ií]o[^\n]*?\|\s*C\d+:\s*1\s*\|\s*D\d+:\s*([0-9\.]+)", text, re.I)
-    m_ship_gen = re.search(r"Env[ií]o(?:\s+y\s+Log[ií]stica)?[^\$]{0,90}\$\s*([0-9,\.]+)", text, re.I)
-    if m_ship_xlsx:
-        shipping_cost = float(m_ship_xlsx.group(1))
-    elif m_ship_gen:
-        shipping_cost = _parse_money(m_ship_gen.group(1))
-    if shipping_cost > 0:
-        line_items.append(
-            {
-                "description": "Envío y Logística",
-                "quantity": 1,
-                "unit_price": shipping_cost,
-                "declared_subtotal": shipping_cost,
-                "category": "envio",
-            }
-        )
+        # Generic fallback if still empty
+        if not line_items:
+            line_items = _extract_generic_line_items(text)
 
-    # 4. Installation / Instalación
-    install_cost = 0.0
-    m_inst_xlsx = re.search(r"Instalaci[oóeé]n[^\n]*?\|\s*C\d+:\s*1\s*\|\s*D\d+:\s*([0-9\.]+)", text, re.I)
-    m_inst_gen = re.search(
-        r"(?:Instalaci[oóeé]n(?:\s+y\s+Verificaci[oó]n)?|Inst\.)[^\$]{0,90}\$\s*([0-9,\.]+)", text, re.I
-    )
-    if m_inst_xlsx:
-        install_cost = float(m_inst_xlsx.group(1))
-    elif m_inst_gen:
-        install_cost = _parse_money(m_inst_gen.group(1))
-    if install_cost > 0:
-        line_items.append(
-            {
-                "description": "Instalación y Verificación en sitio",
-                "quantity": 1,
-                "unit_price": install_cost,
-                "declared_subtotal": install_cost,
-                "category": "instalacion",
-            }
+    # Extract shipping, installation, optional if not already captured by tabular parser
+    shipping_cost = sum(float(i["unit_price"]) * float(i["quantity"]) for i in line_items if i["category"] == "envio")
+    if shipping_cost == 0.0:
+        shipping_cost = _extract_single_charge(
+            r"(?:Env[ií]o(?:\s+y\s+Log[ií]stica)?|Flete|Traslado)[^\$]{0,80}?\$\s*([0-9,\.]+)",
+            text,
         )
+        if shipping_cost > 0:
+            line_items.append(
+                {
+                    "description": "Envío y Logística",
+                    "quantity": 1,
+                    "unit_price": shipping_cost,
+                    "declared_subtotal": shipping_cost,
+                    "category": "envio",
+                }
+            )
 
-    # 5. Optional services (e.g., Capacitación docente $550)
-    m_opt = re.search(r"Servicios\s+Opcionales[^\$]{0,100}\$\s*([0-9,\.]+)", text, re.I)
-    if m_opt:
-        opt_val = _parse_money(m_opt.group(1))
+    install_cost = sum(float(i["unit_price"]) * float(i["quantity"]) for i in line_items if i["category"] == "instalacion")
+    if install_cost == 0.0:
+        install_cost = _extract_single_charge(
+            r"(?:Instalaci[oóeé]n(?:\s+y\s+Verificaci[oó]n)?|Inst\.)[^\$]{0,80}?\$\s*([0-9,\.]+)",
+            text,
+        )
+        if install_cost > 0:
+            line_items.append(
+                {
+                    "description": "Instalación y Verificación en sitio",
+                    "quantity": 1,
+                    "unit_price": install_cost,
+                    "declared_subtotal": install_cost,
+                    "category": "instalacion",
+                }
+            )
+
+    if not any(i["category"] == "opcional" for i in line_items):
+        opt_val = _extract_single_charge(r"Servicios\s+Opcionales[^\$]{0,90}?\$\s*([0-9,\.]+)", text)
         if opt_val > 0:
             line_items.append(
                 {
@@ -259,7 +376,6 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
                 }
             )
 
-    # Detect hidden shipping surcharge percentage or excluded shipping
     shipping_included = not bool(re.search(r"no\s+incluye\s+(flete|env[ií]o|traslado)", text, re.I))
     hidden_pct = 0.0
     m_pct = re.search(r"(?:recargo|env[ií]o\s+especializado|flete)[^\n\.]{0,50}?(\d{2,3})\s*%", text, re.I)
@@ -268,6 +384,13 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
 
     payment_surcharge_pct = 4.0 if re.search(r"\+\s*4\s*%", text) else 0.0
     iva_applies = bool(re.search(r"no\s+incluye\s+iva|\+\s*iva|iva\s*\(16%\)\s*no\s+incluido", text, re.I))
+
+    student_count = int(
+        sum(float(i["quantity"]) for i in line_items if i["category"] == "estaciones_estudiantes")
+    )
+    teacher_count = int(
+        sum(float(i["quantity"]) for i in line_items if i["category"] == "estacion_docente")
+    )
 
     return {
         "supplier_name": supplier_name,
@@ -287,8 +410,8 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
         "iva_applies": iva_applies,
         "iva_included": not iva_applies,
         "line_items": line_items,
-        "student_pc_count": 10 if any(i["category"] == "estaciones_estudiantes" for i in line_items) else 0,
-        "teacher_pc_count": 1 if any(i["category"] == "estacion_docente" for i in line_items) else 0,
+        "student_pc_count": student_count,
+        "teacher_pc_count": teacher_count,
     }
 
 
@@ -374,11 +497,13 @@ class AgentToolbox:
             return {"found": False, "alerts": []}
 
         supplier = None
-        if supplier_rif:
-            res = await self.db.execute(select(Supplier).where(Supplier.rif == supplier_rif))
+        rif_h = blind_index(supplier_rif)
+        name_h = blind_index(supplier_name)
+        if rif_h:
+            res = await self.db.execute(select(Supplier).where(Supplier.rif_hash == rif_h))
             supplier = res.scalar_one_or_none()
-        if supplier is None and supplier_name:
-            res = await self.db.execute(select(Supplier).where(Supplier.name == supplier_name))
+        if supplier is None and name_h:
+            res = await self.db.execute(select(Supplier).where(Supplier.name_hash == name_h))
             supplier = res.scalar_one_or_none()
 
         if supplier is None:

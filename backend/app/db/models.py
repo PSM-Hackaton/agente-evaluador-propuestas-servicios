@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models covering all platform modules (E.1-E.5, F, and Batch Mode)."""
+"""SQLAlchemy ORM models with full AES-256-GCM encryption at rest and HMAC blind indexes."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, EncryptedJSON, EncryptedText
+from app.db.base import Base, EncryptedFloat, EncryptedJSON, EncryptedText
 
 
 def utcnow() -> datetime:
@@ -79,8 +79,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    email_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    full_name: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(512), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -89,14 +90,16 @@ class User(Base):
 
 
 class Supplier(Base):
-    """Centralized Supplier Directory (Section 2.E.3)."""
+    """Centralized Supplier Directory (Section 2.E.3), encrypted at rest."""
 
     __tablename__ = "suppliers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    rif: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
-    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    name: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    name_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    rif: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    rif_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    location: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     representative: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     phone: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     email: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
@@ -121,8 +124,8 @@ class SupplierAlert(Base):
     evaluation_id: Mapped[str | None] = mapped_column(
         ForeignKey("evaluation_runs.id", ondelete="SET NULL"), nullable=True
     )
-    severity: Mapped[str] = mapped_column(String(32), nullable=False, default="warning")  # info, warning, critical
-    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, default="warning")
+    reason_code: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     summary: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -131,22 +134,22 @@ class SupplierAlert(Base):
 
 
 class Project(Base):
-    """Procurement project / Terms of Reference (Section 2.E.1)."""
+    """Procurement project / Terms of Reference (Section 2.E.1), encrypted at rest."""
 
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    execution_location: Mapped[str] = mapped_column(String(255), nullable=False, default="Caracas, Venezuela")
-    reference_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    name: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    description: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    execution_location: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    reference_budget: Mapped[float | None] = mapped_column(EncryptedFloat, nullable=True)
     reference_currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ProjectStatus.EN_RECEPCION.value, index=True
     )
 
     # Encrypted Project Requirements Document (e.g. proyecto.pdf)
-    document_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    document_filename: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     document_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     document_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     extracted_requirements_text: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
@@ -171,10 +174,10 @@ class Project(Base):
 
 
 class Proposal(Base):
-    """Uploaded supplier proposal file (PDF, JPG, PNG, XLSX) encrypted at rest."""
+    """Uploaded supplier proposal file encrypted at rest."""
 
     __tablename__ = "proposals"
-    __table_args__ = (UniqueConstraint("project_id", "proposal_identifier", name="uq_project_proposal_id"),)
+    __table_args__ = (UniqueConstraint("project_id", "proposal_identifier_hash", name="uq_project_proposal_hash"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
@@ -182,9 +185,9 @@ class Proposal(Base):
         ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    # Hackathon identifier: exact filename without extension (e.g., Propuesta_923_Grupo_Digital_Miranda_CA)
-    proposal_identifier: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    proposal_identifier: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    proposal_identifier_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     file_extension: Mapped[str] = mapped_column(String(16), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -215,7 +218,7 @@ class EvaluationRun(Base):
 
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=EvaluationStatus.PENDING.value)
     llm_provider_used: Mapped[str] = mapped_column(String(64), nullable=False, default="auto")
-    bcv_rate_used: Mapped[float] = mapped_column(Float, nullable=False)
+    bcv_rate_used: Mapped[float] = mapped_column(EncryptedFloat, nullable=False)
     bcv_rate_source: Mapped[str] = mapped_column(String(128), nullable=False, default="fallback")
     iva_rate_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.16)
     web_search_used: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -225,7 +228,7 @@ class EvaluationRun(Base):
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     recommended_proposal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    recommended_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recommended_identifier: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
 
     # Encrypted executive report & salida.json payload
     executive_summary: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
@@ -247,7 +250,7 @@ class EvaluationRun(Base):
 
 
 class ProposalEvaluation(Base):
-    """Detailed audit verdict for a single proposal within an EvaluationRun."""
+    """Detailed audit verdict for a single proposal within an EvaluationRun (all amounts & supplier encrypted)."""
 
     __tablename__ = "proposal_evaluations"
 
@@ -256,29 +259,29 @@ class ProposalEvaluation(Base):
         ForeignKey("evaluation_runs.id", ondelete="CASCADE"), index=True
     )
     proposal_id: Mapped[str] = mapped_column(ForeignKey("proposals.id", ondelete="CASCADE"), index=True)
-    proposal_identifier: Mapped[str] = mapped_column(String(255), nullable=False)
-    supplier_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    supplier_rif: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    proposal_identifier: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    supplier_name: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    supplier_rif: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
 
     is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     rank_position: Mapped[int] = mapped_column(Integer, nullable=False, default=999)
-    technical_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    economic_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    overall_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    technical_score: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    economic_score: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    overall_score: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
 
-    # Financial normalization (USD & VES)
+    # Financial normalization (USD & VES) — encrypted at rest
     declared_currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
-    declared_total_original: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    declared_total_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    computed_subtotal_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    shipping_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    installation_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    hidden_surcharges_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    taxes_iva_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    adjusted_tco_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    adjusted_tco_ves: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    declared_total_original: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    declared_total_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    computed_subtotal_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    shipping_cost_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    installation_cost_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    hidden_surcharges_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    taxes_iva_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    adjusted_tco_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
+    adjusted_tco_ves: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
     arithmetic_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    arithmetic_discrepancy_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    arithmetic_discrepancy_usd: Mapped[float] = mapped_column(EncryptedFloat, nullable=False, default=0.0)
 
     # Encrypted rich audit details
     discard_reasons: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
@@ -307,7 +310,7 @@ class AgentTraceStep(Base):
     )
     step_number: Mapped[int] = mapped_column(Integer, nullable=False)
     phase: Mapped[str] = mapped_column(String(64), nullable=False)
-    proposal_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    proposal_identifier: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
     message: Mapped[str] = mapped_column(EncryptedText, nullable=False)
@@ -330,10 +333,10 @@ class HumanReview(Base):
         ForeignKey("proposal_evaluations.id", ondelete="SET NULL"), nullable=True
     )
     reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    reviewer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewer_name: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     reviewer_role: Mapped[str] = mapped_column(String(32), nullable=False)
 
-    decision: Mapped[str] = mapped_column(String(32), nullable=False)  # confirmed, observed, overridden, approved
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
     notes: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     override_recommended_proposal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -342,18 +345,19 @@ class HumanReview(Base):
 
 
 class AuditLog(Base):
-    """Immutable audit trail of all platform actions (Section 2.E.2 & 2.F)."""
+    """Immutable audit trail of all platform actions (Section 2.E.2 & 2.F), encrypted at rest."""
 
     __tablename__ = "audit_logs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    actor_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_email: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
-    action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    action_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     details: Mapped[dict | None] = mapped_column(EncryptedJSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -367,7 +371,7 @@ class ChatMessage(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     evaluation_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    role: Mapped[str] = mapped_column(String(16), nullable=False)  # user, assistant
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     citations: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -381,8 +385,8 @@ class BcvRateSnapshot(Base):
     __tablename__ = "bcv_rate_snapshots"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    usd_to_ves: Mapped[float] = mapped_column(Float, nullable=False)
+    usd_to_ves: Mapped[float] = mapped_column(EncryptedFloat, nullable=False)
     source: Mapped[str] = mapped_column(String(128), nullable=False)
     is_manual_override: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    recorded_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recorded_by: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

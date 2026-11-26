@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, require_roles, require_roles_flexible
 from app.core.config import get_settings
+from app.core.crypto import blind_index
 from app.core.security import ROLES_READ, ROLES_UPLOAD
 from app.db.base import get_db
 from app.db.models import Project, Proposal, User
@@ -65,6 +66,7 @@ async def upload_proposals_bulk(
             )
 
         identifier = Path(filename).stem
+        ident_hash = blind_index(identifier) or ""
         storage_key, sha256_hex = storage.save_encrypted(
             content, category=f"proposals_{project_id}", extension=ext
         )
@@ -73,12 +75,14 @@ async def upload_proposals_bulk(
         existing_res = await db.execute(
             select(Proposal).where(
                 Proposal.project_id == project_id,
-                Proposal.proposal_identifier == identifier,
+                Proposal.proposal_identifier_hash == ident_hash,
             )
         )
         existing = existing_res.scalar_one_or_none()
         if existing:
             storage.delete(existing.encrypted_storage_key)
+            existing.proposal_identifier = identifier
+            existing.proposal_identifier_hash = ident_hash
             existing.original_filename = filename
             existing.file_extension = ext
             existing.mime_type = up.content_type or "application/octet-stream"
@@ -91,6 +95,7 @@ async def upload_proposals_bulk(
             prop = Proposal(
                 project_id=project_id,
                 proposal_identifier=identifier,
+                proposal_identifier_hash=ident_hash,
                 original_filename=filename,
                 file_extension=ext,
                 mime_type=up.content_type or "application/octet-stream",
@@ -128,10 +133,8 @@ async def list_proposals(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(ROLES_READ)),
 ) -> list[Proposal]:
-    res = await db.execute(
-        select(Proposal).where(Proposal.project_id == project_id).order_by(Proposal.original_filename)
-    )
-    return list(res.scalars().all())
+    res = await db.execute(select(Proposal).where(Proposal.project_id == project_id))
+    return sorted(res.scalars().all(), key=lambda p: p.original_filename)
 
 
 @router.get("/proposals/{proposal_id}", response_model=ProposalDetailOut)

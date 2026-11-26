@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, require_roles
+from app.core.crypto import blind_index
 from app.core.security import ROLES_READ, ROLES_REVIEW, ROLES_UPLOAD
 from app.db.base import get_db
 from app.db.models import Proposal, ProposalEvaluation, Supplier, SupplierAlert, User
@@ -45,12 +46,13 @@ async def list_suppliers(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_roles(ROLES_READ)),
 ) -> list[SupplierOut]:
-    stmt = select(Supplier).order_by(Supplier.name)
+    res = await db.execute(select(Supplier))
+    suppliers = sorted(res.scalars().all(), key=lambda s: s.name.lower())
     if search:
-        pattern = f"%{search}%"
-        stmt = stmt.where((Supplier.name.ilike(pattern)) | (Supplier.rif.ilike(pattern)))
-    res = await db.execute(stmt)
-    suppliers = list(res.scalars().all())
+        q = search.strip().lower()
+        suppliers = [
+            s for s in suppliers if q in s.name.lower() or (s.rif and q in s.rif.lower())
+        ]
     outs = [await _to_supplier_out(db, s) for s in suppliers]
     if only_with_alerts:
         outs = [o for o in outs if o.alerts_count > 0]
@@ -64,13 +66,17 @@ async def create_supplier(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(ROLES_UPLOAD)),
 ) -> SupplierOut:
-    if payload.rif:
-        dup = await db.execute(select(Supplier).where(Supplier.rif == payload.rif.upper()))
+    norm_rif = payload.rif.upper() if payload.rif else None
+    rif_h = blind_index(norm_rif)
+    if rif_h:
+        dup = await db.execute(select(Supplier).where(Supplier.rif_hash == rif_h))
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un proveedor con ese RIF.")
     supplier = Supplier(
         name=payload.name,
-        rif=payload.rif.upper() if payload.rif else None,
+        name_hash=blind_index(payload.name) or "",
+        rif=norm_rif,
+        rif_hash=rif_h,
         location=payload.location,
         representative=payload.representative,
         phone=payload.phone,
@@ -160,7 +166,13 @@ async def update_supplier(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proveedor no encontrado.")
     changes = payload.model_dump(exclude_unset=True)
     for k, v in changes.items():
+        if k == "rif" and v is not None:
+            v = v.upper()
         setattr(supplier, k, v)
+    if "name" in changes:
+        supplier.name_hash = blind_index(supplier.name) or ""
+    if "rif" in changes:
+        supplier.rif_hash = blind_index(supplier.rif)
     await record_audit(
         db,
         action="supplier.update",

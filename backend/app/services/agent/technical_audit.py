@@ -1,4 +1,4 @@
-"""Deterministic Technical, Scope, Hardware Compatibility, Obsolescence, and Abusive-Clause Audit Engine."""
+"""Station-Scoped Technical, Compatibility, Obsolescence, and Abusive-Clause Audit Engine (Issue #10 R3-B2)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import get_settings
 from app.db.models import DiscardReasonCode
 
 
@@ -28,95 +29,163 @@ def _add_discard(
         reasons.append({"code": code.value, "detail": detail})
 
 
-def audit_proposal_technically(
-    raw_text: str,
-    structured: dict[str, Any],
-    project_requirements_text: str = "",
-) -> TechnicalAuditResult:
-    """Audit a proposal against all 7 Section 3.B discard causes and compute technical quality score."""
-    text = raw_text or ""
-    low = text.lower()
-    reasons: list[dict[str, str]] = []
-    findings: list[str] = []
-    fine_print: list[str] = []
+def _extract_station_sections(text: str) -> dict[str, str]:
+    """Isolate student vs. teacher workstation specs, skipping chat-header request lines."""
+    low = (text or "").lower()
 
-    # -------------------------------------------------------------------------
-    # 1. INCOMPATIBILIDAD TÉCNICA (CPU Socket, DDR4 vs DDR5, DIMM slots/max RAM)
-    # -------------------------------------------------------------------------
-    has_am5_cpu = bool(re.search(r"ryzen\s*[579]\s*[789]\d{3}|socket\s*am5|\bam5\b", low))
-    has_am4_board = bool(re.search(r"socket\s*am4|\bb[45]50m?\b|\ba520m?\b|\bx570\b|\ba320\b", low))
+    def _pick_best_section(start_pat: str, end_pat: str) -> str:
+        candidates: list[str] = []
+        for m in re.finditer(start_pat, low, re.I):
+            tail = low[m.start() :]
+            end_m = re.search(end_pat, tail[len(m.group(0)) :], re.I)
+            seg = tail[: len(m.group(0)) + end_m.start()] if end_m else tail
+            candidates.append(seg.strip())
+        if not candidates:
+            return low
+        # Prefer the segment that actually specifies CPU/RAM/GPU/Price rather than a greeting/summary line
+        scored = sorted(
+            candidates,
+            key=lambda s: (
+                sum(1 for kw in ("ryzen", "core i", "xeon", "rtx", "rx ", "nvme", "ram", "ddr", "$") if kw in s),
+                len(s),
+            ),
+            reverse=True,
+        )
+        return scored[0] if scored[0] else low
+
+    student_txt = _pick_best_section(
+        r"(?:estaci[oó]n\s+estudiantes?|estudiantes?\s*\(\d+x?\)|\d+\s*(?:pcs?|equipos?|computadoras?)\s+estudiantes?)",
+        r"(?:estaci[oó]n\s+docente|docente\s*\(\d+x?\)|\d+\s*(?:pc|equipo|computadora)\s+docente|perif[eé]ricos|software|env[ií]o|garant[ií]a|total\b)",
+    )
+    teacher_txt = _pick_best_section(
+        r"(?:estaci[oó]n\s+docente|docente\s*\(\d+x?\)|\d+\s*(?:pc|equipo|computadora)\s+docente)",
+        r"(?:perif[eé]ricos|software|env[ií]o|garant[ií]a|total\b)",
+    )
+    return {
+        "student": student_txt,
+        "teacher": teacher_txt,
+        "full": low,
+    }
+
+
+def _check_station_compatibility(section_label: str, seg: str, reasons: list[dict[str, str]]) -> None:
+    """Validate CPU socket, RAM generation, DIMM slots/capacity, and chassis fit within a single station."""
+    has_am5_cpu = bool(re.search(r"ryzen\s*[579]\s*[789]\d{3}|socket\s*am5|\bam5\b", seg))
+    has_am4_board = bool(re.search(r"socket\s*am4|\bb[45]50m?\b|\ba520m?\b|\bx570\b|\ba320\b", seg))
     if has_am5_cpu and has_am4_board:
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            "Incompatibilidad física de socket: CPU AMD Ryzen serie 7000/8000/9000 (Socket AM5) "
-            "combinada con placa base Socket AM4 (B550/B450/A520).",
+            f"Incompatibilidad física de socket en {section_label}: CPU AMD Ryzen AM5 combinada con placa base Socket AM4.",
         )
 
-    has_ddr5_ram = bool(re.search(r"\bddr5\b", low))
-    has_ddr4_ram = bool(re.search(r"\bddr4\b", low))
-    # Explicit DDR4 motherboard detection (e.g., B760M-A D4, H610M-K D4, "(DDR4)", B550M)
+    has_ddr5_ram = bool(re.search(r"\bddr5\b", seg))
+    has_ddr4_ram = bool(re.search(r"\bddr4\b", seg))
     has_ddr4_board = bool(
         re.search(
             r"(b760|b660|h610|z690|z790)[^\n|]{0,25}(\bd4\b|\(ddr4\)|ddr4)|socket\s*am4|\bb550m?\b",
-            low,
+            seg,
         )
     )
     if has_ddr5_ram and has_ddr4_board:
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            "Incompatibilidad de memoria RAM: se cotizan módulos DDR5 con una placa base que solo soporta DDR4.",
+            f"Incompatibilidad de memoria RAM en {section_label}: se cotizan módulos DDR5 con placa base solo DDR4.",
         )
 
     if has_am5_cpu and has_ddr4_ram and not has_ddr5_ram:
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            "Incompatibilidad de memoria RAM: la plataforma AMD Socket AM5 solo soporta memoria DDR5, no DDR4.",
+            f"Incompatibilidad de memoria RAM en {section_label}: plataforma AMD Socket AM5 requiere DDR5 (no soporta DDR4).",
         )
 
-    # Intel LGA1700 CPU vs LGA1200/AM4 board
-    has_lga1700_cpu = bool(re.search(r"core\s*i[3579]-1[234]\d{3}", low))
-    has_lga1200_board = bool(re.search(r"\b(h410|b460|h510|b560|z490|z590)\b|lga\s*1200", low))
+    has_lga1700_cpu = bool(re.search(r"core\s*i[3579]-1[234]\d{3}", seg))
+    has_lga1200_board = bool(re.search(r"\b(h410|b460|h510|b560|z490|z590)\b|lga\s*1200", seg))
     if has_lga1700_cpu and (has_lga1200_board or has_am4_board):
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            "Incompatibilidad física de socket: procesador Intel 12va/13va/14va Gen (LGA1700) con placa incompatible.",
+            f"Incompatibilidad física de socket en {section_label}: procesador Intel LGA1700 con placa incompatible.",
         )
 
-    # DIMM slots & max RAM overflow (e.g., 4x16GB or 64GB on 2xDIMM / max 32GB board like H610M-K)
-    ram_sticks_match = re.search(r"(\d)\s*x\s*(\d+)\s*gb", low)
-    board_slots_match = re.search(r"(\d)\s*x\s*dimm|(\d)\s*slots?\b(?!\s*libres)", low)
-    board_max_ram_match = re.search(r"m[aá]x\.?\s*(\d+)\s*gb", low)
-    ram_total_match = re.search(r"ram[:\s]*(\d+)\s*gb|(\d+)\s*gb\s*(?:\(\s*)?ddr[45]", low)
+    ram_sticks_match = re.search(r"(\d)\s*x\s*(\d+)\s*gb", seg)
+    board_slots_match = re.search(r"(\d)\s*x\s*dimm|(\d)\s*slots?\b(?!\s*libres)", seg)
+    board_max_ram_match = re.search(r"m[aá]x\.?\s*(\d+)\s*gb", seg)
+    ram_total_match = re.search(r"ram[:\s]*(\d+)\s*gb|(\d+)\s*gb\s*(?:\(\s*)?ddr[45]", seg)
 
     sticks_count = int(ram_sticks_match.group(1)) if ram_sticks_match else None
-    board_slots = None
-    if board_slots_match:
-        board_slots = int(board_slots_match.group(1) or board_slots_match.group(2))
+    board_slots = int(board_slots_match.group(1) or board_slots_match.group(2)) if board_slots_match else None
     board_max_ram = int(board_max_ram_match.group(1)) if board_max_ram_match else None
-    ram_total_gb = None
-    if ram_total_match:
-        ram_total_gb = int(ram_total_match.group(1) or ram_total_match.group(2))
+    ram_total_gb = int(ram_total_match.group(1) or ram_total_match.group(2)) if ram_total_match else None
 
     if sticks_count and board_slots and sticks_count > board_slots:
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            f"Incompatibilidad de ranuras DIMM: la propuesta incluye {sticks_count} módulos de RAM "
-            f"en una placa base con solo {board_slots} ranuras DIMM.",
+            f"Incompatibilidad de ranuras DIMM en {section_label}: incluye {sticks_count} módulos RAM "
+            f"en placa base con {board_slots} ranuras DIMM.",
         )
     if ram_total_gb and board_max_ram and ram_total_gb > board_max_ram:
         _add_discard(
             reasons,
             DiscardReasonCode.INCOMPATIBILIDAD_TECNICA,
-            f"Incompatibilidad de capacidad de RAM: se cotizan {ram_total_gb}GB de RAM en una placa base "
-            f"que soporta un máximo de {board_max_ram}GB.",
+            f"Incompatibilidad de capacidad RAM en {section_label}: cotiza {ram_total_gb}GB RAM "
+            f"en placa base con máximo {board_max_ram}GB.",
         )
 
-    # GPU vs Mini-ITX / Low-Profile case
+
+def _score_gpu_cpu(seg: str) -> tuple[float, str | None]:
+    """Score CPU+GPU combination for a station and extract actual GPU label dynamically."""
+    gpu_m = re.search(
+        r"(?:nvidia\s+geforce\s+)?(rtx\s*40[789]0\s*(?:super|ti)?(?:\s*\d+\s*gb)?|"
+        r"rtx\s*4060\s*ti(?:\s*\d+\s*gb)?|rtx\s*4060(?:\s*\d+\s*gb)?|"
+        r"rtx\s*3060(?:\s*\d+\s*gb)?|rx\s*7[678]00(?:\s*\d+\s*gb)?)",
+        seg,
+        re.I,
+    )
+    gpu_label = re.sub(r"\s+", " ", gpu_m.group(1)).upper() if gpu_m else None
+
+    if re.search(r"rtx\s*4070\s*super", seg, re.I):
+        return 39.5, gpu_label
+    if re.search(r"rtx\s*4070\b", seg, re.I):
+        return 37.0, gpu_label
+    if re.search(r"rtx\s*4060\s*ti\s*16\s*gb", seg, re.I):
+        return 36.5, gpu_label
+    if re.search(r"rtx\s*4060\s*ti", seg, re.I):
+        return 33.0, gpu_label
+    if re.search(r"rtx\s*3060\s*12\s*gb", seg, re.I):
+        return 29.5, gpu_label
+    if re.search(r"rtx\s*4060", seg, re.I):
+        return 29.0, gpu_label
+    if re.search(r"rx\s*7600", seg, re.I):
+        return 25.0, gpu_label
+    return 18.0, gpu_label
+
+
+def audit_proposal_technically(
+    raw_text: str,
+    structured: dict[str, Any],
+    project_requirements_text: str = "",
+) -> TechnicalAuditResult:
+    """Audit a proposal against all 7 Section 3.B discard causes using station-scoped rules and dynamic findings."""
+    text = raw_text or ""
+    sections = _extract_station_sections(text)
+    student_seg = sections["student"]
+    teacher_seg = sections["teacher"]
+    low = sections["full"]
+
+    reasons: list[dict[str, str]] = []
+    findings: list[str] = []
+    fine_print: list[str] = []
+
+    # 1. Station-scoped compatibility checks
+    _check_station_compatibility("Estación Estudiantes", student_seg, reasons)
+    if teacher_seg != student_seg:
+        _check_station_compatibility("Estación Docente", teacher_seg, reasons)
+
+    # GPU vs Mini-ITX / Slim chassis
     if re.search(r"rtx\s*40[6789]0|rx\s*7[6789]00", low) and re.search(
         r"gabinete\s*(slim|low\s*profile|mini-?itx\s*compacto|sff)", low
     ):
@@ -126,9 +195,7 @@ def audit_proposal_technically(
             "Incompatibilidad física de gabinete: tarjeta gráfica dedicada de tamaño completo no cabe en gabinete slim/SFF.",
         )
 
-    # -------------------------------------------------------------------------
-    # 2. CAPACIDAD INSUFICIENTE (Fuente de poder o UPS subdimensionados)
-    # -------------------------------------------------------------------------
+    # 2. Insufficient capacity (PSU / UPS)
     psu_match = re.search(r"(?:fuente|psu)[^\n|]{0,30}?(\d{3,4})\s*w", low)
     has_dedicated_gpu = bool(re.search(r"rtx\s*\d{4}|gtx\s*\d{4}|rx\s*\d{4}", low))
     if psu_match and has_dedicated_gpu:
@@ -140,8 +207,8 @@ def audit_proposal_technically(
                 f"Fuente de poder insuficiente ({psu_watts}W) para alimentar estación con GPU dedicada.",
             )
 
-    ups_va_match = re.search(r"(?:ups|regulador)[^\n|]{0,35}?(\d{3,4})\s*va", low)
-    ups_w_match = re.search(r"(?:ups|regulador)[^\n|]{0,40}?/\s*(\d{3,4})\s*w", low)
+    ups_va_match = re.search(r"(?:ups|regulador)[^\n|]{0,45}?(\d{3,4})\s*va", low)
+    ups_w_match = re.search(r"(?:ups|regulador)[^\n|]{0,50}?/\s*(\d{3,4})\s*w", low)
     if ups_va_match and has_dedicated_gpu:
         ups_va = int(ups_va_match.group(1))
         if ups_va < 600:
@@ -159,9 +226,7 @@ def audit_proposal_technically(
                 f"Capacidad real del UPS insuficiente ({ups_w}W) para la carga del equipo.",
             )
 
-    # -------------------------------------------------------------------------
-    # 3. EQUIPOS OBSOLETOS, RECICLADOS O DE CALIDAD INFERIOR
-    # -------------------------------------------------------------------------
+    # 3. Obsolete / recycled hardware
     obsolete_patterns = [
         (r"xeon\s*e5[- ]?\d{4}\s*v[1234]|\bx99\b|\bx79\b", "Plataforma Xeon E5 / X99 obsoleta (arquitectura servidor 2012-2016 reciclada) comercializada como equipo nuevo."),
         (r"arquitectura\s*201[0-8]|core\s*i[357]-[2-8]\d{3}\b|ddr3\b", "Hardware obsoleto de generaciones descontinuadas no apto para equipos nuevos de gama media-alta."),
@@ -171,11 +236,7 @@ def audit_proposal_technically(
         if re.search(pat, low):
             _add_discard(reasons, DiscardReasonCode.EQUIPOS_OBSOLETOS_RECICLADOS, msg)
 
-    # -------------------------------------------------------------------------
-    # 4. COSTOS O CONDICIONES ABUSIVAS (Software de prueba pago, flete abusivo, garantía exterior)
-    # -------------------------------------------------------------------------
-    # "Evaluación" alone is a common word in proposals ("para su evaluación", "comité de evaluación"),
-    # so it only counts as a trial license when it qualifies a software/license/edition.
+    # 4. Abusive conditions / trial software / excessive shipping surcharge
     has_trial_software = bool(
         re.search(
             r"(?:windows|office|licencia|software|edici[oó]n|versi[oó]n|so:)[^\n|]{0,40}\((?:evaluaci[oó]n|trial|prueba)\)|"
@@ -203,6 +264,9 @@ def audit_proposal_technically(
             "Condición abusiva de garantía: garantía válida solo fuera del país o inexistente.",
         )
 
+    # Threshold configurable (default 50%): <50% (e.g. +45% in Section 2.D) is consolidated into TCO and
+    # displaces ranking; >=50% (Section 2.B) is discarded as an abusive logistics surcharge.
+    threshold_pct = get_settings().abusive_surcharge_pct_threshold
     surcharge_pct_match = re.search(
         r"(?:recargo|flete|env[ií]o\s+especializado|traslado)[^\n\.]{0,50}?(\d{2,3})\s*%",
         low,
@@ -210,11 +274,12 @@ def audit_proposal_technically(
     if surcharge_pct_match:
         pct = float(surcharge_pct_match.group(1))
         fine_print.append(f"Cláusula de recargo por envío/traslado detectada: +{pct:.0f}% sobre la factura.")
-        if pct >= 30.0:
+        if pct >= threshold_pct:
             _add_discard(
                 reasons,
                 DiscardReasonCode.COSTOS_CONDICIONES_ABUSIVAS,
-                f"Recargo de envío/logística desmedido en letra pequeña (+{pct:.0f}% del valor de la factura).",
+                f"Recargo de envío/logística desmedido en letra pequeña (+{pct:.0f}% del valor de la factura; "
+                f"umbral máximo {threshold_pct:.0f}%).",
             )
 
     if re.search(r"no\s+incluye\s+(flete|env[ií]o|traslado)", low):
@@ -223,20 +288,16 @@ def audit_proposal_technically(
     if re.search(r"\+\s*4\s*%\s*(?:gesti[oó]n|por\s+gesti[oó]n)", low):
         fine_print.append("Condición comercial: pagos en Bolívares a tasa BCV aplican +4% por gestión cambiaria.")
 
-    # -------------------------------------------------------------------------
-    # 5. CUMPLIMIENTO DEL ALCANCE DEL PROYECTO
-    # -------------------------------------------------------------------------
+    # 5. Project Scope Compliance
     req_low = (project_requirements_text or "").lower()
     expects_10_plus_1 = ("10" in req_low or "diez" in req_low) and ("11" in req_low or "once" in req_low)
     if expects_10_plus_1:
         student_qty = int(structured.get("student_pc_count") or 0)
         teacher_qty = int(structured.get("teacher_pc_count") or 0)
-        if student_qty == 0:
-            if re.search(r"10\s*(?:x|pcs?|computadoras?|equipos?|estaci)|estudiantes?\s*\(?10x?\)?", low):
-                student_qty = 10
-        if teacher_qty == 0:
-            if re.search(r"1\s*(?:x|pc|computadora|equipo|estaci)|docente\s*\(?1x?\)?", low):
-                teacher_qty = 1
+        if student_qty == 0 and re.search(r"10\s*(?:x|pcs?|computadoras?|equipos?|estaci)|estudiantes?\s*\(?10x?\)?", low):
+            student_qty = 10
+        if teacher_qty == 0 and re.search(r"1\s*(?:x|pc|computadora|equipo|estaci)|docente\s*\(?1x?\)?", low):
+            teacher_qty = 1
 
         if student_qty < 10 or teacher_qty < 1:
             _add_discard(
@@ -246,7 +307,6 @@ def audit_proposal_technically(
                 f"(detectadas: {student_qty} estudiantes, {teacher_qty} docente).",
             )
 
-        # Check required peripherals & electrical protection & installation
         has_monitor = bool(re.search(r"monitor|ips|proart|ultragear|fhd|qhd|1440p|1080p", low))
         has_protection = bool(re.search(r"ups|avr|regulador|protector|supresor|isobar|cyberpower|apc|forza", low))
         has_install = bool(re.search(r"instalaci[oóeé]n|inst\.?\s*:?\s*\$|en\s+sitio", low))
@@ -270,91 +330,75 @@ def audit_proposal_technically(
                 "Alcance incompleto: no contempla la entrega, instalación y puesta en funcionamiento en sitio.",
             )
 
-    # -------------------------------------------------------------------------
-    # 6. PUNTUACIÓN DE CALIDAD TÉCNICA (Section 3.B Ranking Criteria)
-    # -------------------------------------------------------------------------
-    # Components: CPU + GPU/VRAM (3D & video editing), RAM/NVMe, Monitor & Peripherals,
-    # Electrical Protection (UPS > AVR), Warranty & Support, Open Source Stack
-    score_cpu_gpu = 0.0
-    score_ram_storage = 0.0
-    score_peripherals = 0.0
-    score_protection = 0.0
-    score_warranty_support = 0.0
+    # 6. Station-scoped Technical Quality Scoring & 100% Dynamic Findings
+    score_st_gpu, st_gpu_label = _score_gpu_cpu(student_seg)
+    score_tc_gpu, tc_gpu_label = _score_gpu_cpu(teacher_seg)
+    score_cpu_gpu = round(score_st_gpu * 0.8 + score_tc_gpu * 0.2, 2)
 
-    # CPU & GPU (max 40 pts)
-    if re.search(r"rtx\s*4070\s*super|rtx\s*4070\b", low) and re.search(r"i7-1[34]700|ryzen\s*9", low):
-        score_cpu_gpu = 39.5 if re.search(r"rtx\s*4070\s*super", low) else 37.0
-        findings.append("Alto rendimiento para 3D y edición de video (CPU i7/Ryzen 9 + GPU RTX 4070/Super 12GB).")
-    elif re.search(r"rtx\s*4060\s*ti\s*16\s*gb", low):
-        score_cpu_gpu = 36.5
-        findings.append("Excelente capacidad 3D/video con RTX 4060 Ti 16GB VRAM + Ryzen 7/9.")
-    elif re.search(r"rtx\s*4060\s*ti", low):
-        score_cpu_gpu = 33.0
-    elif re.search(r"rtx\s*4060", low):
-        score_cpu_gpu = 29.0
-        findings.append("GPU NVIDIA RTX 4060 8GB adecuada para programación, 3D y video con aceleración CUDA.")
-    elif re.search(r"rtx\s*3060\s*12\s*gb", low):
-        score_cpu_gpu = 29.5
-        findings.append("GPU NVIDIA RTX 3060 12GB VRAM (ventaja en VRAM y CUDA para Blender/3D).")
-    elif re.search(r"rx\s*7600", low):
-        score_cpu_gpu = 25.0
-        findings.append("GPU AMD RX 7600 8GB (menor ecosistema CUDA frente a NVIDIA en renderizado 3D).")
-    else:
-        score_cpu_gpu = 18.0
+    if st_gpu_label:
+        if tc_gpu_label and tc_gpu_label != st_gpu_label:
+            findings.append(f"Aceleración gráfica detectada: estudiantes con {st_gpu_label} y docente con {tc_gpu_label}.")
+        else:
+            findings.append(f"Aceleración gráfica detectada en estaciones: {st_gpu_label}.")
 
-    # RAM & Storage (max 20 pts)
-    if re.search(r"64\s*gb", low) and re.search(r"32\s*gb", low):
-        score_ram_storage += 12.0
-    elif re.search(r"32\s*gb", low) and not re.search(r"estudiantes[^\n]{0,120}16\s*gb", low):
-        score_ram_storage += 10.5
-    elif re.search(r"16\s*gb", low):
-        score_ram_storage += 7.0
-    else:
-        score_ram_storage += 5.0
+    # RAM & Storage (station-scoped)
+    st_ram_m = (
+        re.search(r"(\d+)\s*gb\s*(?:\(\s*)?(?:ddr[45]|ram)\b", student_seg)
+        or re.search(r"ram[:\s]*(\d+)\s*gb", student_seg)
+    )
+    st_ram_gb = int(st_ram_m.group(1)) if st_ram_m else 16
+    score_ram = 12.0 if st_ram_gb >= 64 else (10.5 if st_ram_gb >= 32 else 7.0)
 
-    if re.search(r"2\s*tb\s*nvme", low):
-        score_ram_storage += 8.0
-    elif re.search(r"1\s*tb\s*nvme", low):
-        score_ram_storage += 7.0
-    elif re.search(r"512\s*gb\s*nvme", low):
-        score_ram_storage += 4.5
-    else:
-        score_ram_storage += 3.0
+    st_nvme_m = re.search(r"(\d+)\s*(tb|gb)\s*nvme", student_seg)
+    score_storage = 3.0
+    if st_nvme_m:
+        qty_disk = int(st_nvme_m.group(1))
+        unit_disk = st_nvme_m.group(2)
+        gb_disk = qty_disk * 1024 if unit_disk == "tb" else qty_disk
+        score_storage = 8.0 if gb_disk >= 2048 else (7.0 if gb_disk >= 1024 else 4.5)
+    score_ram_storage = score_ram + score_storage
 
-    # Monitor & Peripherals (max 15 pts)
+    # Monitor & Peripherals (dynamic label from actual text)
+    mon_m = (
+        re.search(r"monitor[:\s]+([^\n|]{4,60})", text, re.I)
+        or re.search(r"(?:lg\s+ultragear|asus\s+proart|aoc|samsung|viewsonic|msi)\s+[^\n|]{4,50}", text, re.I)
+    )
+    mon_desc = mon_m.group(1).strip() if (mon_m and mon_m.lastindex) else (mon_m.group(0).strip() if mon_m else None)
     if re.search(r"27\"?\s*qhd|1440p|ultragear", low):
         score_peripherals = 15.0
-        findings.append("Monitores 27\" QHD IPS + periféricos mecánicos/ergonómicos de gama superior.")
     elif re.search(r"proart|100%\s*srgb", low):
         score_peripherals = 14.5
-        findings.append("Monitores ASUS ProArt calibrados 100% sRGB + periféricos mecánicos Logitech.")
-    elif re.search(r"redragon|mec[aá]nico", low):
+    elif re.search(r"mec[aá]nico|redragon|keychron", low):
         score_peripherals = 10.5
-    elif re.search(r"aoc|lg|samsung", low):
+    elif re.search(r"monitor|ips|fhd|1080p", low):
         score_peripherals = 8.5
     else:
         score_peripherals = 6.0
+    if mon_desc:
+        findings.append(f"Monitores especificados: {mon_desc}.")
 
-    # Electrical Protection (max 13 pts)
-    if re.search(r"onda\s*pura|1500\s*va|cyberpower", low):
+    # Electrical Protection (dynamic label with actual VA/W model, skipping request phrases)
+    prot_m = (
+        re.search(r"(?:ups\s+interactivo|regulador\s+avr|supresor\s+tripp\s*lite|ups\s+\w+|regulador\s+\w+)[^\n|]{0,65}", text, re.I)
+        or re.search(r"(?:protecci[oó]n|prot\.?)\s*[:\-]\s*([^\n|]{4,70})", text, re.I)
+    )
+    prot_desc = prot_m.group(1).strip() if (prot_m and prot_m.lastindex) else (prot_m.group(0).strip() if prot_m else None)
+    if re.search(r"onda\s*pura|1500\s*va", low):
         score_protection = 13.0
-        findings.append("Protección eléctrica superior: UPS Interactivo 1500VA de Onda Pura.")
-    elif re.search(r"ups\s*interactivo\s*apc\s*1200\s*va|1200\s*va\s*/\s*650\s*w", low):
+    elif re.search(r"ups\s*interactivo[^\n|]{0,30}1200\s*va|1200\s*va\s*/\s*650\s*w", low):
         score_protection = 11.5
-        findings.append("Protección eléctrica robusta: UPS Interactivo APC 1200VA/650W con AVR.")
-    elif re.search(r"ups\s*interactivo|1000\s*va\s*/\s*600\s*w|back-?ups", low):
+    elif re.search(r"ups\s*interactivo|back-?ups", low):
         score_protection = 10.0
-        findings.append("Protección eléctrica con respaldo de batería: UPS Interactivo APC 1000VA/600W.")
     elif re.search(r"isobar", low):
         score_protection = 7.5
-        findings.append("Supresor Tripp Lite Isobar + AVR (sin respaldo de batería ante cortes eléctricos).")
-    elif re.search(r"regulador\s*avr|forza", low):
+    elif re.search(r"regulador|avr", low):
         score_protection = 6.5
-        findings.append("Regulador AVR 1200VA (cumple protección básica, sin respaldo de batería UPS).")
     else:
         score_protection = 3.0
+    if prot_desc:
+        findings.append(f"Protección eléctrica declarada: {prot_desc}.")
 
-    # Warranty & Support (max 12 pts)
+    # Warranty & Support (dynamic)
     warranty_match = re.search(r"garant[ií]a[:\s]*(\d{1,2})\s*(?:meses|m\b)", low)
     warranty_months = int(warranty_match.group(1)) if warranty_match else 12
     if warranty_months >= 24:
@@ -365,6 +409,8 @@ def audit_proposal_technically(
         score_warranty_support = 8.0
     else:
         score_warranty_support = 6.0
+    if warranty_match:
+        findings.append(f"Garantía declarada: {warranty_months} meses.")
 
     if not has_trial_software and re.search(
         r"ubuntu|pop!_os|fedora|linux\s*mint|open\s*source|software\s*libre", low

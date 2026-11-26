@@ -94,11 +94,22 @@ def generate_markdown_report(
             if p.fine_print_findings:
                 lines.append(f"- **Letra pequeña / condiciones:** {'; '.join(p.fine_print_findings)}")
             if p.market_comparison:
-                mc = p.market_comparison[0]
-                lines.append(
-                    f"- **Contraste de mercado:** ${mc.get('proposed_unit_price_usd', 0):,.2f} vs ref. "
-                    f"${mc.get('market_reference_mid_usd', 0):,.2f} ({mc.get('variance_pct', 0):+.1f}% — {mc.get('status')})"
-                )
+                for mc in p.market_comparison:
+                    src_tag = mc.get("reference_source_type") or mc.get("provider") or "n/a"
+                    lines.append(
+                        f"- **Contraste de mercado ({mc.get('item', '')}):** "
+                        f"${mc.get('proposed_unit_price_usd', 0):,.2f} vs ref. "
+                        f"${mc.get('market_reference_mid_usd', 0):,.2f} ({mc.get('variance_pct', 0):+.1f}% — "
+                        f"{mc.get('status')}, origen: `{src_tag}`)"
+                    )
+                    for src in (mc.get("sources") or [])[:3]:
+                        price_txt = (
+                            f" (${src['extracted_price_usd']:,.2f})"
+                            if src.get("extracted_price_usd") is not None
+                            else ""
+                        )
+                        date_txt = f" [{src['retrieved_at'][:10]}]" if src.get("retrieved_at") else ""
+                        lines.append(f"  - Fuente: [{src.get('title') or src.get('url')}]({src.get('url', '')}){price_txt}{date_txt}")
             lines.append("")
     else:
         lines.append("_Ninguna propuesta superó los criterios de validez._\n")
@@ -107,6 +118,14 @@ def generate_markdown_report(
     if discards:
         for p in discards:
             lines.append(f"- **{p.proposal_identifier}** ({p.supplier_name}): {p.discard_verdict_text}")
+            for mc in (p.market_comparison or [])[:2]:
+                for src in (mc.get("sources") or [])[:3]:
+                    price_txt = (
+                        f" (${src['extracted_price_usd']:,.2f})"
+                        if src.get("extracted_price_usd") is not None
+                        else ""
+                    )
+                    lines.append(f"  - Fuente mercado ({mc.get('item', '')}): [{src.get('title') or src.get('url')}]({src.get('url', '')}){price_txt}")
     else:
         lines.append("_No hubo propuestas descartadas._")
 
@@ -267,12 +286,30 @@ def generate_xlsx_report(
 
     # Sheet 3: Contraste de Mercado
     ws_mkt = wb.create_sheet("Contraste de Mercado")
-    ws_mkt.append(["Propuesta", "Ítem", "Precio Propuesto (USD)", "Ref. Mercado Media (USD)", "Variación %", "Estatus", "Proveedor Búsqueda"])
+    ws_mkt.append(
+        [
+            "Propuesta",
+            "Ítem",
+            "Precio Propuesto (USD)",
+            "Ref. Mercado Media (USD)",
+            "Variación %",
+            "Estatus",
+            "Tipo Referencia",
+            "Proveedor Búsqueda",
+            "Fuentes Citadas (URL / Precio)",
+        ]
+    )
     for cell in ws_mkt[1]:
         cell.fill = header_fill
         cell.font = header_font
     for p in ordered:
         for mc in p.market_comparison or []:
+            sources_str = " | ".join(
+                f"{s.get('url', '')} (${s['extracted_price_usd']:,.2f})"
+                if s.get("extracted_price_usd") is not None
+                else str(s.get("url", ""))
+                for s in (mc.get("sources") or [])[:3]
+            )
             ws_mkt.append(
                 [
                     p.proposal_identifier,
@@ -281,7 +318,9 @@ def generate_xlsx_report(
                     mc.get("market_reference_mid_usd", 0),
                     mc.get("variance_pct", 0),
                     mc.get("status", ""),
+                    mc.get("reference_source_type", ""),
                     mc.get("provider", ""),
+                    sources_str,
                 ]
             )
 
@@ -431,6 +470,24 @@ def generate_pdf_report(
             )
         )
         story.append(bd)
+        if p.market_comparison:
+            for mc in p.market_comparison[:2]:
+                srcs = ", ".join(
+                    f"{s.get('title') or s.get('url')} (${s['extracted_price_usd']:,.2f})"
+                    if s.get("extracted_price_usd") is not None
+                    else str(s.get("title") or s.get("url"))
+                    for s in (mc.get("sources") or [])[:2]
+                )
+                src_note = srcs if srcs else str(mc.get("reference_label") or mc.get("reference_source_type") or "")
+                story.append(
+                    Paragraph(
+                        f"<i>Mercado ({_x(mc.get('item', ''))}): "
+                        f"${mc.get('proposed_unit_price_usd', 0):,.2f} vs ref. "
+                        f"${mc.get('market_reference_mid_usd', 0):,.2f} ({mc.get('variance_pct', 0):+.1f}%) — "
+                        f"{_x(src_note)}</i>",
+                        small_style,
+                    )
+                )
         story.append(Spacer(1, 4))
 
     if reviews:

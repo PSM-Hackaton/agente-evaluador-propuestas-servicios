@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.crypto import blind_index
 from app.core.security import UserRole, hash_password
 from app.db.models import User
 
@@ -19,11 +20,13 @@ DEFAULT_USERS = [
 
 async def seed_default_users(db: AsyncSession) -> None:
     for email, full_name, password, role in DEFAULT_USERS:
-        existing = await db.execute(select(User).where(User.email == email))
+        email_hash = blind_index(email)
+        existing = await db.execute(select(User).where(User.email_hash == email_hash))
         if existing.scalar_one_or_none() is None:
             db.add(
                 User(
                     email=email,
+                    email_hash=email_hash or "",
                     full_name=full_name,
                     hashed_password=hash_password(password),
                     role=role,
