@@ -8,7 +8,6 @@ from enum import StrEnum
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     Float,
     ForeignKey,
     Integer,
@@ -18,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, EncryptedFloat, EncryptedJSON, EncryptedText
+from app.db.base import Base, EncryptedFloat, EncryptedJSON, EncryptedText, UTCDateTime
 
 
 def utcnow() -> datetime:
@@ -85,8 +84,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(512), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
 class Supplier(Base):
@@ -104,8 +103,8 @@ class Supplier(Base):
     phone: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     email: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     notes: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     alerts: Mapped[list[SupplierAlert]] = relationship(
         back_populates="supplier", cascade="all, delete-orphan"
@@ -128,7 +127,7 @@ class SupplierAlert(Base):
     reason_code: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     summary: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     supplier: Mapped[Supplier] = relationship(back_populates="alerts")
 
@@ -159,8 +158,8 @@ class Project(Base):
     adjudication_notes: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
 
     created_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     proposals: Mapped[list[Proposal]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -201,7 +200,7 @@ class Proposal(Base):
     extracted_structured_data: Mapped[dict | None] = mapped_column(EncryptedJSON, nullable=True)
 
     uploaded_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="proposals")
     supplier: Mapped[Supplier | None] = relationship(back_populates="proposals")
@@ -223,8 +222,8 @@ class EvaluationRun(Base):
     iva_rate_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.16)
     web_search_used: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     recommended_proposal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -294,6 +293,7 @@ class ProposalEvaluation(Base):
     market_comparison: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
     prompt_injection_detected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     prompt_injection_evidence: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
+    supplier_history_alerts: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
     processed_at_iso: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     evaluation_run: Mapped[EvaluationRun] = relationship(back_populates="proposal_evaluations")
@@ -315,7 +315,7 @@ class AgentTraceStep(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
     message: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(EncryptedJSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     evaluation_run: Mapped[EvaluationRun] = relationship(back_populates="trace_steps")
 
@@ -339,7 +339,7 @@ class HumanReview(Base):
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     notes: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     override_recommended_proposal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     evaluation_run: Mapped[EvaluationRun] = relationship(back_populates="human_reviews")
 
@@ -359,7 +359,7 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     ip_address: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     details: Mapped[dict | None] = mapped_column(EncryptedJSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
 class ChatMessage(Base):
@@ -374,7 +374,7 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     citations: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="chat_messages")
 
@@ -389,4 +389,4 @@ class BcvRateSnapshot(Base):
     source: Mapped[str] = mapped_column(String(128), nullable=False)
     is_manual_override: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recorded_by: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    fetched_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)

@@ -119,6 +119,7 @@ class ProposalEvaluationOut(BaseModel):
     market_comparison: list[dict[str, Any]] | None
     prompt_injection_detected: bool
     prompt_injection_evidence: list[dict[str, Any]] | None
+    supplier_history_alerts: list[dict[str, Any]] | None = None
     processed_at_iso: str | None
 
     model_config = {"from_attributes": True}
@@ -140,7 +141,7 @@ class TraceStepOut(BaseModel):
 
 class HumanReviewCreate(BaseModel):
     proposal_evaluation_id: str | None = None
-    decision: str = Field(pattern="^(confirmed|observed|overridden|approved)$")
+    decision: str = Field(pattern="^(confirmed|observed|overridden|approved|rejected)$")
     notes: str = Field(min_length=3)
     override_recommended_proposal_id: str | None = None
 

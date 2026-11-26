@@ -307,7 +307,7 @@ def audit_proposal_technically(
                 f"(detectadas: {student_qty} estudiantes, {teacher_qty} docente).",
             )
 
-        has_monitor = bool(re.search(r"monitor|ips|proart|ultragear|fhd|qhd|1440p|1080p", low))
+        has_monitor = bool(re.search(r"monitor|pantalla|display|ips|\bva\b|oled|fhd|qhd|4k|uhd|1440p|1080p", low))
         has_protection = bool(re.search(r"ups|avr|regulador|protector|supresor|isobar|cyberpower|apc|forza", low))
         has_install = bool(re.search(r"instalaci[oóeé]n|inst\.?\s*:?\s*\$|en\s+sitio", low))
 
@@ -358,15 +358,15 @@ def audit_proposal_technically(
         score_storage = 8.0 if gb_disk >= 2048 else (7.0 if gb_disk >= 1024 else 4.5)
     score_ram_storage = score_ram + score_storage
 
-    # Monitor & Peripherals (dynamic label from actual text)
+    # Monitor & Peripherals (dynamic label from actual text, brand-agnostic patterns)
     mon_m = (
         re.search(r"monitor[:\s]+([^\n|]{4,60})", text, re.I)
-        or re.search(r"(?:lg\s+ultragear|asus\s+proart|aoc|samsung|viewsonic|msi)\s+[^\n|]{4,50}", text, re.I)
+        or re.search(r"(?:pantalla|display)\s+[^\n|]{4,50}", text, re.I)
     )
     mon_desc = mon_m.group(1).strip() if (mon_m and mon_m.lastindex) else (mon_m.group(0).strip() if mon_m else None)
-    if re.search(r"27\"?\s*qhd|1440p|ultragear", low):
+    if re.search(r"27\"?\s*qhd|1440p|4k|uhd|144\s*hz|165\s*hz", low):
         score_peripherals = 15.0
-    elif re.search(r"proart|100%\s*srgb", low):
+    elif re.search(r"100%\s*srgb|srgb\s*100%|calibrad[oa]\s*(?:de\s*f[aá]brica|srgb)", low):
         score_peripherals = 14.5
     elif re.search(r"mec[aá]nico|redragon|keychron", low):
         score_peripherals = 10.5
