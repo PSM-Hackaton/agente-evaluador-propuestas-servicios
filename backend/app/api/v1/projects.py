@@ -278,6 +278,14 @@ async def transition_project_status(
                 detail="Solo un usuario con rol 'aprobador' o 'admin' puede adjudicar o cerrar un proyecto.",
             )
 
+    if payload.adjudicated_proposal_id:
+        adjudicated = await db.get(Proposal, payload.adjudicated_proposal_id)
+        if adjudicated is None or adjudicated.project_id != project.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La propuesta adjudicada no existe o no pertenece a este proyecto.",
+            )
+
     project.status = target.value
     if payload.adjudicated_proposal_id:
         project.adjudicated_proposal_id = payload.adjudicated_proposal_id
