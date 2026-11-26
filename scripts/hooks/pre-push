@@ -1,0 +1,61 @@
+#!/bin/sh
+# Gancho pre-push: antes de subir revisa los commits nuevos y ejecuta las pruebas.
+#   1. Autor y mensaje de cada commit que se sube (persona real, sin coautorías ni herramientas).
+#   2. Pruebas: backend (pytest) y frontend (npm run build = tsc + vite build) si sus carpetas existen.
+#      Usa backend/.venv si existe; si faltan dependencias, falla e indica cómo instalarlas.
+# Variables: PREPUSH_SOLO=backend|frontend limita las pruebas a una parte.
+# Omitir en un caso justificado: git push --no-verify (y explicarlo en el Merge Request).
+set -eu
+NOMBRE_HOOK=pre-push
+DIR_HOOKS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=scripts/hooks/comun.sh
+. "$DIR_HOOKS/comun.sh"
+RAIZ=$(git rev-parse --show-toplevel)
+CERO=0000000000000000000000000000000000000000
+FALLOS=0
+
+# 1. Commits que se suben (entrada estándar: <ref local> <sha local> <ref remota> <sha remoto>).
+while read -r REF_LOCAL SHA_LOCAL REF_REMOTA SHA_REMOTO; do
+  [ "$SHA_LOCAL" = "$CERO" ] && continue                       # borrado de rama
+  if [ "$SHA_REMOTO" = "$CERO" ]; then RANGO="$SHA_LOCAL --not --remotes"; else RANGO="$SHA_REMOTO..$SHA_LOCAL"; fi
+  # shellcheck disable=SC2086
+  for C in $(git rev-list $RANGO); do
+    NOMBRE=$(git log -1 --format=%an "$C"); CORREO=$(git log -1 --format=%ae "$C")
+    if ! hook_identidad "$NOMBRE" "$CORREO" 2>/dev/null; then
+      hook_error "commit $(git log -1 --format='%h %s' "$C"): autor no válido «$NOMBRE <$CORREO>»"; FALLOS=1
+    fi
+    if git log -1 --format=%B "$C" | grep -Eiq "$PATRON_HERRAMIENTAS|\[bot\]"; then
+      hook_error "commit $(git log -1 --format='%h %s' "$C"): el mensaje tiene coautorías o nombres de herramientas"; FALLOS=1
+    fi
+  done
+done
+[ "$FALLOS" -eq 0 ] || { printf '\nCorrija los commits (git commit --amend o git rebase) antes de subir.\n' >&2; exit 1; }
+
+# 2. Pruebas.
+REGISTRO=$(mktemp); trap 'rm -f "$REGISTRO"' EXIT
+if [ -f "$RAIZ/backend/pyproject.toml" ] && [ "${PREPUSH_SOLO:-backend}" = backend ]; then
+  PY=python3; [ -x "$RAIZ/backend/.venv/bin/python" ] && PY="$RAIZ/backend/.venv/bin/python"
+  if ! "$PY" -c 'import pytest, fastapi' >/dev/null 2>&1; then
+    hook_error "faltan las dependencias del backend para $PY: cd backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'"
+    exit 1
+  fi
+  hook_aviso "backend: pytest con $PY ..."
+  if (cd "$RAIZ/backend" && "$PY" -m pytest -q -p no:cacheprovider) > "$REGISTRO" 2>&1; then
+    hook_aviso "backend: $(tail -n 1 "$REGISTRO")"
+  else
+    tail -n 30 "$REGISTRO" >&2; hook_error 'fallan las pruebas del backend'; exit 1
+  fi
+fi
+if [ -f "$RAIZ/frontend/package.json" ] && [ "${PREPUSH_SOLO:-frontend}" = frontend ]; then
+  if [ ! -d "$RAIZ/frontend/node_modules" ]; then
+    hook_error 'faltan las dependencias del frontend: cd frontend && npm ci'
+    exit 1
+  fi
+  hook_aviso 'frontend: npm run build (tsc + vite) ...'
+  if (cd "$RAIZ/frontend" && npm run build --silent) > "$REGISTRO" 2>&1; then
+    hook_aviso "frontend: $(grep -E 'built in' "$REGISTRO" | tail -n 1)"
+  else
+    tail -n 30 "$REGISTRO" >&2; hook_error 'falla el build del frontend'; exit 1
+  fi
+fi
+exit 0
