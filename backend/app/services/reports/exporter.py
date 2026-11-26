@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 from datetime import UTC, datetime
+from typing import Any
+from xml.sax.saxutils import escape as xml_escape
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -15,6 +17,31 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.db.models import EvaluationRun, HumanReview, Project, ProposalEvaluation
+
+
+def tco_breakdown_steps(p: ProposalEvaluation) -> list[dict[str, Any]]:
+    """Step-by-step real cost (declared + freight + surcharges + taxes) for Section 2.E.4."""
+    steps = (p.tco_breakdown or {}).get("steps") if isinstance(p.tco_breakdown, dict) else None
+    if not steps:
+        steps = [
+            {"step": "Monto declarado", "amount_usd": p.declared_total_usd, "note": p.declared_currency},
+            {"step": "Costo Total Real Ajustado (TCO)", "amount_usd": p.adjusted_tco_usd, "note": ""},
+        ]
+    out: list[dict[str, Any]] = []
+    for st in steps:
+        note = str(st.get("note") or "")
+        if st.get("original_currency") and st.get("original_currency") != "USD":
+            note = f"{st.get('original_amount', 0):,.2f} {st['original_currency']} — {note}"
+        if st.get("amount_ves") is not None:
+            note = f"Bs. {float(st['amount_ves']):,.2f} — {note}"
+        out.append(
+            {
+                "step": str(st.get("step") or ""),
+                "amount_usd": float(st.get("amount_usd") or 0.0),
+                "note": note.replace("|", "/"),
+            }
+        )
+    return out
 
 
 def generate_markdown_report(
@@ -83,8 +110,18 @@ def generate_markdown_report(
     else:
         lines.append("_No hubo propuestas descartadas._")
 
+    lines.extend(["", "## 5. Desglose del Costo Real (paso a paso)", ""])
+    for p in ordered:
+        lines.append(f"### #{p.rank_position} — `{p.proposal_identifier}`")
+        lines.append("")
+        lines.append("| Paso | Monto (USD) | Detalle |")
+        lines.append("|---|---:|---|")
+        for step in tco_breakdown_steps(p):
+            lines.append(f"| {step['step']} | ${step['amount_usd']:,.2f} | {step['note']} |")
+        lines.append("")
+
     if reviews:
-        lines.extend(["", "## 5. Revisión Humana y Actas de Comité", ""])
+        lines.extend(["", "## 6. Revisión Humana y Actas de Comité", ""])
         for rv in reviews:
             lines.append(
                 f"- **{rv.created_at.strftime('%Y-%m-%d %H:%M')}** — {rv.reviewer_name} (`{rv.reviewer_role}`) "
@@ -259,6 +296,11 @@ def generate_xlsx_report(
     return out.getvalue()
 
 
+def _x(value: object) -> str:
+    """Escape untrusted text (supplier data, reviewer notes) for ReportLab paragraph markup."""
+    return xml_escape(str(value if value is not None else ""))
+
+
 def generate_pdf_report(
     project: Project,
     run: EvaluationRun,
@@ -300,9 +342,9 @@ def generate_pdf_report(
 
     story = [
         Paragraph("INFORME EJECUTIVO DE ANÁLISIS Y FACTIBILIDAD FINANCIERA", title_style),
-        Paragraph(f"<b>Proyecto:</b> {project.name}", body_style),
+        Paragraph(f"<b>Proyecto:</b> {_x(project.name)}", body_style),
         Paragraph(
-            f"<b>Ubicación:</b> {project.execution_location} | "
+            f"<b>Ubicación:</b> {_x(project.execution_location)} | "
             f"<b>Estado:</b> {project.status} | "
             f"<b>Tasa Oficial BCV:</b> {run.bcv_rate_used:.4f} Bs/USD ({run.bcv_rate_source})",
             body_style,
@@ -314,7 +356,7 @@ def generate_pdf_report(
         ),
         Spacer(1, 8),
         Paragraph("1. Propuesta Recomendada y Dictamen Ejecutivo", h2_style),
-        Paragraph((run.executive_summary or "Sin resumen.").replace("**", ""), body_style),
+        Paragraph(_x((run.executive_summary or "Sin resumen.").replace("**", "")), body_style),
         Spacer(1, 8),
         Paragraph("2. Tabla Comparativa: Monto Declarado vs. Costo Total Real (TCO)", h2_style),
     ]
@@ -324,7 +366,7 @@ def generate_pdf_report(
         table_data.append(
             [
                 str(p.rank_position),
-                Paragraph(f"<b>{p.proposal_identifier}</b><br/>{p.supplier_name or ''}", small_style),
+                Paragraph(f"<b>{_x(p.proposal_identifier)}</b><br/>{_x(p.supplier_name or '')}", small_style),
                 "VÁLIDA" if p.is_valid else "DESCARTADA",
                 f"${p.declared_total_usd:,.2f}",
                 f"${p.adjusted_tco_usd:,.2f}",
@@ -353,18 +395,52 @@ def generate_pdf_report(
     story.append(Paragraph("3. Dictamen Explícito de Descarte", h2_style))
     if discards:
         for p in discards:
-            story.append(Paragraph(f"• <b>{p.proposal_identifier}</b> ({p.supplier_name}): {p.discard_verdict_text}", small_style))
+            story.append(
+                Paragraph(
+                    f"• <b>{_x(p.proposal_identifier)}</b> ({_x(p.supplier_name)}): {_x(p.discard_verdict_text)}",
+                    small_style,
+                )
+            )
             story.append(Spacer(1, 3))
     else:
         story.append(Paragraph("No se registraron propuestas descartadas.", body_style))
 
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("4. Desglose del Costo Real (paso a paso)", h2_style))
+    for p in ordered:
+        story.append(Paragraph(f"<b>#{p.rank_position} — {_x(p.proposal_identifier)}</b>", small_style))
+        rows = [["Paso", "Monto USD", "Detalle"]]
+        for step in tco_breakdown_steps(p):
+            rows.append(
+                [
+                    Paragraph(_x(step["step"]), small_style),
+                    f"${step['amount_usd']:,.2f}",
+                    Paragraph(_x(step["note"]), small_style),
+                ]
+            )
+        bd = Table(rows, colWidths=[2.3 * inch, 0.95 * inch, 3.85 * inch])
+        bd.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CBD5E1")),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
+        )
+        story.append(bd)
+        story.append(Spacer(1, 4))
+
     if reviews:
         story.append(Spacer(1, 8))
-        story.append(Paragraph("4. Validación y Revisión Humana del Comité", h2_style))
+        story.append(Paragraph("5. Validación y Revisión Humana del Comité", h2_style))
         for rv in reviews:
             story.append(
                 Paragraph(
-                    f"• <b>{rv.reviewer_name}</b> ({rv.reviewer_role}) [{rv.decision.upper()}]: {rv.notes}",
+                    f"• <b>{_x(rv.reviewer_name)}</b> ({_x(rv.reviewer_role)}) "
+                    f"[{_x(rv.decision.upper())}]: {_x(rv.notes)}",
                     small_style,
                 )
             )
