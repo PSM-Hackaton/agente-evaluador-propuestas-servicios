@@ -40,6 +40,8 @@ export interface Proyecto {
   creado_por: string; // nombre del usuario
   creado_en: string;
   total_propuestas: number;
+  propuesta_adjudicada_id?: string | null;
+  nota_adjudicacion?: string | null;
 }
 
 export interface NuevoProyecto {
@@ -65,11 +67,33 @@ export interface Proveedor {
   nombre: string;
   rif: string | null;
   ubicacion: string | null;
+  representante?: string | null;
   telefono: string | null;
   email: string | null;
+  notas?: string | null;
   alerta: boolean;
   motivo_alerta: string | null;
   total_participaciones: number;
+}
+
+export interface AlertaProveedor {
+  id: string;
+  proveedor_id: string;
+  severidad: string;
+  motivo: string;
+  resumen: string;
+  resuelta: boolean;
+  fecha: string;
+}
+
+export interface ProveedorInput {
+  nombre: string;
+  rif?: string | null;
+  ubicacion?: string | null;
+  representante?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  notas?: string | null;
 }
 
 export interface Participacion {
@@ -84,6 +108,7 @@ export interface Participacion {
 }
 
 export interface ProveedorDetalle extends Proveedor {
+  alertas: AlertaProveedor[];
   participaciones: Participacion[];
 }
 
@@ -134,6 +159,7 @@ export interface AjusteCosto {
 }
 
 export interface ResultadoPropuesta {
+  evaluacion_propuesta_id?: string;
   propuesta_id: string;
   codigo: string;
   proveedor: string;
@@ -162,6 +188,17 @@ export interface Evaluacion {
   tasa_bcv_usada: number;
   ejecutada_por: string;
   resultados: ResultadoPropuesta[];
+}
+
+export interface EvaluacionResumen {
+  id: string;
+  proyecto_id: string;
+  estado: Evaluacion['estado'];
+  inicio: string;
+  fin: string | null;
+  tasa_bcv_usada: number;
+  recomendada_codigo: string | null;
+  ejecutada_por: string;
 }
 
 export type PasoAgente =
@@ -195,11 +232,19 @@ export type AccionRevision = 'nota' | 'confirmar' | 'aprobar' | 'rechazar';
 export interface Revision {
   id: string;
   evaluacion_id: string;
+  propuesta_evaluacion_id?: string | null;
+  propuesta_adjudicada_id?: string | null;
+  es_anulacion?: boolean;
   usuario: string;
   rol: Rol;
   accion: AccionRevision;
   comentario: string;
   fecha: string;
+}
+
+export interface OpcionesRevision {
+  propuesta_evaluacion_id?: string | null;
+  propuesta_adjudicada_id?: string | null;
 }
 
 export interface RegistroAuditoria {
@@ -217,6 +262,22 @@ export interface TasaCambio {
   fecha: string;
   usd_ves: number;
   fuente: 'bcv' | 'manual';
+  origen?: string;
+}
+
+export interface TasaHistorialItem {
+  id: string;
+  usd_ves: number;
+  fuente: string;
+  es_manual: boolean;
+  registrada_por: string | null;
+  fecha: string;
+}
+
+export interface ParametrosEvaluacion {
+  enable_web_search?: boolean;
+  bcv_rate_override?: number | null;
+  iva_rate?: number;
 }
 
 export interface MensajeChat {
@@ -226,28 +287,57 @@ export interface MensajeChat {
   fecha: string;
 }
 
-export type FormatoExport = 'pdf' | 'xlsx';
+export type FormatoExport = 'pdf' | 'markdown' | 'xlsx' | 'csv' | 'salida-json';
+
+export interface ExportResult {
+  blob: Blob;
+  filename: string | null;
+}
+
+export interface DashboardStats {
+  active_supplier_alerts: number;
+  prompt_injections_blocked: number;
+  encryption_at_rest: string;
+  db_encrypted: boolean;
+  storage_encrypted: boolean;
+  tls_enabled: boolean;
+  tls_min_version: string;
+  audit_log_entries: number;
+  llm_provider: string;
+}
 
 /** Contrato que implementan tanto la API real (http.ts) como la simulada (mock/). */
 export interface Api {
   auth: {
-    login(email: string, password: string): Promise<{ token: string; user: Usuario }>;
+    login(email: string, password: string): Promise<{ token: string; refreshToken?: string | null; user: Usuario }>;
+    refresh(refreshToken: string): Promise<{ token: string; refreshToken?: string | null }>;
     me(): Promise<Usuario>;
+  };
+  dashboard: {
+    stats(): Promise<DashboardStats>;
   };
   projects: {
     list(): Promise<Proyecto[]>;
     get(id: string): Promise<Proyecto>;
     create(data: NuevoProyecto, archivo: File | null): Promise<Proyecto>;
-    changeState(id: string, estado: EstadoProyecto, nota?: string): Promise<Proyecto>;
+    changeState(
+      id: string,
+      estado: EstadoProyecto,
+      nota?: string,
+      propuestaAdjudicadaId?: string | null,
+    ): Promise<Proyecto>;
     history(id: string): Promise<HistorialEstado[]>;
+    documentUrl(id: string): Promise<string | null>;
   };
   proposals: {
     list(projectId: string): Promise<Propuesta[]>;
     upload(projectId: string, files: File[]): Promise<Propuesta[]>;
     remove(id: string): Promise<void>;
+    downloadUrl(id: string): Promise<string | null>;
   };
   evaluations: {
-    start(projectId: string): Promise<Evaluacion>;
+    start(projectId: string, params?: ParametrosEvaluacion): Promise<Evaluacion>;
+    list(projectId: string): Promise<EvaluacionResumen[]>;
     latest(projectId: string): Promise<Evaluacion | null>;
     get(id: string): Promise<Evaluacion>;
     trazas(id: string): Promise<TrazaAgente[]>;
@@ -258,15 +348,23 @@ export interface Api {
       onDone: (e: Evaluacion | null) => void,
       onError?: (msg: string) => void,
     ): () => void;
-    exportFile(id: string, formato: FormatoExport): Promise<Blob>;
+    exportFile(id: string, formato: FormatoExport): Promise<ExportResult>;
   };
   reviews: {
     list(evaluacionId: string): Promise<Revision[]>;
-    add(evaluacionId: string, accion: AccionRevision, comentario: string): Promise<Revision>;
+    add(
+      evaluacionId: string,
+      accion: AccionRevision,
+      comentario: string,
+      opts?: OpcionesRevision,
+    ): Promise<Revision>;
   };
   suppliers: {
     list(): Promise<Proveedor[]>;
     get(id: string): Promise<ProveedorDetalle>;
+    create(data: ProveedorInput): Promise<Proveedor>;
+    update(id: string, data: Partial<ProveedorInput>): Promise<Proveedor>;
+    resolveAlert(alertId: string): Promise<AlertaProveedor>;
   };
   audit: {
     list(): Promise<RegistroAuditoria[]>;
@@ -277,10 +375,13 @@ export interface Api {
     update(id: string, data: Partial<Pick<Usuario, 'nombre' | 'rol' | 'activo'>>): Promise<Usuario>;
   };
   currency: {
-    bcv(): Promise<TasaCambio>;
+    bcv(refresh?: boolean): Promise<TasaCambio>;
+    history(): Promise<TasaHistorialItem[]>;
+    override(usdToVes: number, nota?: string): Promise<TasaCambio>;
   };
   chat: {
     history(projectId: string): Promise<MensajeChat[]>;
     send(projectId: string, contenido: string): Promise<MensajeChat>;
+    clear(projectId: string): Promise<void>;
   };
 }

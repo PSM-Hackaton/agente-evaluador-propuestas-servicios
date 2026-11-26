@@ -24,7 +24,10 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // Escape cierra, Tab queda atrapado dentro del diálogo y el foco vuelve al disparador al cerrar.
   useEffect(() => {
@@ -62,18 +65,24 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Cerrar ventana"
+        onClick={onClose}
+        className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm"
+      />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={cn('flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl focus:outline-none', SIZES[size])}
-        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          'relative z-10 flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl focus:outline-none',
+          SIZES[size],
+        )}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-slate-900">

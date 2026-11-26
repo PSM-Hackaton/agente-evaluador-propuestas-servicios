@@ -5,9 +5,11 @@ import { detectarTipo, proveedorDesdeCodigo } from '../lib/files';
 import type {
   AccionRevision,
   AjusteCosto,
+  AlertaProveedor,
   ConceptoAjuste,
   EstadoProyecto,
   Evaluacion,
+  EvaluacionResumen,
   ItemEvaluado,
   MensajeChat,
   Moneda,
@@ -21,6 +23,7 @@ import type {
   Revision,
   Rol,
   TasaCambio,
+  TasaHistorialItem,
   TipoArchivo,
   TrazaAgente,
   Usuario,
@@ -56,6 +59,8 @@ export interface BProject {
   proposals_count: number;
   evaluations_count: number;
   latest_evaluation_id: string | null;
+  adjudicated_proposal_id?: string | null;
+  adjudication_notes?: string | null;
   created_by_id: string | null;
   created_at: string;
 }
@@ -140,10 +145,12 @@ export interface BTraceStep {
 export interface BReview {
   id: string;
   evaluation_run_id: string;
+  proposal_evaluation_id?: string | null;
   reviewer_name: string;
   reviewer_role: string;
   decision: string;
   notes: string;
+  override_recommended_proposal_id?: string | null;
   created_at: string;
 }
 
@@ -153,9 +160,14 @@ export interface BEvaluation {
   status: string;
   llm_provider_used: string;
   bcv_rate_used: number;
+  bcv_rate_source?: string;
+  iva_rate_used?: number;
+  web_search_used?: boolean;
   started_at: string;
   finished_at: string | null;
+  duration_seconds?: number | null;
   recommended_proposal_id: string | null;
+  recommended_identifier?: string | null;
   ranking_identifiers: string[] | null;
   error_message: string | null;
   proposal_evaluations?: BProposalEvaluation[];
@@ -168,15 +180,22 @@ export interface BSupplier {
   name: string;
   rif: string | null;
   location: string | null;
+  representative?: string | null;
   phone: string | null;
   email: string | null;
+  notes?: string | null;
   alerts_count: number;
   proposals_count: number;
 }
 
 export interface BSupplierAlert {
+  id: string;
+  supplier_id: string;
+  severity: string;
+  reason_code: string;
   summary: string;
   is_resolved: boolean;
+  created_at: string;
 }
 
 export interface BParticipation {
@@ -208,8 +227,15 @@ export interface BChat {
 
 export interface BBcv {
   usd_to_ves: number;
+  source?: string;
   fetched_at: string;
   is_manual_override: boolean;
+}
+
+export interface BBcvHistoryItem extends BBcv {
+  id: string;
+  source: string;
+  recorded_by: string | null;
 }
 
 // ── Conversores ──────────────────────────────────────────────────────────────
@@ -251,6 +277,8 @@ export function toProyecto(p: BProject): Proyecto {
     creado_por: '—',
     creado_en: fechaUtc(p.created_at),
     total_propuestas: p.proposals_count,
+    propuesta_adjudicada_id: p.adjudicated_proposal_id ?? null,
+    nota_adjudicacion: p.adjudication_notes ?? null,
   };
 }
 
@@ -299,7 +327,7 @@ function conceptoDesdePaso(step: string): ConceptoAjuste {
   return 'otro';
 }
 
-function toAjustes(pe: BProposalEvaluation): AjusteCosto[] {
+export function toAjustes(pe: BProposalEvaluation): AjusteCosto[] {
   // tco_breakdown.steps es la fuente de verdad: el primer paso es el monto declarado y el
   // último el TCO; los intermedios son los costos añadidos. Los campos shipping_cost_usd e
   // installation_cost_usd pueden venir incluidos en el total declarado, por eso no se suman.
@@ -357,6 +385,7 @@ export function toResultado(pe: BProposalEvaluation, tipos: Map<string, TipoArch
       (pe.discard_reasons ?? []).map((r) => r.detail ?? r.code).join('; ') ||
       'Propuesta descartada.';
   return {
+    evaluacion_propuesta_id: pe.id,
     propuesta_id: pe.proposal_id,
     codigo: pe.proposal_identifier,
     proveedor: pe.supplier_name ?? proveedorDesdeCodigo(pe.proposal_identifier),
@@ -394,6 +423,19 @@ export function toEvaluacion(e: BEvaluation, tipos: Map<string, TipoArchivo>): E
     tasa_bcv_usada: e.bcv_rate_used,
     ejecutada_por: e.llm_provider_used ? `Agente (${e.llm_provider_used})` : 'Agente evaluador',
     resultados: (e.proposal_evaluations ?? []).map((pe) => toResultado(pe, tipos)),
+  };
+}
+
+export function toEvaluacionResumen(e: BEvaluation): EvaluacionResumen {
+  return {
+    id: e.id,
+    proyecto_id: e.project_id,
+    estado: ESTADO_EVAL[e.status] ?? 'en_curso',
+    inicio: fechaUtc(e.started_at),
+    fin: e.finished_at ? fechaUtc(e.finished_at) : null,
+    tasa_bcv_usada: e.bcv_rate_used,
+    recomendada_codigo: e.recommended_identifier ?? e.ranking_identifiers?.[0] ?? null,
+    ejecutada_por: e.llm_provider_used ? `Agente (${e.llm_provider_used})` : 'Agente evaluador',
   };
 }
 
@@ -444,7 +486,16 @@ export function toTraza(evaluacionId: string, t: BTraceStep): TrazaAgente {
 // no existe como decisión: se registra como observación marcada con un prefijo.
 const PREFIJO_RECHAZO = '[Rechazo] ';
 
-export function accionHaciaBackend(accion: AccionRevision, comentario: string): { decision: string; notes: string } {
+export function accionHaciaBackend(
+  accion: AccionRevision,
+  comentario: string,
+  opts?: { proposal_evaluation_id?: string | null; override_recommended_proposal_id?: string | null },
+): {
+  decision: string;
+  notes: string;
+  proposal_evaluation_id?: string | null;
+  override_recommended_proposal_id?: string | null;
+} {
   const defecto: Record<AccionRevision, string> = {
     nota: 'Observación del evaluador',
     confirmar: 'Análisis técnico y financiero confirmado',
@@ -452,30 +503,56 @@ export function accionHaciaBackend(accion: AccionRevision, comentario: string): 
     rechazar: 'Evaluación rechazada y devuelta',
   };
   const texto = comentario.trim().length >= 3 ? comentario.trim() : defecto[accion];
+  const extra: {
+    proposal_evaluation_id?: string | null;
+    override_recommended_proposal_id?: string | null;
+  } = {};
+  if (opts?.proposal_evaluation_id) extra.proposal_evaluation_id = opts.proposal_evaluation_id;
   switch (accion) {
     case 'confirmar':
-      return { decision: 'confirmed', notes: texto };
+      return { decision: 'confirmed', notes: texto, ...extra };
     case 'aprobar':
-      return { decision: 'approved', notes: texto };
+      if (opts?.override_recommended_proposal_id) {
+        return {
+          decision: 'overridden',
+          notes: texto,
+          ...extra,
+          override_recommended_proposal_id: opts.override_recommended_proposal_id,
+        };
+      }
+      return { decision: 'approved', notes: texto, ...extra };
     case 'rechazar':
-      return { decision: 'observed', notes: PREFIJO_RECHAZO + texto };
+      return { decision: 'observed', notes: PREFIJO_RECHAZO + texto, ...extra };
     default:
-      return { decision: 'observed', notes: texto };
+      return { decision: 'observed', notes: texto, ...extra };
   }
 }
 
 export function toRevision(r: BReview): Revision {
   let accion: AccionRevision = 'nota';
   let comentario = r.notes;
+  let es_anulacion = false;
+  let propuesta_adjudicada_id: string | null = null;
   if (r.decision === 'confirmed') accion = 'confirmar';
   else if (r.decision === 'approved') accion = 'aprobar';
-  else if (r.decision === 'overridden' || r.notes.startsWith(PREFIJO_RECHAZO)) {
+  else if (r.decision === 'overridden') {
+    if (r.override_recommended_proposal_id) {
+      accion = 'aprobar';
+      es_anulacion = true;
+      propuesta_adjudicada_id = r.override_recommended_proposal_id;
+    } else {
+      accion = 'rechazar';
+    }
+  } else if (r.notes.startsWith(PREFIJO_RECHAZO)) {
     accion = 'rechazar';
     comentario = r.notes.replace(PREFIJO_RECHAZO, '');
   }
   return {
     id: r.id,
     evaluacion_id: r.evaluation_run_id,
+    propuesta_evaluacion_id: r.proposal_evaluation_id ?? null,
+    propuesta_adjudicada_id,
+    es_anulacion,
     usuario: r.reviewer_name,
     rol: asRol(r.reviewer_role),
     accion,
@@ -490,12 +567,26 @@ export function toProveedor(s: BSupplier, motivo: string | null = null): Proveed
     nombre: s.name,
     rif: s.rif,
     ubicacion: s.location,
+    representante: s.representative ?? null,
     telefono: s.phone,
     email: s.email,
+    notas: s.notes ?? null,
     alerta: s.alerts_count > 0,
     motivo_alerta:
       motivo ?? (s.alerts_count > 0 ? `${s.alerts_count} alerta(s) de antecedentes registradas` : null),
     total_participaciones: s.proposals_count,
+  };
+}
+
+export function toAlertaProveedor(a: BSupplierAlert): AlertaProveedor {
+  return {
+    id: a.id,
+    proveedor_id: a.supplier_id,
+    severidad: a.severity,
+    motivo: a.reason_code,
+    resumen: a.summary,
+    resuelta: a.is_resolved,
+    fecha: fechaUtc(a.created_at),
   };
 }
 
@@ -522,5 +613,21 @@ export function toMensaje(m: BChat): MensajeChat {
 }
 
 export function toTasa(b: BBcv): TasaCambio {
-  return { fecha: fechaUtc(b.fetched_at), usd_ves: b.usd_to_ves, fuente: b.is_manual_override ? 'manual' : 'bcv' };
+  return {
+    fecha: fechaUtc(b.fetched_at),
+    usd_ves: b.usd_to_ves,
+    fuente: b.is_manual_override ? 'manual' : 'bcv',
+    origen: b.source,
+  };
+}
+
+export function toTasaHistorial(b: BBcvHistoryItem): TasaHistorialItem {
+  return {
+    id: b.id,
+    usd_ves: b.usd_to_ves,
+    fuente: b.source,
+    es_manual: b.is_manual_override,
+    registrada_por: b.recorded_by,
+    fecha: fechaUtc(b.fetched_at),
+  };
 }

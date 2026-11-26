@@ -2,6 +2,7 @@
 // Persiste en localStorage y simula la ejecución del agente con trazas en vivo.
 import { ApiError, getToken } from '../session';
 import type {
+  AlertaProveedor,
   Api,
   EstadoProyecto,
   Evaluacion,
@@ -18,7 +19,7 @@ import { can, puedeTransicionar, type Permiso } from '../../lib/roles';
 import { MOTIVO_LABEL, TIPO_LABEL, CONCEPTO_LABEL } from '../../lib/labels';
 import { money, pct } from '../../lib/format';
 import { codigoDesdeArchivo, detectarTipo, esPermitido, proveedorDesdeCodigo } from '../../lib/files';
-import { evaluacionToExcelHtml } from '../../lib/export';
+import { evaluacionToCSV, evaluacionToExcelHtml, evaluacionToMarkdown, slug } from '../../lib/export';
 import { cargarDB, construirResultado, guardarDB, ordenarResultados, reiniciarDB, round2, specDe, uid, type DB, type ProyectoRow } from './db';
 import { DEMO_PASSWORD, calcularItems } from './specs';
 
@@ -294,11 +295,40 @@ export const mockApi: Api = {
       if (!user.activo) throw new ApiError(403, 'Usuario desactivado');
       registrar(user.nombre, 'auth.login', 'usuario', user.id);
       persist();
-      return { token: `mock-${user.id}`, user: clone(user) };
+      return { token: `mock-${user.id}`, refreshToken: `mock-rt-${user.id}`, user: clone(user) };
+    },
+    async refresh(refreshToken) {
+      await delay(80);
+      const user = db.usuarios.find((u) => `mock-rt-${u.id}` === refreshToken);
+      if (!user || !user.activo) throw new ApiError(401, 'Sesión expirada');
+      return { token: `mock-${user.id}`, refreshToken };
     },
     async me() {
       await delay(50);
       return clone(usuarioActual());
+    },
+  },
+
+  dashboard: {
+    async stats() {
+      await delay(80);
+      usuarioActual();
+      const alertas = db.proveedores.filter((p) => p.alerta).length;
+      const inyecciones = db.evaluaciones.reduce(
+        (sum, ev) => sum + ev.resultados.filter((r) => r.motivos_descarte.includes('inyeccion')).length,
+        0,
+      );
+      return {
+        active_supplier_alerts: alertas,
+        prompt_injections_blocked: inyecciones,
+        encryption_at_rest: 'AES-256-GCM (demo)',
+        db_encrypted: false,
+        storage_encrypted: false,
+        tls_enabled: false,
+        tls_min_version: 'TLS 1.2 / TLS 1.3',
+        audit_log_entries: db.auditoria.length,
+        llm_provider: 'demo',
+      };
     },
   },
 
@@ -331,11 +361,13 @@ export const mockApi: Api = {
       persist();
       return aProyecto(row);
     },
-    async changeState(id, estado, nota) {
+    async changeState(id, estado, nota, propuestaAdjudicadaId) {
       await delay();
       const u = usuarioActual();
       const row = proyectoRow(id);
       if (!puedeTransicionar(row.estado, estado, u.rol)) throw new ApiError(403, 'Transición de estado no permitida para su rol');
+      if (propuestaAdjudicadaId) row.propuesta_adjudicada_id = propuestaAdjudicadaId;
+      if (nota) row.nota_adjudicacion = nota;
       cambiarEstado(row, estado, u.nombre, nota ?? null);
       persist();
       return aProyecto(row);
@@ -344,6 +376,7 @@ export const mockApi: Api = {
       await delay(80);
       return db.historial.filter((h) => h.proyecto_id === id).sort((a, b) => a.fecha.localeCompare(b.fecha));
     },
+    documentUrl: async () => null,
   },
 
   proposals: {
@@ -396,10 +429,11 @@ export const mockApi: Api = {
       registrar(u.nombre, 'propuesta.eliminar', 'propuesta', id, { codigo: p.codigo });
       persist();
     },
+    downloadUrl: async () => null,
   },
 
   evaluations: {
-    async start(projectId) {
+    async start(projectId, params) {
       await delay(250);
       const u = exigir('evaluacion.ejecutar');
       const row = proyectoRow(projectId);
@@ -416,17 +450,39 @@ export const mockApi: Api = {
         fin: null,
         recomendada_id: null,
         ranking: [],
-        tasa_bcv_usada: db.tasa.usd_ves,
+        tasa_bcv_usada: params?.bcv_rate_override || db.tasa.usd_ves,
         ejecutada_por: u.nombre,
         resultados: [],
       };
       db.evaluaciones.push(ev);
       db.trazas[ev.id] = [];
       cambiarEstado(row, 'EN_EVALUACION', u.nombre, 'Evaluación automática iniciada');
-      registrar(u.nombre, 'evaluacion.ejecutar', 'proyecto', projectId, { propuestas: props.length });
+      registrar(u.nombre, 'evaluacion.ejecutar', 'proyecto', projectId, {
+        propuestas: props.length,
+        tasa_bcv: ev.tasa_bcv_usada,
+        busqueda_web: params?.enable_web_search ?? true,
+        iva_pct: Math.round((params?.iva_rate ?? 0.16) * 100),
+      });
       persist();
       ejecutar(ev, planDeTrazas(row, props));
       return clone(ev);
+    },
+    async list(projectId) {
+      await delay(80);
+      return db.evaluaciones
+        .filter((e) => e.proyecto_id === projectId)
+        .sort((a, b) => b.inicio.localeCompare(a.inicio))
+        .map((e) => ({
+          id: e.id,
+          proyecto_id: e.proyecto_id,
+          estado: e.estado,
+          inicio: e.inicio,
+          fin: e.fin,
+          tasa_bcv_usada: e.tasa_bcv_usada,
+          recomendada_codigo:
+            e.resultados.find((r) => r.propuesta_id === e.recomendada_id)?.codigo ?? e.ranking[0] ?? null,
+          ejecutada_por: e.ejecutada_por,
+        }));
     },
     async latest(projectId) {
       await delay(80);
@@ -462,7 +518,42 @@ export const mockApi: Api = {
       await delay(200);
       const ev = db.evaluaciones.find((e) => e.id === id);
       if (!ev) throw new ApiError(404, 'Evaluación no encontrada');
-      if (formato === 'xlsx') return new Blob([evaluacionToExcelHtml(ev)], { type: 'application/vnd.ms-excel' });
+      const proyecto = aProyecto(proyectoRow(ev.proyecto_id));
+      const base = slug(proyecto.nombre) || 'evaluacion';
+      if (formato === 'xlsx') {
+        return {
+          blob: new Blob([evaluacionToExcelHtml(ev)], { type: 'application/vnd.ms-excel' }),
+          filename: `Comparativa_${base}.xls`,
+        };
+      }
+      if (formato === 'csv') {
+        return {
+          blob: new Blob([evaluacionToCSV(ev)], { type: 'text/csv;charset=utf-8' }),
+          filename: `Comparativa_${base}.csv`,
+        };
+      }
+      if (formato === 'markdown') {
+        return {
+          blob: new Blob([evaluacionToMarkdown(ev, proyecto)], { type: 'text/markdown;charset=utf-8' }),
+          filename: `Informe_${base}.md`,
+        };
+      }
+      if (formato === 'salida-json') {
+        const props = db.propuestas.filter((p) => p.proyecto_id === ev.proyecto_id);
+        const payload = {
+          reto: 'propuesta_servicios',
+          repositorio: 'PSM-Hackaton/agente-evaluador-propuestas-servicios',
+          commit: '0000000000000000000000000000000000000000',
+          inicio: ev.inicio,
+          fin: ev.fin ?? ev.inicio,
+          procesados: props.map((p) => ({ archivo: p.archivo_nombre, hora: ev.fin ?? ev.inicio })),
+          ranking: ev.ranking,
+        };
+        return {
+          blob: new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }),
+          filename: 'salida.json',
+        };
+      }
       throw new ApiError(501, 'En modo demo el PDF se genera con la impresión del navegador');
     },
   },
@@ -472,7 +563,7 @@ export const mockApi: Api = {
       await delay(80);
       return db.revisiones.filter((r) => r.evaluacion_id === evaluacionId).sort((a, b) => a.fecha.localeCompare(b.fecha));
     },
-    async add(evaluacionId, accion, comentario) {
+    async add(evaluacionId, accion, comentario, opts) {
       await delay(200);
       const permiso: Permiso = accion === 'nota' ? 'revision.nota' : accion === 'confirmar' ? 'revision.confirmar' : 'revision.aprobar';
       const u = exigir(permiso);
@@ -482,12 +573,33 @@ export const mockApi: Api = {
       if ((accion === 'aprobar' || accion === 'rechazar') && row.estado !== 'EN_REVISION_COMITE') {
         throw new ApiError(409, 'El proyecto debe estar en revisión del comité');
       }
-      const rev = { id: uid(), evaluacion_id: evaluacionId, usuario: u.nombre, rol: u.rol, accion, comentario, fecha: now() };
+      const targetId = opts?.propuesta_adjudicada_id ?? ev.recomendada_id;
+      const esAnulacion = Boolean(
+        accion === 'aprobar' && opts?.propuesta_adjudicada_id && opts.propuesta_adjudicada_id !== ev.recomendada_id,
+      );
+      const rev = {
+        id: uid(),
+        evaluacion_id: evaluacionId,
+        propuesta_evaluacion_id: opts?.propuesta_evaluacion_id ?? null,
+        propuesta_adjudicada_id: esAnulacion ? targetId : null,
+        es_anulacion: esAnulacion,
+        usuario: u.nombre,
+        rol: u.rol,
+        accion,
+        comentario,
+        fecha: now(),
+      };
       db.revisiones.push(rev);
-      registrar(u.nombre, `revision.${accion}`, 'evaluacion', evaluacionId, comentario ? { comentario } : null);
+      registrar(u.nombre, `revision.${accion}`, 'evaluacion', evaluacionId, {
+        ...(comentario ? { comentario } : {}),
+        ...(opts?.propuesta_evaluacion_id ? { propuesta_evaluacion_id: opts.propuesta_evaluacion_id } : {}),
+        ...(esAnulacion ? { propuesta_adjudicada_id: targetId, anulacion: true } : {}),
+      });
       if (accion === 'aprobar') {
-        const rec = ev.resultados.find((r) => r.propuesta_id === ev.recomendada_id);
-        cambiarEstado(row, 'ADJUDICADO', u.nombre, rec ? `Adjudicado a ${rec.proveedor}` : 'Adjudicado');
+        const rec = ev.resultados.find((r) => r.propuesta_id === targetId);
+        row.propuesta_adjudicada_id = targetId ?? null;
+        row.nota_adjudicacion = comentario || (rec ? `Adjudicado a ${rec.proveedor}` : 'Adjudicado');
+        cambiarEstado(row, 'ADJUDICADO', u.nombre, row.nota_adjudicacion);
       }
       if (accion === 'rechazar') cambiarEstado(row, 'EN_EVALUACION', u.nombre, comentario || 'Devuelto por el comité');
       persist();
@@ -499,13 +611,25 @@ export const mockApi: Api = {
     async list() {
       await delay();
       return db.proveedores
-        .map((p) => ({ ...p, total_participaciones: db.propuestas.filter((x) => x.proveedor_id === p.id).length }))
+        .map((p) => {
+          const activas = (db.alertas ?? []).filter((a) => a.proveedor_id === p.id && !a.resuelta);
+          return {
+            ...p,
+            alerta: activas.length > 0 || (db.alertas == null && p.alerta),
+            motivo_alerta: activas[0]?.resumen ?? (activas.length === 0 && db.alertas != null ? null : p.motivo_alerta),
+            total_participaciones: db.propuestas.filter((x) => x.proveedor_id === p.id).length,
+          };
+        })
         .sort((a, b) => a.nombre.localeCompare(b.nombre));
     },
     async get(id) {
       await delay();
       const p = db.proveedores.find((x) => x.id === id);
       if (!p) throw new ApiError(404, 'Proveedor no encontrado');
+      const alertasProv: AlertaProveedor[] = (db.alertas ?? [])
+        .filter((a) => a.proveedor_id === id)
+        .sort((a, b) => b.fecha.localeCompare(a.fecha));
+      const activas = alertasProv.filter((a) => !a.resuelta);
       const participaciones: Participacion[] = db.propuestas
         .filter((x) => x.proveedor_id === id)
         .map((prop) => {
@@ -528,8 +652,76 @@ export const mockApi: Api = {
           };
         })
         .sort((a, b) => b.fecha.localeCompare(a.fecha));
-      const detalle: ProveedorDetalle = { ...p, total_participaciones: participaciones.length, participaciones };
+      const detalle: ProveedorDetalle = {
+        ...p,
+        alerta: activas.length > 0,
+        motivo_alerta: activas[0]?.resumen ?? null,
+        total_participaciones: participaciones.length,
+        alertas: clone(alertasProv),
+        participaciones,
+      };
       return detalle;
+    },
+    async create(data) {
+      await delay();
+      const u = exigir('proveedor.crear');
+      const rifNorm = data.rif?.trim() ? data.rif.trim().toUpperCase() : null;
+      if (rifNorm && db.proveedores.some((x) => x.rif?.toUpperCase() === rifNorm)) {
+        throw new ApiError(409, 'Ya existe un proveedor con ese RIF');
+      }
+      const row = {
+        id: uid(),
+        nombre: data.nombre.trim(),
+        rif: rifNorm,
+        ubicacion: data.ubicacion?.trim() || null,
+        representante: data.representante?.trim() || null,
+        telefono: data.telefono?.trim() || null,
+        email: data.email?.trim() || null,
+        notas: data.notas?.trim() || null,
+        alerta: false,
+        motivo_alerta: null,
+      };
+      db.proveedores.push(row);
+      registrar(u.nombre, 'proveedor.crear', 'proveedor', row.id, { nombre: row.nombre, rif: row.rif });
+      persist();
+      return { ...row, total_participaciones: 0 };
+    },
+    async update(id, data) {
+      await delay();
+      const u = exigir('proveedor.editar');
+      const target = db.proveedores.find((x) => x.id === id);
+      if (!target) throw new ApiError(404, 'Proveedor no encontrado');
+      const rifNorm = data.rif !== undefined ? (data.rif?.trim() ? data.rif.trim().toUpperCase() : null) : target.rif;
+      if (rifNorm && db.proveedores.some((x) => x.id !== id && x.rif?.toUpperCase() === rifNorm)) {
+        throw new ApiError(409, 'Ya existe otro proveedor con ese RIF');
+      }
+      if (data.nombre !== undefined) target.nombre = data.nombre.trim();
+      if (data.rif !== undefined) target.rif = rifNorm;
+      if (data.ubicacion !== undefined) target.ubicacion = data.ubicacion?.trim() || null;
+      if (data.representante !== undefined) target.representante = data.representante?.trim() || null;
+      if (data.telefono !== undefined) target.telefono = data.telefono?.trim() || null;
+      if (data.email !== undefined) target.email = data.email?.trim() || null;
+      if (data.notas !== undefined) target.notas = data.notas?.trim() || null;
+      registrar(u.nombre, 'proveedor.actualizar', 'proveedor', id, { nombre: target.nombre, rif: target.rif });
+      persist();
+      return { ...clone(target), total_participaciones: db.propuestas.filter((x) => x.proveedor_id === id).length };
+    },
+    async resolveAlert(alertId) {
+      await delay();
+      const u = exigir('proveedor.editar');
+      const lista = (db.alertas ??= []);
+      const alerta = lista.find((a) => a.id === alertId);
+      if (!alerta) throw new ApiError(404, 'Alerta no encontrada');
+      alerta.resuelta = true;
+      const prov = db.proveedores.find((x) => x.id === alerta.proveedor_id);
+      if (prov) {
+        const restantes = lista.filter((a) => a.proveedor_id === prov.id && !a.resuelta);
+        prov.alerta = restantes.length > 0;
+        prov.motivo_alerta = restantes[0]?.resumen ?? null;
+      }
+      registrar(u.nombre, 'proveedor.alerta_revisada', 'alerta', alertId, { proveedor_id: alerta.proveedor_id });
+      persist();
+      return clone(alerta);
     },
   },
 
@@ -570,8 +762,34 @@ export const mockApi: Api = {
   },
 
   currency: {
-    async bcv() {
+    async bcv(refresh = false) {
       await delay(60);
+      if (refresh) {
+        db.tasa = { ...db.tasa, fecha: now() };
+        persist();
+      }
+      return clone(db.tasa);
+    },
+    async history() {
+      await delay(60);
+      return clone(db.tasaHistorial ?? []);
+    },
+    async override(usdToVes, nota) {
+      await delay(80);
+      const u = exigir('bcv.fijar');
+      const fecha = now();
+      const origen = `manual_override:${nota?.trim() || 'comite'}`;
+      db.tasa = { fecha, usd_ves: round2(usdToVes), fuente: 'manual', origen };
+      (db.tasaHistorial ??= []).unshift({
+        id: uid(),
+        usd_ves: db.tasa.usd_ves,
+        fuente: origen,
+        es_manual: true,
+        registrada_por: u.email,
+        fecha,
+      });
+      registrar(u.nombre, 'finanzas.bcv_manual', 'bcv', 'tasa-bcv', { usd_ves: db.tasa.usd_ves, nota: nota || null });
+      persist();
       return clone(db.tasa);
     },
   },
@@ -591,6 +809,12 @@ export const mockApi: Api = {
       registrar(u.nombre, 'chat.consulta', 'proyecto', projectId, { pregunta: contenido.slice(0, 120) });
       persist();
       return resp;
+    },
+    async clear(projectId) {
+      await delay(80);
+      exigir('revision.confirmar');
+      delete db.chat[projectId];
+      persist();
     },
   },
 };
