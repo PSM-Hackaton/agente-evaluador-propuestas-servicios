@@ -4,7 +4,7 @@
 #   1. Exporta el árbol de una referencia git (sin historial) a una carpeta nueva.
 #   2. Quita el material interno (scripts/exclusiones-entrega.txt).
 #   3. Revisa enlaces y menciones a lo excluido; corrige README.md y ARCHITECTURE.md en la copia.
-#   4. Verifica la copia: cadenas prohibidas, rutas /home/, secretos, tamaño, README de 6 apartados.
+#   4. Verifica la copia: cadenas prohibidas, rutas /home/, secretos, tamaño, README con los apartados de la plantilla del evento.
 #   5. Ejecuta las pruebas (backend: pytest; frontend: npm ci + npm run build) y revisa las plantillas
 #      .env.example en una copia temporal. PRUEBAS=rapidas solo comprueba la sintaxis.
 #   6. Crea en la carpeta de salida un repositorio git nuevo (rama avance; terminado con --final)

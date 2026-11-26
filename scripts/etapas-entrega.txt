@@ -104,7 +104,7 @@ rama     javier
 ruta     frontend/
 
 etapa    documentacion
-mensaje  Documentación de entrega: README de 6 apartados, matriz de cumplimiento, flujo de GitLab, plantilla de Merge Request y ganchos de git
+mensaje  Documentación de entrega: README con los apartados de la plantilla del evento, matriz de cumplimiento, flujo de GitLab, plantilla de Merge Request y ganchos de git
 autor    Diego Landaeta <diego.a.programmer@gmail.com>
 rama     diego
 ruta     /README.md

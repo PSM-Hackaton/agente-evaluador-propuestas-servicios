@@ -4,7 +4,7 @@
 
 Este documento fija cómo sube el equipo su trabajo al proyecto asignado en el GitLab del hackatón, de acuerdo con el
 instructivo de GitLab del evento: commits y pushes frecuentes en ramas de trabajo, Merge Request diario hacia
-`avance` y Merge Request final hacia `terminado`, con un `README.md` de 6 apartados en la raíz.
+`avance` y Merge Request final hacia `terminado`, con un `README.md` con los apartados de la plantilla del evento en la raíz.
 
 ## 1. Roles y reglas del equipo
 
@@ -135,7 +135,7 @@ Los proveedores de IA que usa la aplicación (Gemini, OpenAI) **no** se bloquean
 1. *Code freeze* 4 horas antes de la entrega: desde ese momento solo correcciones aprobadas.
 2. Último Merge Request de cada rama de trabajo hacia `avance`.
 3. Comprobación final de la versión limpia (con las herramientas internas de entrega, en el repositorio de
-   trabajo del equipo) y del `README.md` de 6 apartados.
+   trabajo del equipo) y del `README.md` con los apartados de la plantilla del evento.
 4. Si se versiona `salida.json`, se genera con el modo lote desde el clon de GitLab y con `HACKATHON_REPO_PATH`
    igual a la ruta del proyecto en GitLab (la sección 3.C del enunciado indica que GitLab revisa su formato).
 5. Merge Request de `avance` hacia `terminado`, aprobado por Diego Landaeta o Juan Laya.
@@ -146,4 +146,4 @@ Los proveedores de IA que usa la aplicación (Gemini, OpenAI) **no** se bloquean
 - [ ] Cada integrante: identidad real configurada y `sh scripts/instalar-hooks.sh` ejecutado en su clon.
 - [ ] Commits pequeños, push frecuente a la rama propia.
 - [ ] Merge Request diario hacia `avance` con la plantilla **Entrega**, aprobado por un Maintainer.
-- [ ] Code freeze, Merge Request final hacia `terminado` con el README de 6 apartados.
+- [ ] Code freeze, Merge Request final hacia `terminado` con el README con los apartados de la plantilla del evento.

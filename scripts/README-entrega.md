@@ -90,7 +90,7 @@ sh scripts/subir-por-etapas.sh --ref staging --salida ../entrega-gitlab --forzar
 | 4 `backend-api` | Enggel Rodríguez | `enggel` | API REST/SSE, informes, modo lote, TLS, prueba e2e, `backend/README.md` y cualquier otro archivo de `backend/` |
 | 5 `frontend-base` | Javier Rodríguez | `javier` | Proyecto Vite, cliente de la API, sesión, roles, componentes base |
 | 6 `frontend-modulos` | Javier Rodríguez | `javier` | Páginas y componentes de negocio, `frontend/README.md` y el resto de `frontend/` |
-| 7 `documentacion` | Diego Landaeta | `diego` | `README.md` de 6 apartados, `docs/cumplimiento/`, `docs/entrega/`, plantilla `.gitlab/` y ganchos `scripts/hooks/` + `scripts/instalar-hooks.sh` |
+| 7 `documentacion` | Diego Landaeta | `diego` | `README.md` con los apartados de la plantilla del evento, `docs/cumplimiento/`, `docs/entrega/`, plantilla `.gitlab/` y ganchos `scripts/hooks/` + `scripts/instalar-hooks.sh` |
 
 El orden sigue la cronología de GitHub (estructura 11:34, backend desde 13:42, frontend 14:08). Si la rama
 integrada trae archivos nuevos fuera de `backend/` y `frontend/`, el plan falla diciendo cuáles quedaron sin
@@ -179,7 +179,7 @@ usa la aplicación, como Gemini u OpenAI, **sí** pueden aparecer: son funcional
 `/home/`; tokens de GitHub/GitLab y similares o llaves privadas PEM; archivos sensibles por nombre (`.env`,
 llaves, certificados, bases de datos, `node_modules/`, `.venv/`, `__pycache__/`, `dist/`, `*.enc`,
 `backend/data/`, `.claude/`); archivos de más de 5 MB; o un `README.md` sin los 6 apartados del instructivo como
-títulos `## N. Nombre`, en orden. Los hallazgos legítimos que no se puedan corregir en el repositorio se anotan
+títulos exactos de la plantilla del evento (`# <título>` y los `##` sin numeración), en orden. Los hallazgos legítimos que no se puedan corregir en el repositorio se anotan
 en `scripts/permitidos-entrega.txt` (`marcas|rutas|secretos <ruta>`); hoy está vacío.
 
 ## Qué se excluye
@@ -212,5 +212,5 @@ Cualquier respuesta distinta de `SI` (o el fin de la entrada) omite ese push y e
 - [ ] Día 1: `subir-por-etapas.sh` sin `--subir`, revisión del plan; después con `--subir`.
 - [ ] Al final de cada día: Merge Request hacia `avance`, sin *Squash commits*.
 - [ ] Code freeze 4 horas antes de la entrega.
-- [ ] `README.md` con los 6 apartados antes del merge a `terminado` (pasos «a confirmar» ya confirmados).
+- [ ] `README.md` con los apartados de la plantilla del evento antes del merge a `terminado` (pasos «a confirmar» ya confirmados).
 - [ ] Merge Request final de `avance` hacia `terminado`.

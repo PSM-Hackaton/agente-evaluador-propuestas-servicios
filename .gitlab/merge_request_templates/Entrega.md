@@ -12,7 +12,7 @@
 Quien abre el Merge Request marca cada punto; quien lo aprueba (Diego Landaeta o Juan Laya) lo comprueba.
 
 ### Documentación
-- [ ] `README.md` en la raíz con los 6 apartados en orden: 1 Nombre del proyecto · 2 Participantes (nombre completo y rol) · 3 Descripción del proyecto · 4 Alcance · 5 Requerimientos del sistema · 6 Instalación y despliegue.
+- [ ] `README.md` en la raíz con la plantilla del evento, en orden: `# <título>` · `## Participantes` (nombre completo y rol) · `## Descripción del proyecto` · `## Alcance` · `## Requerimientos del sistema` · `## Paso a paso de instalación / despliegue`.
 - [ ] Si cambia la instalación, las variables de entorno o los comandos, el README y el `.env.example` correspondiente están actualizados.
 
 ### Pruebas en verde
