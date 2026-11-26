@@ -693,3 +693,79 @@ async def test_issue36_sse_background_evaluation_delivers_all_steps_from_step_1(
     final_eval = (await app_client.get(f"/api/v1/evaluations/{eval_id}", headers=revisor)).json()
     assert len(step_nums) == len(final_eval["trace_steps"])
     assert step_nums[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #37 (R3-E14): No false overprices on 131/331 and ReTech alert priority
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue37_no_false_overprice_and_retech_alert_priority(
+    app_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify logistics/cross-station specs do not cause false overprices and ReTech surfaces inyeccion_prompt first."""
+    from app.services.agent.orchestrator import _spec_context_for_price
+    from app.services.agent.tools import extract_proposal_structured_heuristic
+    from app.services.market import search as market_search
+
+    doc_331 = await ingestion_pipeline.ingest_document(
+        "Propuesta_331_Mayorista_Sin_Fronteras_CA.png",
+        (PROPUESTAS_DIR / "Propuesta_331_Mayorista_Sin_Fronteras_CA.png").read_bytes(),
+        llm_client=None,
+    )
+    h_331 = extract_proposal_structured_heuristic(doc_331.identifier, doc_331.sanitized_text)
+    targets_331 = market_search.extract_market_searchable_items(
+        doc_331.sanitized_text,
+        h_331["line_items"],
+        spec_context_fn=_spec_context_for_price,
+    )
+    assert all(t["category"] not in ("envio", "instalacion") for t in targets_331)
+
+    teacher_target = next(t for t in targets_331 if t["category"] == "estacion_docente")
+    assert "ryzen 7 7700" in teacher_target["description"].lower()
+    assert "ryzen 5 7600" not in teacher_target["description"].lower()
+
+    # Shipping line evaluated directly returns sin_referencia without overprice
+    ship_res = await market_search.search_market_price("Envío y Logística $160", 160.0, enable_web=False)
+    assert ship_res["status"] == "sin_referencia"
+    assert ship_res["is_abusive_overprice"] is False
+
+    # Web returning only loose component prices ($280/$310) must NOT mark a $1,590 workstation as overprice
+    async def _mock_loose_parts(query: str) -> list[dict]:
+        return [
+            {"title": "AMD Ryzen 7 7700 CPU Only", "url": "https://example.com/cpu", "snippet": "$280.00", "extracted_price_usd": 280.0, "retrieved_at": "2026-11-26T00:00:00Z"},
+            {"title": "RTX 4060 GPU Only", "url": "https://example.com/gpu", "snippet": "$310.00", "extracted_price_usd": 310.0, "retrieved_at": "2026-11-26T00:00:00Z"},
+        ]
+
+    market_search._SEARCH_CACHE.clear()
+    monkeypatch.setattr(market_search, "_search_ddgs", _mock_loose_parts)
+    monkeypatch.setattr(market_search.get_settings(), "tavily_api_key", "")
+    ws_res = await market_search.search_market_price(teacher_target["description"], 1590.0, enable_web=True)
+    assert ws_res["is_abusive_overprice"] is False
+    assert ws_res["reference_source_type"] == "baseline_fallback_only"
+    market_search._SEARCH_CACHE.clear()
+
+    # End-to-end supplier alert ordering for ReTech (131) puts inyeccion_prompt first
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+    pid = (await app_client.post("/api/v1/projects", json={"name": "ReTech Priority R3-E14", "execution_location": "Caracas"}, headers=cargador)).json()["id"]
+    files = [
+        ("files", ("Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf", (PROPUESTAS_DIR / "Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf").read_bytes(), "application/pdf")),
+        ("files", ("Propuesta_602_Krypton_Ingenieria_CA.png", (PROPUESTAS_DIR / "Propuesta_602_Krypton_Ingenieria_CA.png").read_bytes(), "image/png")),
+        ("files", ("Propuesta_923_Grupo_Digital_Miranda_CA.pdf", (PROPUESTAS_DIR / "Propuesta_923_Grupo_Digital_Miranda_CA.pdf").read_bytes(), "application/pdf")),
+    ]
+    assert (await app_client.post(f"/api/v1/projects/{pid}/proposals", files=files, headers=cargador)).status_code == 201
+    ev = await app_client.post(
+        f"/api/v1/projects/{pid}/evaluate",
+        json={"enable_web_search": False, "run_in_background": False, "bcv_rate_override": 50.0},
+        headers=revisor,
+    )
+    assert ev.status_code == 201
+    retech_eval = next(pe for pe in ev.json()["proposal_evaluations"] if "131" in pe["proposal_identifier"])
+    assert retech_eval["discard_reasons"][0]["code"] == "inyeccion_prompt"
+
+    sups = (await app_client.get("/api/v1/suppliers?search=ReTech", headers=revisor)).json()
+    assert len(sups) >= 1
+    detail = (await app_client.get(f"/api/v1/suppliers/{sups[0]['id']}", headers=revisor)).json()
+    assert detail["alerts"][0]["reason_code"] == "inyeccion_prompt"
+    assert detail["alerts"][0]["severity"] == "critical"
