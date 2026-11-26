@@ -2,7 +2,7 @@
 
 <!-- Una o dos frases: qué cambia y por qué. -->
 
-- **Rama de origen → destino:** `javier` / `enggel` / `diego` → `avance` (cierre del día) · `avance` → `terminado` (entrega final)
+- **Rama de origen → destino:** `javier` / `enggel` → `desarrollo` (registro del commit ya validado en `pruebas` y subido sin forzar)
 - **Issue relacionado:** Closes #
 - **Aprobación previa:** Pull Request de GitHub hacia `staging` aprobado por Diego Landaeta o Juan Laya: #
 - **Parte del enunciado que cubre:** <!-- p. ej. 2.D.3 trazabilidad, 2.E.4 normalización BCV, 3.C salida.json -->
@@ -28,6 +28,7 @@ Quien abre el Merge Request marca cada punto; quien lo aprueba (Diego Landaeta o
 ### Autoría y requisitos de la competencia
 - [ ] Todo lo que sube este Merge Request fue **aprobado antes** por Diego Landaeta o Juan Laya (Pull Request de GitHub enlazado arriba).
 - [ ] Todos los commits son de la persona que hizo el trabajo, con su nombre completo y su correo de GitLab (nada de correos `@*.local`, cuentas automáticas ni identidades de otra persona).
+- [ ] Cada commit lleva título `tipo(ámbito): descripción concreta (#issue)` y cuerpo con qué se cambió, por qué, cómo se verificó y riesgos.
 - [ ] Sin rastros de herramientas de autoría ni líneas de coautoría en commits, código o documentos.
 - [ ] Los ganchos del proyecto están activos en mi clon (`sh scripts/instalar-hooks.sh`) y no usé `--no-verify` (si lo usé, explico aquí por qué).
 - [ ] Commits pequeños, con mensajes en castellano que dicen qué cambia.
