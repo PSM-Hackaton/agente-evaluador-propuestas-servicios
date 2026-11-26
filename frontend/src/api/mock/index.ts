@@ -425,7 +425,7 @@ export const mockApi: Api = {
   },
 
   evaluations: {
-    async start(projectId) {
+    async start(projectId, params) {
       await delay(250);
       const u = exigir('evaluacion.ejecutar');
       const row = proyectoRow(projectId);
@@ -442,14 +442,19 @@ export const mockApi: Api = {
         fin: null,
         recomendada_id: null,
         ranking: [],
-        tasa_bcv_usada: db.tasa.usd_ves,
+        tasa_bcv_usada: params?.bcv_rate_override || db.tasa.usd_ves,
         ejecutada_por: u.nombre,
         resultados: [],
       };
       db.evaluaciones.push(ev);
       db.trazas[ev.id] = [];
       cambiarEstado(row, 'EN_EVALUACION', u.nombre, 'Evaluación automática iniciada');
-      registrar(u.nombre, 'evaluacion.ejecutar', 'proyecto', projectId, { propuestas: props.length });
+      registrar(u.nombre, 'evaluacion.ejecutar', 'proyecto', projectId, {
+        propuestas: props.length,
+        tasa_bcv: ev.tasa_bcv_usada,
+        busqueda_web: params?.enable_web_search ?? true,
+        iva_pct: Math.round((params?.iva_rate ?? 0.16) * 100),
+      });
       persist();
       ejecutar(ev, planDeTrazas(row, props));
       return clone(ev);
@@ -728,8 +733,34 @@ export const mockApi: Api = {
   },
 
   currency: {
-    async bcv() {
+    async bcv(refresh = false) {
       await delay(60);
+      if (refresh) {
+        db.tasa = { ...db.tasa, fecha: now() };
+        persist();
+      }
+      return clone(db.tasa);
+    },
+    async history() {
+      await delay(60);
+      return clone(db.tasaHistorial ?? []);
+    },
+    async override(usdToVes, nota) {
+      await delay(80);
+      const u = exigir('bcv.fijar');
+      const fecha = now();
+      const origen = `manual_override:${nota?.trim() || 'comite'}`;
+      db.tasa = { fecha, usd_ves: round2(usdToVes), fuente: 'manual', origen };
+      (db.tasaHistorial ??= []).unshift({
+        id: uid(),
+        usd_ves: db.tasa.usd_ves,
+        fuente: origen,
+        es_manual: true,
+        registrada_por: u.email,
+        fecha,
+      });
+      registrar(u.nombre, 'finanzas.bcv_manual', 'bcv', 'tasa-bcv', { usd_ves: db.tasa.usd_ves, nota: nota || null });
+      persist();
       return clone(db.tasa);
     },
   },

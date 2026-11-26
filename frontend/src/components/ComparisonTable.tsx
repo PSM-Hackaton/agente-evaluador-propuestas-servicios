@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Award, Eye } from 'lucide-react';
-import type { ResultadoPropuesta } from '../api/types';
+import type { Moneda, ResultadoPropuesta } from '../api/types';
 import { cn } from '../lib/cn';
-import { money } from '../lib/format';
+import { money, number } from '../lib/format';
 import { MOTIVO_LABEL, TIPO_LABEL } from '../lib/labels';
 import { CostBreakdown } from './CostBreakdown';
 import { Badge, Button, Modal } from './ui';
@@ -17,7 +17,9 @@ type Filtro = 'todas' | 'validas' | 'descartadas';
 
 export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: ComparisonTableProps) {
   const [filtro, setFiltro] = useState<Filtro>('todas');
+  const [monedaVista, setMonedaVista] = useState<Moneda>('USD');
   const [detalle, setDetalle] = useState<ResultadoPropuesta | null>(null);
+  const mult = monedaVista === 'VES' ? tasaBcv : 1;
 
   const ordenados = [...resultados].sort((a, b) => a.posicion - b.posicion);
   const validasCount = ordenados.filter((r) => r.valida).length;
@@ -31,29 +33,51 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
-        {(
-          [
-            ['todas', `Todas (${ordenados.length})`],
-            ['validas', `Válidas (${validasCount})`],
-            ['descartadas', `Descartadas (${descartadasCount})`],
-          ] as [Filtro, string][]
-        ).map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            aria-pressed={filtro === k}
-            onClick={() => setFiltro(k)}
-            className={cn(
-              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-              filtro === k
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ['todas', `Todas (${ordenados.length})`],
+              ['validas', `Válidas (${validasCount})`],
+              ['descartadas', `Descartadas (${descartadasCount})`],
+            ] as [Filtro, string][]
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={filtro === k}
+              onClick={() => setFiltro(k)}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                filtro === k
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">Tasa: Bs. {number(tasaBcv)} / USD</span>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+            {(['USD', 'VES'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={monedaVista === m}
+                onClick={() => setMonedaVista(m)}
+                className={cn(
+                  'rounded-md px-2.5 py-1 font-medium transition-colors',
+                  monedaVista === m ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100',
+                )}
+              >
+                {m === 'USD' ? 'USD' : 'Bs.'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -64,7 +88,7 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
               <th>Propuesta / Proveedor</th>
               <th className="text-right">Declarado</th>
               <th className="text-right">Ajustes ocultos</th>
-              <th className="text-right">Costo real USD</th>
+              <th className="text-right">Costo real {monedaVista === 'USD' ? 'USD' : 'Bs.'}</th>
               <th>Puntaje</th>
               <th>Estado</th>
               <th className="text-right print:hidden">Detalle</th>
@@ -94,19 +118,19 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
                   </td>
                   <td className="text-right tabular-nums text-slate-700">
                     <div>{money(r.total_declarado, r.moneda)}</div>
-                    {r.moneda !== 'USD' && (
-                      <div className="text-xs text-slate-500">{money(r.total_declarado_usd)}</div>
+                    {r.moneda !== monedaVista && (
+                      <div className="text-xs text-slate-500">{money(r.total_declarado_usd * mult, monedaVista)}</div>
                     )}
                   </td>
                   <td className="text-right tabular-nums">
                     {sumAjustes > 0 ? (
-                      <span className="font-medium text-amber-700">+ {money(sumAjustes)}</span>
+                      <span className="font-medium text-amber-700">+ {money(sumAjustes * mult, monedaVista)}</span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
                   <td className="text-right font-semibold tabular-nums text-slate-900">
-                    {money(r.total_ajustado_usd)}
+                    {money(r.total_ajustado_usd * mult, monedaVista)}
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
@@ -163,7 +187,7 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
               <span className="font-semibold">Dictamen: </span>
               {detalle.dictamen}
             </div>
-            <CostBreakdown resultado={detalle} tasaBcv={tasaBcv} />
+            <CostBreakdown resultado={detalle} tasaBcv={tasaBcv} monedaVista={monedaVista} />
           </div>
         )}
       </Modal>

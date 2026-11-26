@@ -11,7 +11,8 @@ export type Permiso =
   | 'usuarios.admin'
   | 'chat.usar'
   | 'proveedor.crear'
-  | 'proveedor.editar';
+  | 'proveedor.editar'
+  | 'bcv.fijar';
 
 const PERMISOS: Record<Permiso, Rol[]> = {
   // Alineado con los conjuntos ROLES_UPLOAD / ROLES_EVALUATE del backend (app/core/security.py)
@@ -26,6 +27,7 @@ const PERMISOS: Record<Permiso, Rol[]> = {
   'chat.usar': ['admin', 'cargador', 'revisor', 'aprobador', 'auditor'],
   'proveedor.crear': ['admin', 'cargador', 'revisor'],
   'proveedor.editar': ['admin', 'revisor', 'aprobador'],
+  'bcv.fijar': ['admin', 'aprobador'],
 };
 
 export function can(rol: Rol | undefined | null, permiso: Permiso): boolean {

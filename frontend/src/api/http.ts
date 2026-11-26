@@ -17,10 +17,12 @@ import {
   toProyecto,
   toRevision,
   toTasa,
+  toTasaHistorial,
   toTraza,
   toUsuario,
   type BAudit,
   type BBcv,
+  type BBcvHistoryItem,
   type BChat,
   type BEvaluation,
   type BParticipation,
@@ -226,10 +228,15 @@ export const httpApi: Api = {
   },
 
   evaluations: {
-    async start(projectId) {
+    async start(projectId, params) {
       const e = await req<BEvaluation>(`/projects/${projectId}/evaluate`, {
         method: 'POST',
-        body: json({ run_in_background: true, enable_web_search: true }),
+        body: json({
+          run_in_background: true,
+          enable_web_search: params?.enable_web_search ?? true,
+          bcv_rate_override: params?.bcv_rate_override ?? null,
+          iva_rate: params?.iva_rate ?? 0.16,
+        }),
       });
       return toEvaluacion(e, await tiposDeProyecto(projectId));
     },
@@ -429,7 +436,15 @@ export const httpApi: Api = {
   },
 
   currency: {
-    bcv: async () => toTasa(await req<BBcv>('/finance/bcv-rate')),
+    bcv: async (refresh = false) => toTasa(await req<BBcv>(`/finance/bcv-rate${refresh ? '?refresh=true' : ''}`)),
+    history: async () => (await req<BBcvHistoryItem[]>('/finance/bcv-rate/history')).map(toTasaHistorial),
+    override: async (usdToVes, nota) =>
+      toTasa(
+        await req<BBcv>('/finance/bcv-rate/override', {
+          method: 'POST',
+          body: json({ usd_to_ves: usdToVes, note: nota || null }),
+        }),
+      ),
   },
 
   chat: {

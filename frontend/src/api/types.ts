@@ -251,6 +251,22 @@ export interface TasaCambio {
   fecha: string;
   usd_ves: number;
   fuente: 'bcv' | 'manual';
+  origen?: string;
+}
+
+export interface TasaHistorialItem {
+  id: string;
+  usd_ves: number;
+  fuente: string;
+  es_manual: boolean;
+  registrada_por: string | null;
+  fecha: string;
+}
+
+export interface ParametrosEvaluacion {
+  enable_web_search?: boolean;
+  bcv_rate_override?: number | null;
+  iva_rate?: number;
 }
 
 export interface MensajeChat {
@@ -303,7 +319,7 @@ export interface Api {
     downloadUrl(id: string): string | null;
   };
   evaluations: {
-    start(projectId: string): Promise<Evaluacion>;
+    start(projectId: string, params?: ParametrosEvaluacion): Promise<Evaluacion>;
     list(projectId: string): Promise<EvaluacionResumen[]>;
     latest(projectId: string): Promise<Evaluacion | null>;
     get(id: string): Promise<Evaluacion>;
@@ -337,7 +353,9 @@ export interface Api {
     update(id: string, data: Partial<Pick<Usuario, 'nombre' | 'rol' | 'activo'>>): Promise<Usuario>;
   };
   currency: {
-    bcv(): Promise<TasaCambio>;
+    bcv(refresh?: boolean): Promise<TasaCambio>;
+    history(): Promise<TasaHistorialItem[]>;
+    override(usdToVes: number, nota?: string): Promise<TasaCambio>;
   };
   chat: {
     history(projectId: string): Promise<MensajeChat[]>;

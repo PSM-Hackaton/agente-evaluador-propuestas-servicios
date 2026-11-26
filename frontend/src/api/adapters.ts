@@ -23,6 +23,7 @@ import type {
   Revision,
   Rol,
   TasaCambio,
+  TasaHistorialItem,
   TipoArchivo,
   TrazaAgente,
   Usuario,
@@ -222,8 +223,15 @@ export interface BChat {
 
 export interface BBcv {
   usd_to_ves: number;
+  source?: string;
   fetched_at: string;
   is_manual_override: boolean;
+}
+
+export interface BBcvHistoryItem extends BBcv {
+  id: string;
+  source: string;
+  recorded_by: string | null;
 }
 
 // ── Conversores ──────────────────────────────────────────────────────────────
@@ -563,5 +571,21 @@ export function toMensaje(m: BChat): MensajeChat {
 }
 
 export function toTasa(b: BBcv): TasaCambio {
-  return { fecha: fechaUtc(b.fetched_at), usd_ves: b.usd_to_ves, fuente: b.is_manual_override ? 'manual' : 'bcv' };
+  return {
+    fecha: fechaUtc(b.fetched_at),
+    usd_ves: b.usd_to_ves,
+    fuente: b.is_manual_override ? 'manual' : 'bcv',
+    origen: b.source,
+  };
+}
+
+export function toTasaHistorial(b: BBcvHistoryItem): TasaHistorialItem {
+  return {
+    id: b.id,
+    usd_ves: b.usd_to_ves,
+    fuente: b.source,
+    es_manual: b.is_manual_override,
+    registrada_por: b.recorded_by,
+    fecha: fechaUtc(b.fetched_at),
+  };
 }

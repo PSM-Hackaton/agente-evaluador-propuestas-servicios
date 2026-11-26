@@ -22,6 +22,7 @@ import {
 import {
   api,
   type EstadoProyecto,
+  type ParametrosEvaluacion,
   type ResultadoPropuesta,
   type TrazaAgente,
 } from '../api';
@@ -80,6 +81,10 @@ export function ProjectDetailPage() {
   const [recDetalle, setRecDetalle] = useState<ResultadoPropuesta | null>(null);
   const [verOtrasValidas, setVerOtrasValidas] = useState(false);
   const [selectedEvalId, setSelectedEvalId] = useState<string | null>(null);
+  const [evalModalOpen, setEvalModalOpen] = useState(false);
+  const [paramWebSearch, setParamWebSearch] = useState(true);
+  const [paramIvaPct, setParamIvaPct] = useState('16');
+  const [paramBcvOverride, setParamBcvOverride] = useState('');
 
   const projectQ = useQuery({
     queryKey: ['project', id],
@@ -207,9 +212,10 @@ export function ProjectDetailPage() {
   });
 
   const startEvalMut = useMutation({
-    mutationFn: () => api.evaluations.start(id),
+    mutationFn: (params?: ParametrosEvaluacion) => api.evaluations.start(id, params),
     onSuccess: async (ev) => {
       setActionError(null);
+      setEvalModalOpen(false);
       setSelectedEvalId(null);
       qc.setQueryData(['evaluation', id, 'latest'], ev);
       pickTab('trazabilidad');
@@ -520,7 +526,7 @@ export function ProjectDetailPage() {
               title="Requerimiento del proyecto y ejecución del agente"
               action={
                 <Button
-                  onClick={() => startEvalMut.mutate()}
+                  onClick={() => setEvalModalOpen(true)}
                   loading={startEvalMut.isPending}
                   disabled={!puedeEvaluar}
                 >
@@ -1029,6 +1035,95 @@ export function ProjectDetailPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal parámetros de evaluación */}
+      <Modal
+        open={evalModalOpen}
+        onClose={() => setEvalModalOpen(false)}
+        title="Parámetros de evaluación del agente"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const ivaNum = Number(paramIvaPct.replace(',', '.'));
+            const bcvNum = paramBcvOverride.trim() ? Number(paramBcvOverride.replace(',', '.')) : null;
+            if (!Number.isFinite(ivaNum) || ivaNum < 0 || ivaNum > 50) {
+              setActionError('La alícuota de IVA debe estar entre 0 % y 50 %.');
+              return;
+            }
+            if (bcvNum != null && (!Number.isFinite(bcvNum) || bcvNum <= 0)) {
+              setActionError('La tasa BCV de anulación debe ser mayor a 0.');
+              return;
+            }
+            startEvalMut.mutate({
+              enable_web_search: paramWebSearch,
+              iva_rate: ivaNum / 100,
+              bcv_rate_override: bcvNum,
+            });
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Configura las condiciones financieras y de verificación antes de iniciar el análisis de {propuestas.length} propuestas.
+          </p>
+
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-800">
+            <input
+              id="eval-web-search"
+              type="checkbox"
+              checked={paramWebSearch}
+              onChange={(e) => setParamWebSearch(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            Habilitar contraste de precios en internet (búsqueda web)
+          </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="eval-iva-rate" className="mb-1 block text-xs font-semibold text-slate-700">
+                Alícuota IVA (%)
+              </label>
+              <input
+                id="eval-iva-rate"
+                type="number"
+                step="0.5"
+                min="0"
+                max="50"
+                required
+                className="input"
+                value={paramIvaPct}
+                onChange={(e) => setParamIvaPct(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="eval-bcv-override" className="mb-1 block text-xs font-semibold text-slate-700">
+                Anular tasa BCV (opcional, Bs./USD)
+              </label>
+              <input
+                id="eval-bcv-override"
+                type="number"
+                step="0.01"
+                min="0.01"
+                className="input"
+                value={paramBcvOverride}
+                onChange={(e) => setParamBcvOverride(e.target.value)}
+                placeholder="Usar tasa BCV activa"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button variant="secondary" type="button" onClick={() => setEvalModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={startEvalMut.isPending}>
+              <Play className="h-4 w-4" />
+              Iniciar evaluación
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

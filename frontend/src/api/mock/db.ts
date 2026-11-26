@@ -12,6 +12,7 @@ import type {
   ResultadoPropuesta,
   Revision,
   TasaCambio,
+  TasaHistorialItem,
   TrazaAgente,
   Usuario,
 } from '../types';
@@ -34,6 +35,7 @@ export interface DB {
   auditoria: RegistroAuditoria[];
   chat: Record<string, MensajeChat[]>;
   tasa: TasaCambio;
+  tasaHistorial?: TasaHistorialItem[];
 }
 
 const KEY = 'aeps.mockdb';
@@ -280,7 +282,17 @@ function crearSeed(): DB {
     revisiones,
     auditoria,
     chat: {},
-    tasa: { fecha: new Date().toISOString(), usd_ves: TASA_DEMO, fuente: 'manual' },
+    tasa: { fecha: new Date().toISOString(), usd_ves: TASA_DEMO, fuente: 'manual', origen: 'referencia_demo' },
+    tasaHistorial: [
+      {
+        id: 'bcv-init',
+        usd_ves: TASA_DEMO,
+        fuente: 'referencia_demo',
+        es_manual: false,
+        registrada_por: 'sistema',
+        fecha: new Date().toISOString(),
+      },
+    ],
   };
 }
 
@@ -291,6 +303,16 @@ export function cargarDB(): DB {
       const parsed = JSON.parse(raw) as DB;
       if (parsed.version === VERSION) {
         parsed.alertas ??= [];
+        parsed.tasaHistorial ??= [
+          {
+            id: 'bcv-init',
+            usd_ves: parsed.tasa.usd_ves,
+            fuente: parsed.tasa.origen ?? parsed.tasa.fuente,
+            es_manual: parsed.tasa.fuente === 'manual',
+            registrada_por: null,
+            fecha: parsed.tasa.fecha,
+          },
+        ];
         return parsed;
       }
     }
