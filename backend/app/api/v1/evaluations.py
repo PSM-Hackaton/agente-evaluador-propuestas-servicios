@@ -30,6 +30,7 @@ from app.schemas.domain import (
     HumanReviewOut,
 )
 from app.services.agent.orchestrator import (
+    get_buffered_trace_events,
     run_project_evaluation_in_db,
     subscribe_trace,
     unsubscribe_trace,
@@ -177,10 +178,11 @@ async def stream_evaluation_trace(
         raise
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
-        last_sent_step = 0
+        sent_steps: set[int] = set()
+        terminal_sent = False
         try:
-            for step in run.trace_steps:
-                last_sent_step = max(last_sent_step, step.step_number)
+            for step in sorted(run.trace_steps, key=lambda s: s.step_number):
+                sent_steps.add(step.step_number)
                 yield {
                     "event": "trace_step",
                     "data": json.dumps(
@@ -197,7 +199,21 @@ async def stream_evaluation_trace(
                     ),
                 }
 
-            if run.status in (EvaluationStatus.COMPLETED.value, EvaluationStatus.FAILED.value):
+            for buf_evt in get_buffered_trace_events(evaluation_id):
+                evt_name = buf_evt.get("event", "trace_step")
+                if evt_name == "trace_step":
+                    step_no = int(buf_evt.get("step_number") or 0)
+                    if step_no and step_no in sent_steps:
+                        continue
+                    if step_no:
+                        sent_steps.add(step_no)
+                    yield {"event": "trace_step", "data": json.dumps(buf_evt, ensure_ascii=False)}
+                elif evt_name in ("completed", "failed"):
+                    terminal_sent = True
+                    yield {"event": evt_name, "data": json.dumps(buf_evt, ensure_ascii=False)}
+                    return
+
+            if run.status in (EvaluationStatus.COMPLETED.value, EvaluationStatus.FAILED.value) and not terminal_sent:
                 yield {
                     "event": run.status,
                     "data": json.dumps(
@@ -217,9 +233,10 @@ async def stream_evaluation_trace(
                     evt_name = evt.get("event", "trace_step")
                     if evt_name == "trace_step":
                         step_no = int(evt.get("step_number") or 0)
-                        if step_no and step_no <= last_sent_step:
+                        if step_no and step_no in sent_steps:
                             continue
-                        last_sent_step = max(last_sent_step, step_no)
+                        if step_no:
+                            sent_steps.add(step_no)
                     yield {"event": evt_name, "data": json.dumps(evt, ensure_ascii=False)}
                     if evt_name in ("completed", "failed"):
                         break

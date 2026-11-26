@@ -44,8 +44,23 @@ from app.services.storage.encrypted_storage import EncryptedFileStorage
 
 logger = logging.getLogger(__name__)
 
-# In-memory SSE pub/sub bus keyed by evaluation_run_id
+# In-memory SSE pub/sub bus and per-run event replay buffer keyed by evaluation_run_id
 _TRACE_SUBSCRIBERS: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+_TRACE_BUFFERS: dict[str, list[dict[str, Any]]] = {}
+_TRACE_BUFFER_MAX_RUNS = 64
+
+
+def init_trace_buffer(evaluation_id: str) -> None:
+    """Initialize an in-memory replay buffer for a new evaluation run."""
+    if evaluation_id not in _TRACE_BUFFERS and len(_TRACE_BUFFERS) >= _TRACE_BUFFER_MAX_RUNS:
+        oldest = next(iter(_TRACE_BUFFERS))
+        _TRACE_BUFFERS.pop(oldest, None)
+    _TRACE_BUFFERS[evaluation_id] = []
+
+
+def get_buffered_trace_events(evaluation_id: str) -> list[dict[str, Any]]:
+    """Return a snapshot of buffered trace events for an evaluation run."""
+    return list(_TRACE_BUFFERS.get(evaluation_id, ()))
 
 
 def subscribe_trace(evaluation_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -63,6 +78,10 @@ def unsubscribe_trace(evaluation_id: str, q: asyncio.Queue[dict[str, Any]]) -> N
 
 
 def _publish_trace_event(evaluation_id: str, event: dict[str, Any]) -> None:
+    if evaluation_id not in _TRACE_BUFFERS and len(_TRACE_BUFFERS) >= _TRACE_BUFFER_MAX_RUNS:
+        oldest = next(iter(_TRACE_BUFFERS))
+        _TRACE_BUFFERS.pop(oldest, None)
+    _TRACE_BUFFERS.setdefault(evaluation_id, []).append(event)
     for q in _TRACE_SUBSCRIBERS.get(evaluation_id, []):
         q.put_nowait(event)
 
@@ -914,6 +933,7 @@ async def run_project_evaluation_in_db(
         prop_by_id[prop.id] = prop
 
     step_num = 0
+    init_trace_buffer(run.id)
 
     async def persist_and_stream_trace(
         phase: str,
