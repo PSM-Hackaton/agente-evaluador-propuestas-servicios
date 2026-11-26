@@ -17,6 +17,7 @@ interface ExportButtonsProps {
 
 export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
   const [busy, setBusy] = useState<'pdf' | 'xlsx' | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const baseName = slug(proyecto.nombre) || 'evaluacion';
 
   const handlePDF = async () => {
@@ -37,10 +38,13 @@ export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
 
   const handleExcel = async () => {
     setBusy('xlsx');
+    setError(null);
     try {
       const blob = await api.evaluations.exportFile(evaluacion.id, 'xlsx');
       const ext = isMock ? 'xls' : 'xlsx';
       downloadBlob(blob, `Comparativa_${baseName}.${ext}`);
+    } catch (e) {
+      setError(e instanceof Error ? `No se pudo generar el Excel: ${e.message}` : 'No se pudo generar el Excel');
     } finally {
       setBusy(null);
     }
@@ -74,6 +78,11 @@ export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
         <FileSpreadsheet className="h-4 w-4" />
         Excel
       </Button>
+      {error && (
+        <p role="alert" className="w-full text-xs text-red-700">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
