@@ -8,5 +8,10 @@ dist/
 build/
 *.pem
 *.key
+*.crt
 *.db
 .DS_Store
+backend/data/
+backend/certs/
+.pytest_cache/
+*.egg-info/
