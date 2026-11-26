@@ -164,6 +164,17 @@ export interface Evaluacion {
   resultados: ResultadoPropuesta[];
 }
 
+export interface EvaluacionResumen {
+  id: string;
+  proyecto_id: string;
+  estado: Evaluacion['estado'];
+  inicio: string;
+  fin: string | null;
+  tasa_bcv_usada: number;
+  recomendada_codigo: string | null;
+  ejecutada_por: string;
+}
+
 export type PasoAgente =
   | 'inicio'
   | 'lectura'
@@ -270,6 +281,7 @@ export interface Api {
   };
   evaluations: {
     start(projectId: string): Promise<Evaluacion>;
+    list(projectId: string): Promise<EvaluacionResumen[]>;
     latest(projectId: string): Promise<Evaluacion | null>;
     get(id: string): Promise<Evaluacion>;
     trazas(id: string): Promise<TrazaAgente[]>;

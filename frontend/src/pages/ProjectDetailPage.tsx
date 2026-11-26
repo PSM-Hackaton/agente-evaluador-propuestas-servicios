@@ -79,6 +79,7 @@ export function ProjectDetailPage() {
   const [transicionNota, setTransicionNota] = useState('');
   const [recDetalle, setRecDetalle] = useState<ResultadoPropuesta | null>(null);
   const [verOtrasValidas, setVerOtrasValidas] = useState(false);
+  const [selectedEvalId, setSelectedEvalId] = useState<string | null>(null);
 
   const projectQ = useQuery({
     queryKey: ['project', id],
@@ -92,9 +93,15 @@ export function ProjectDetailPage() {
     enabled: !!id,
   });
 
+  const evaluationsListQ = useQuery({
+    queryKey: ['evaluations-list', id],
+    queryFn: () => api.evaluations.list(id),
+    enabled: !!id,
+  });
+
   const evaluationQ = useQuery({
-    queryKey: ['evaluation', id],
-    queryFn: () => api.evaluations.latest(id),
+    queryKey: ['evaluation', id, selectedEvalId ?? 'latest'],
+    queryFn: () => (selectedEvalId ? api.evaluations.get(selectedEvalId) : api.evaluations.latest(id)),
     enabled: !!id,
   });
 
@@ -109,6 +116,7 @@ export function ProjectDetailPage() {
   // Selección automática de pestaña inicial al cargar por primera vez
   useEffect(() => {
     userPickedTab.current = false;
+    setSelectedEvalId(null);
     setTrazas([]);
     setStreamError(null);
   }, [id]);
@@ -142,6 +150,7 @@ export function ProjectDetailPage() {
             qc.invalidateQueries({ queryKey: ['project', id] }),
             qc.invalidateQueries({ queryKey: ['proposals', id] }),
             qc.invalidateQueries({ queryKey: ['evaluation', id] }),
+            qc.invalidateQueries({ queryKey: ['evaluations-list', id] }),
             qc.invalidateQueries({ queryKey: ['project-history', id] }),
             qc.invalidateQueries({ queryKey: ['suppliers'] }),
             qc.invalidateQueries({ queryKey: ['audit'] }),
@@ -201,10 +210,12 @@ export function ProjectDetailPage() {
     mutationFn: () => api.evaluations.start(id),
     onSuccess: async (ev) => {
       setActionError(null);
-      qc.setQueryData(['evaluation', id], ev);
+      setSelectedEvalId(null);
+      qc.setQueryData(['evaluation', id, 'latest'], ev);
       pickTab('trazabilidad');
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['project', id] }),
+        qc.invalidateQueries({ queryKey: ['evaluations-list', id] }),
         qc.invalidateQueries({ queryKey: ['project-history', id] }),
         qc.invalidateQueries({ queryKey: ['projects'] }),
         qc.invalidateQueries({ queryKey: ['audit'] }),
@@ -251,6 +262,57 @@ export function ProjectDetailPage() {
   const proyecto = projectQ.data;
   const propuestas = proposalsQ.data ?? [];
   const historial = historyQ.data ?? [];
+  const listaEvaluaciones = evaluationsListQ.data ?? [];
+  const latestRunId = listaEvaluaciones[0]?.id ?? null;
+  const viendoHistorica = !!evaluacion && !!latestRunId && evaluacion.id !== latestRunId;
+
+  const evalSelectorBlock =
+    listaEvaluaciones.length > 0 ? (
+      <div className="space-y-3 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <label htmlFor="eval-run-selector" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Ejecución consultada ({listaEvaluaciones.length})
+            </label>
+            <select
+              id="eval-run-selector"
+              value={selectedEvalId ?? latestRunId ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedEvalId(v && v !== latestRunId ? v : null);
+              }}
+              className="input w-auto max-w-full py-1.5 text-sm"
+            >
+              {listaEvaluaciones.map((run, idx) => {
+                const estadoTxt =
+                  run.estado === 'completada'
+                    ? 'Completada'
+                    : run.estado === 'error'
+                      ? 'Con error'
+                      : 'En curso';
+                const tag = idx === 0 ? 'Más reciente' : `Histórica #${listaEvaluaciones.length - idx}`;
+                return (
+                  <option key={run.id} value={run.id}>
+                    {tag} · {datetime(run.inicio)} · {estadoTxt}
+                    {run.recomendada_codigo ? ` (${run.recomendada_codigo})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          {viendoHistorica && (
+            <Button size="sm" variant="secondary" onClick={() => setSelectedEvalId(null)}>
+              Volver a la más reciente
+            </Button>
+          )}
+        </div>
+        {viendoHistorica && evaluacion && (
+          <Alert tone="info" title="Vista de ejecución histórica">
+            Estás revisando una evaluación anterior ({datetime(evaluacion.inicio)}). Los reportes exportados y la trazabilidad mostrados corresponden a esa corrida específica.
+          </Alert>
+        )}
+      </div>
+    ) : null;
 
   const puedeSubir =
     can(user?.rol, 'propuesta.cargar') &&
@@ -636,6 +698,7 @@ export function ProjectDetailPage() {
       {/* TAB 2: TRAZABILIDAD */}
       {tab === 'trazabilidad' && (
         <div className="space-y-4">
+          {evalSelectorBlock}
           {streamError && <Alert tone="error">{streamError}</Alert>}
           {!evaluacion ? (
             <EmptyState
@@ -672,6 +735,7 @@ export function ProjectDetailPage() {
       {/* TAB 3: INFORME */}
       {tab === 'informe' && (
         <div className="space-y-6">
+          {evalSelectorBlock}
           {!evaluacion ? (
             <EmptyState
               icon={FileBarChart2}

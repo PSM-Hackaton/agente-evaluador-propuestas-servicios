@@ -8,6 +8,7 @@ import {
   estadoHaciaBackend,
   toAuditoria,
   toEvaluacion,
+  toEvaluacionResumen,
   toMensaje,
   toMotivos,
   toPropuesta,
@@ -231,6 +232,7 @@ export const httpApi: Api = {
       });
       return toEvaluacion(e, await tiposDeProyecto(projectId));
     },
+    list: async (projectId) => (await req<BEvaluation[]>(`/projects/${projectId}/evaluations`)).map(toEvaluacionResumen),
     async latest(projectId) {
       const p = await req<BProject>(`/projects/${projectId}`);
       if (!p.latest_evaluation_id) return null;

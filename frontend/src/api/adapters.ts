@@ -8,6 +8,7 @@ import type {
   ConceptoAjuste,
   EstadoProyecto,
   Evaluacion,
+  EvaluacionResumen,
   ItemEvaluado,
   MensajeChat,
   Moneda,
@@ -153,9 +154,14 @@ export interface BEvaluation {
   status: string;
   llm_provider_used: string;
   bcv_rate_used: number;
+  bcv_rate_source?: string;
+  iva_rate_used?: number;
+  web_search_used?: boolean;
   started_at: string;
   finished_at: string | null;
+  duration_seconds?: number | null;
   recommended_proposal_id: string | null;
+  recommended_identifier?: string | null;
   ranking_identifiers: string[] | null;
   error_message: string | null;
   proposal_evaluations?: BProposalEvaluation[];
@@ -394,6 +400,19 @@ export function toEvaluacion(e: BEvaluation, tipos: Map<string, TipoArchivo>): E
     tasa_bcv_usada: e.bcv_rate_used,
     ejecutada_por: e.llm_provider_used ? `Agente (${e.llm_provider_used})` : 'Agente evaluador',
     resultados: (e.proposal_evaluations ?? []).map((pe) => toResultado(pe, tipos)),
+  };
+}
+
+export function toEvaluacionResumen(e: BEvaluation): EvaluacionResumen {
+  return {
+    id: e.id,
+    proyecto_id: e.project_id,
+    estado: ESTADO_EVAL[e.status] ?? 'en_curso',
+    inicio: fechaUtc(e.started_at),
+    fin: e.finished_at ? fechaUtc(e.finished_at) : null,
+    tasa_bcv_usada: e.bcv_rate_used,
+    recomendada_codigo: e.recommended_identifier ?? e.ranking_identifiers?.[0] ?? null,
+    ejecutada_por: e.llm_provider_used ? `Agente (${e.llm_provider_used})` : 'Agente evaluador',
   };
 }
 

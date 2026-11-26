@@ -453,6 +453,23 @@ export const mockApi: Api = {
       ejecutar(ev, planDeTrazas(row, props));
       return clone(ev);
     },
+    async list(projectId) {
+      await delay(80);
+      return db.evaluaciones
+        .filter((e) => e.proyecto_id === projectId)
+        .sort((a, b) => b.inicio.localeCompare(a.inicio))
+        .map((e) => ({
+          id: e.id,
+          proyecto_id: e.proyecto_id,
+          estado: e.estado,
+          inicio: e.inicio,
+          fin: e.fin,
+          tasa_bcv_usada: e.tasa_bcv_usada,
+          recomendada_codigo:
+            e.resultados.find((r) => r.propuesta_id === e.recomendada_id)?.codigo ?? e.ranking[0] ?? null,
+          ejecutada_por: e.ejecutada_por,
+        }));
+    },
     async latest(projectId) {
       await delay(80);
       const ev = ultimaEvaluacion(projectId);
