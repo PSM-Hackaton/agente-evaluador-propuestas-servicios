@@ -2,13 +2,11 @@
 
 **Reto Grupal 3** (IA, Desarrollo de Software y Ciberseguridad) del Hackatón Venezuela INNOVA 2026.
 
-## 1. Nombre del proyecto
-
 **Agente Evaluador de Propuestas de Servicios**: un agente de inteligencia artificial autónomo, con interfaz web,
 que audita propuestas económicas de proveedores frente a un documento de proyecto y emite un dictamen de
 factibilidad financiera.
 
-## 2. Participantes
+## Participantes
 
 | Nombre completo | Cédula | Rol |
 | :--- | :--- | :--- |
@@ -18,7 +16,7 @@ factibilidad financiera.
 | Juan Laya | C.I. 31.902.000 | Arquitectura y coordinación técnica |
 | Giovani Marcano | C.I. 31.920.153 | Pruebas y calidad |
 
-## 3. Descripción del proyecto
+## Descripción del proyecto
 
 Las instituciones que compran bienes o servicios reciben muchas propuestas en formatos distintos: PDF de
 oficina, fotos de presupuestos hechos a mano, hojas de cálculo y capturas de chats con el proveedor. Revisarlas
@@ -71,7 +69,7 @@ docs/cumplimiento/  Matriz de cumplimiento de los requisitos del reto (HTML y PD
 Más detalle en [backend/README.md](backend/README.md), [frontend/README.md](frontend/README.md) y la
 [matriz de cumplimiento](docs/cumplimiento/matriz-cumplimiento.html).
 
-## 4. Alcance
+## Alcance
 
 ### Funcionalidades incluidas
 
@@ -121,7 +119,7 @@ El estado verificado de cada requisito está en la
 - Los usuarios de demostración se crean con contraseñas conocidas (ver `backend/README.md`); deben cambiarse
   fuera de una demostración.
 
-## 5. Requerimientos del sistema
+## Requerimientos del sistema
 
 ### Lenguajes, versiones y dependencias
 
@@ -152,11 +150,13 @@ El estado verificado de cada requisito está en la
 | `MASTER_ENCRYPTION_KEY` | Clave AES-256 (32 bytes en base64 URL-safe). **Obligatorio cambiarla.** |
 | `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Firma y duración de las sesiones. **Cambiar el secreto.** |
 | `TLS_ENABLED`, `TLS_CERT_FILE`, `TLS_KEY_FILE` | HTTPS directo en Uvicorn con el certificado indicado. |
-| `LLM_PROVIDER` | `auto` (elige según la clave disponible o usa el modo heurístico), `gemini` u `openai`. |
+| `LLM_PROVIDER` | `auto` (elige según la clave disponible o usa el modo heurístico), `gemini`, `openai` o `heuristic`. |
 | `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_VISION_MODEL` | Credencial y modelos de Google Gemini. |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Credencial, URL y modelos de OpenAI o de una API compatible. |
 | `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY` | Activa la búsqueda de precios; Tavily es opcional. |
 | `BCV_FALLBACK_RATE`, `DEFAULT_IVA_RATE` | Tasa de respaldo (Bs por USD) e IVA (0,16). |
+| `ABUSIVE_SURCHARGE_PCT_THRESHOLD` | Recargo (flete, envío) sobre el subtotal, en %, a partir del cual se considera abusivo (`50`). |
+| `MAX_UPLOAD_SIZE_MB` | Tamaño máximo por archivo subido (`25`). |
 | `HACKATHON_REPO_PATH`, `TIMEZONE_OFFSET` | Campo `repositorio` de `salida.json` (ruta en el GitLab del evento) y zona horaria (`-04:00`). |
 
 ### Variables de entorno del frontend (`frontend/.env`, plantilla `frontend/.env.example`)
@@ -167,19 +167,19 @@ El estado verificado de cada requisito está en la
 | `VITE_API_URL` | Prefijo de la API para el navegador (`/api/v1`, servido por el proxy de Vite). |
 | `BACKEND_URL` | Destino del proxy de Vite en desarrollo (`http://localhost:8000`). |
 
-## 6. Instalación y despliegue
+## Paso a paso de instalación / despliegue
 
-> Los pasos siguen los README de cada componente. Los marcados **(a confirmar tras la integración)** dependen de
-> unir las ramas del frontend y del backend en `staging` y se revisarán entonces.
+> Los pasos siguen los README de cada componente y están comprobados sobre `staging` con el frontend y el backend
+> integrados (modo real del frontend y TLS 1.2/1.3).
 
-### 6.1 Clonar
+### Paso 1. Clonar
 
 ```sh
 git clone <URL-del-repositorio> agente-evaluador-propuestas-servicios
 cd agente-evaluador-propuestas-servicios
 ```
 
-### 6.2 Backend
+### Paso 2. Backend
 
 ```sh
 # Tesseract para el OCR local (Debian/Ubuntu)
@@ -207,7 +207,7 @@ pytest -v
 Al arrancar se crean la base de datos y un usuario de demostración por cada rol (correos y contraseñas en
 `backend/README.md`).
 
-### 6.3 Frontend
+### Paso 3. Frontend
 
 ```sh
 cd frontend
@@ -218,10 +218,10 @@ npm run build        # verificación de TypeScript y compilación de producción
 ```
 
 Con `VITE_USE_MOCK=true` (valor por defecto) la interfaz funciona sola, con datos de demostración.
-Para usar el backend real **(a confirmar tras la integración)**: en `frontend/.env`, `VITE_USE_MOCK=false`,
+Para usar el backend real: en `frontend/.env`, `VITE_USE_MOCK=false`,
 `VITE_API_URL=/api/v1` y `BACKEND_URL=http://localhost:8000`; con el backend en marcha, `npm run dev`.
 
-### 6.4 Modo lote: `salida.json` (sección 3 del enunciado)
+### Paso 4. Modo lote: `salida.json` (sección 3 del enunciado)
 
 ```sh
 cd backend
@@ -234,7 +234,7 @@ HACKATHON_REPO_PATH="<ruta-del-repositorio-en-GitLab>" \
 Opciones: `--no-web-search` (sin búsqueda web) y `--bcv-rate <tasa>` (tasa fija). El programa valida el archivo
 antes de terminar. Con los datos de ejemplo: `--lote ../docs/reto`.
 
-### 6.5 Despliegue con TLS 1.2/1.3 **(a confirmar tras la integración)**
+### Paso 5. Despliegue con TLS 1.2/1.3
 
 ```sh
 cd backend
@@ -245,7 +245,7 @@ TLS_ENABLED=true python -m app.run             # HTTPS directo en Uvicorn
 En producción, servir el frontend compilado (`frontend/dist/`) y el backend detrás de Nginx con la plantilla
 `backend/nginx/tls.conf` (`ssl_protocols TLSv1.2 TLSv1.3`), y ajustar `CORS_ORIGINS` al dominio público.
 
-### 6.6 Contribuir
+### Paso 6. Contribuir
 
 Antes del primer commit en un clon nuevo, activar los ganchos de git del proyecto (bloquean secretos, archivos
 `.env`, archivos de más de 5 MB y mensajes no válidos, y ejecutan las pruebas antes de cada push):

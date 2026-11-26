@@ -1,17 +1,47 @@
+# Variables de entorno y secretos (solo se versionan las plantillas .env.example)
 .env
 *.env
-__pycache__/
-*.pyc
-.venv/
-node_modules/
-dist/
-build/
+.env.*
+!.env.example
 *.pem
 *.key
 *.crt
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[co]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node y compilaciones
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+
+# Datos locales del backend (bases, documentos cifrados, certificados TLS locales)
 *.db
-.DS_Store
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
 backend/data/
 backend/certs/
-.pytest_cache/
-*.egg-info/
+backend/salida*.json
+
+# Registros y archivos del sistema o del editor
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

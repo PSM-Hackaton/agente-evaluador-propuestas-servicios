@@ -254,13 +254,13 @@ const NOMBRES_SENSIBLES = [
   /(^|\/)dist\//, /\.egg-info\//, /\.enc$/, /^backend\/data\//, /^backend\/certs\//, /(^|\/)\.claude\//,
 ];
 
+// Títulos de nivel 2 de la plantilla del evento, en orden (el título del proyecto va como "# <título>").
 const SECCIONES_README = [
-  ['1', 'Nombre del proyecto'],
-  ['2', 'Participantes'],
-  ['3', 'Descripción del proyecto'],
-  ['4', 'Alcance'],
-  ['5', 'Requerimientos del sistema'],
-  ['6', 'Instalación y despliegue'],
+  ['1', 'Participantes'],
+  ['2', 'Descripción del proyecto'],
+  ['3', 'Alcance'],
+  ['4', 'Requerimientos del sistema'],
+  ['5', 'Paso a paso de instalación / despliegue'],
 ];
 
 const sinAcentos = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -337,23 +337,28 @@ function cmdVerificar(copia, archivoPermitidos, { sinReadme = false } = {}) {
     }
   }
 
-  // README.md: seis apartados obligatorios, en orden, como títulos de nivel 2.
-  // Con --sin-readme (etapas intermedias de la subida progresiva) el README aún no se ha incorporado.
+  // README.md: título "# <título>" y los apartados de la plantilla del evento, en orden, como títulos de nivel 2
+  // con el texto exacto (sin numeración). Con --sin-readme (etapas intermedias de la subida progresiva) el README
+  // aún no se ha incorporado.
   const readme = join(copia, 'README.md');
   if (sinReadme) { /* se comprueba en la etapa que lo incorpora y en la copia completa */ }
   else if (!existsSync(readme)) hallazgos.readme.push('No existe README.md en la raíz.');
   else {
-    const titulos = readFileSync(readme, 'utf8').split('\n')
+    const lineas = readFileSync(readme, 'utf8').split('\n');
+    const primera = lineas.find((l) => l.trim() !== '');
+    if (!primera || !/^#\s+\S/.test(primera)) hallazgos.readme.push('README.md:1: debe empezar con el título del proyecto ("# <título>")');
+    const titulos = lineas
       .map((l, i) => ({ l, i: i + 1 }))
       .filter(({ l }) => /^##\s+/.test(l) && !/^###/.test(l))
       .map(({ l, i }) => ({ t: sinAcentos(l.replace(/^##\s+/, '').trim()), i }));
     let ultimo = 0;
-    for (const [n, nombre] of SECCIONES_README) {
+    for (const [, nombre] of SECCIONES_README) {
       const objetivo = sinAcentos(nombre);
-      const h = titulos.find(({ t }) => t.replace(/^\d+[.)]?\s*/, '').startsWith(objetivo));
-      if (!h) { hallazgos.readme.push(`Falta el apartado ${n}. ${nombre} (título "## ${n}. ${nombre}")`); continue; }
-      if (!new RegExp(`^${n}[.)]?\\s`).test(h.t)) hallazgos.readme.push(`README.md:${h.i}: el apartado "${nombre}" no lleva el número ${n}`);
-      if (h.i < ultimo) hallazgos.readme.push(`README.md:${h.i}: "${nombre}" está fuera del orden del instructivo`);
+      const h = titulos.find(({ t }) => t === objetivo)
+        ?? titulos.find(({ t }) => t.replace(/^\d+[.)]?\s*/, '').startsWith(objetivo));
+      if (!h) { hallazgos.readme.push(`Falta el apartado "## ${nombre}"`); continue; }
+      if (h.t !== objetivo) hallazgos.readme.push(`README.md:${h.i}: el título debe ser exactamente "## ${nombre}"`);
+      if (h.i < ultimo) hallazgos.readme.push(`README.md:${h.i}: "${nombre}" está fuera del orden de la plantilla`);
       ultimo = Math.max(ultimo, h.i);
     }
   }
@@ -364,7 +369,7 @@ function cmdVerificar(copia, archivoPermitidos, { sinReadme = false } = {}) {
     ['secretos', 'Secretos (tokens, llaves privadas PEM)'],
     ['nombres', 'Archivos sensibles por nombre (.env, llaves, bases, node_modules)'],
     ['tamano', 'Archivos de más de 5 MB'],
-    ['readme', 'README.md con los 6 apartados del instructivo, en orden'],
+    ['readme', 'README.md con el título y los apartados de la plantilla del evento, en orden'],
   ].filter(([cat]) => !(sinReadme && cat === 'readme'));
   let fallos = 0;
   for (const [cat, titulo] of informe) {
