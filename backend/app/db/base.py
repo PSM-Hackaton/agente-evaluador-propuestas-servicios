@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Text, TypeDecorator, event
+from sqlalchemy import DateTime, Text, TypeDecorator, event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -78,6 +79,27 @@ class EncryptedJSON(TypeDecorator):
         if isinstance(value, str) and value.startswith(ENVELOPE_PREFIX):
             return get_db_cipher().decrypt_json(value)
         return json.loads(value)
+
+
+class UTCDateTime(TypeDecorator):
+    """SQLAlchemy DateTime type that preserves UTC tzinfo across SQLite and PostgreSQL."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 
 _engine: AsyncEngine | None = None

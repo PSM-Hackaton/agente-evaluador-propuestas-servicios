@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import blind_index
-from app.db.models import Supplier, SupplierAlert
+from app.db.models import DiscardReasonCode, Project, Supplier, SupplierAlert
 from app.services.agent.technical_audit import audit_proposal_technically
 from app.services.finance.bcv import get_active_bcv_rate
 from app.services.finance.tco import compute_tco_breakdown, verify_arithmetic
@@ -332,6 +332,9 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
     shipping_cost = sum(float(i["unit_price"]) * float(i["quantity"]) for i in line_items if i["category"] == "envio")
     if shipping_cost == 0.0:
         shipping_cost = _extract_single_charge(
+            r"(?:Env[ií]o(?:\s+y\s+Log[ií]stica)?|Flete|Traslado)[^\$\n|]{0,40}:\s*\$\s*([0-9,\.]+)",
+            text,
+        ) or _extract_single_charge(
             r"(?:Env[ií]o(?:\s+y\s+Log[ií]stica)?|Flete|Traslado)[^\$]{0,80}?\$\s*([0-9,\.]+)",
             text,
         )
@@ -349,6 +352,9 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
     install_cost = sum(float(i["unit_price"]) * float(i["quantity"]) for i in line_items if i["category"] == "instalacion")
     if install_cost == 0.0:
         install_cost = _extract_single_charge(
+            r"(?:Instalaci[oóeé]n(?:\s+y\s+Verificaci[oó]n)?|Inst\.)[^\$\n|]{0,40}:\s*\$\s*([0-9,\.]+)",
+            text,
+        ) or _extract_single_charge(
             r"(?:Instalaci[oóeé]n(?:\s+y\s+Verificaci[oó]n)?|Inst\.)[^\$]{0,80}?\$\s*([0-9,\.]+)",
             text,
         )
@@ -494,7 +500,7 @@ class AgentToolbox:
         self, supplier_name: str | None, supplier_rif: str | None
     ) -> dict[str, Any]:
         if self.db is None or (not supplier_name and not supplier_rif):
-            return {"found": False, "alerts": []}
+            return {"found": False, "alerts": [], "has_prior_prompt_injection": False}
 
         supplier = None
         rif_h = blind_index(supplier_rif)
@@ -507,25 +513,40 @@ class AgentToolbox:
             supplier = res.scalar_one_or_none()
 
         if supplier is None:
-            return {"found": False, "alerts": []}
+            return {"found": False, "alerts": [], "has_prior_prompt_injection": False}
 
         alerts_res = await self.db.execute(
-            select(SupplierAlert).where(SupplierAlert.supplier_id == supplier.id)
+            select(SupplierAlert, Project.name)
+            .outerjoin(Project, SupplierAlert.project_id == Project.id)
+            .where(SupplierAlert.supplier_id == supplier.id)
+            .order_by(SupplierAlert.created_at.desc())
         )
-        alerts = alerts_res.scalars().all()
+        rows = alerts_res.all()
+        formatted_alerts = []
+        has_prior_injection = False
+        for alert, proj_name in rows:
+            if not alert.is_resolved and alert.reason_code == DiscardReasonCode.INYECCION_PROMPT.value:
+                has_prior_injection = True
+            created_iso = alert.created_at.isoformat()
+            formatted_alerts.append(
+                {
+                    "id": alert.id,
+                    "severity": alert.severity,
+                    "reason_code": alert.reason_code,
+                    "summary": alert.summary,
+                    "project_id": alert.project_id,
+                    "project_name": proj_name or "Proyecto anterior",
+                    "is_resolved": bool(alert.is_resolved),
+                    "created_at": created_iso,
+                    "date": created_iso[:10],
+                }
+            )
         return {
             "found": True,
             "supplier_id": supplier.id,
             "supplier_name": supplier.name,
             "rif": supplier.rif,
-            "alerts_count": len(alerts),
-            "alerts": [
-                {
-                    "severity": a.severity,
-                    "reason_code": a.reason_code,
-                    "summary": a.summary,
-                    "created_at": a.created_at.isoformat(),
-                }
-                for a in alerts
-            ],
+            "alerts_count": len(formatted_alerts),
+            "has_prior_prompt_injection": has_prior_injection,
+            "alerts": formatted_alerts,
         }

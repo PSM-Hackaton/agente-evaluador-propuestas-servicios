@@ -8,6 +8,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from app.db.models import (
     ProposalEvaluation,
     Supplier,
     SupplierAlert,
+    User,
 )
 from app.services.agent.security_guard import wrap_untrusted_document
 from app.services.agent.tools import (
@@ -33,6 +35,7 @@ from app.services.agent.tools import (
     clean_supplier_name,
     extract_proposal_structured_heuristic,
 )
+from app.services.audit.service import record_audit
 from app.services.ingestion.pipeline import IngestedDocument, ingest_document
 from app.services.llm.client import UnifiedLLMClient
 from app.services.market.search import extract_market_searchable_items
@@ -287,6 +290,8 @@ class EvaluatedProposalResult:
     market_comparison: list[dict[str, Any]] = field(default_factory=list)
     prompt_injection_detected: bool = False
     prompt_injection_evidence: list[dict[str, str]] = field(default_factory=list)
+    supplier_history_alerts: list[dict[str, Any]] = field(default_factory=list)
+    prior_manipulation_penalty: float = 0.0
     ingested_doc: IngestedDocument | None = None
     structured_data: dict[str, Any] = field(default_factory=dict)
 
@@ -321,6 +326,7 @@ async def evaluate_proposals_core(
     bcv_rate_override: float | None = None,
     iva_rate: float = 0.16,
     trace_emitter: TraceEmitter | None = None,
+    repo_dir: Path | None = None,
 ) -> EvaluationOutput:
     """Core autonomous evaluation pipeline shared by Web API and Batch CLI (`salida.json`)."""
     inicio_iso = format_iso_local()
@@ -513,10 +519,13 @@ async def evaluate_proposals_core(
 
         # Step 4: Supplier history check tool
         sup_hist = await toolbox.tool_check_supplier_history(supplier_name, supplier_rif)
-        if sup_hist.get("alerts_count", 0) > 0:
+        prior_alerts: list[dict[str, Any]] = list(sup_hist.get("alerts") or [])
+        prior_manipulation_penalty = 10.0 if sup_hist.get("has_prior_prompt_injection") else 0.0
+        if prior_alerts:
             await emit(
                 "historial_proveedor",
-                f"Proveedor '{supplier_name}' registra {sup_hist['alerts_count']} alerta(s) previa(s) en directorio.",
+                f"Proveedor '{supplier_name}' registra {len(prior_alerts)} alerta(s) previa(s) en directorio"
+                + (" (penalización de confianza -10.0 pts por antecedente de manipulación)." if prior_manipulation_penalty else "."),
                 proposal_identifier=doc.identifier,
                 tool_name="check_supplier_history",
                 metadata=sup_hist,
@@ -604,7 +613,7 @@ async def evaluate_proposals_core(
             metadata={"technical_score": tech["technical_score"], "issues": len(tech["discard_reasons"])},
         )
 
-        # Step 8: Autonomous Market Price Web Search Tool (multi-component + cited sources)
+        # Step 8: Autonomous Market Price Web Search Tool (multi-component, bounded concurrency + cited sources)
         market_comparisons: list[dict[str, Any]] = list(llm_tool_market_results)
         already_checked = {mc.get("item", "").lower() for mc in market_comparisons}
         search_targets = extract_market_searchable_items(
@@ -614,16 +623,25 @@ async def evaluate_proposals_core(
             max_items=4,
         )
 
-        for target in search_targets:
-            desc_for_search = str(target["description"])
-            if desc_for_search[:140].lower() in already_checked:
-                continue
-            m_res = await toolbox.tool_web_search_market_prices(
-                item_description=desc_for_search,
-                proposed_unit_price_usd=_to_float(target["unit_price"]),
-                enable_web=enable_web_search,
-            )
-            market_comparisons.append(m_res)
+        pending_targets = [
+            t for t in search_targets if str(t["description"])[:140].lower() not in already_checked
+        ]
+        if pending_targets:
+            sem = asyncio.Semaphore(4)
+
+            async def _fetch_target(
+                tgt: dict[str, Any],
+                _sem: asyncio.Semaphore = sem,
+            ) -> dict[str, Any]:
+                async with _sem:
+                    return await toolbox.tool_web_search_market_prices(
+                        item_description=str(tgt["description"]),
+                        proposed_unit_price_usd=_to_float(tgt["unit_price"]),
+                        enable_web=enable_web_search,
+                    )
+
+            fetched_comparisons = await asyncio.gather(*(_fetch_target(t) for t in pending_targets))
+            market_comparisons.extend(fetched_comparisons)
 
         for m_res in market_comparisons:
             if m_res.get("is_abusive_overprice"):
@@ -651,7 +669,23 @@ async def evaluate_proposals_core(
             )
 
         is_valid = len(discard_reasons) == 0
-        fine_print_all = list(dict.fromkeys([*(tech["fine_print_findings"] or []), *(structured.get("fine_print_notes") or [])]))
+        prior_alert_notes = [
+            f"Antecedente previo ({al.get('date') or str(al.get('created_at', ''))[:10]} — {al.get('project_name', 'Proyecto anterior')}): "
+            f"[{al.get('reason_code', '')}] {al.get('summary', '')}"
+            for al in prior_alerts
+        ]
+        technical_findings = list(tech["technical_findings"] or [])
+        effective_tech_score = float(tech["technical_score"])
+        if prior_manipulation_penalty > 0 and is_valid:
+            # Unresolved prior prompt-injection alert penalizes ranking confidence (-10 pts) without auto-discarding clean offers
+            effective_tech_score = round(max(0.0, effective_tech_score - prior_manipulation_penalty), 2)
+            technical_findings.append(
+                "Penalización de confianza (-10.0 pts) por antecedente previo de intento de manipulación (inyeccion_prompt)."
+            )
+
+        fine_print_all = list(
+            dict.fromkeys([*prior_alert_notes, *(tech["fine_print_findings"] or []), *(structured.get("fine_print_notes") or [])])
+        )
 
         evaluated.append(
             EvaluatedProposalResult(
@@ -666,7 +700,7 @@ async def evaluate_proposals_core(
                 supplier_phone=structured.get("phone"),
                 supplier_email=structured.get("email"),
                 is_valid=is_valid,
-                technical_score=float(tech["technical_score"]),
+                technical_score=effective_tech_score,
                 declared_currency=tco["declared_currency"],
                 declared_total_original=tco["declared_total_original"],
                 declared_total_usd=tco["declared_total_usd"],
@@ -683,10 +717,12 @@ async def evaluate_proposals_core(
                 tco_breakdown=tco,
                 line_items=arith["items"] or line_items,
                 fine_print_findings=fine_print_all,
-                technical_findings=tech["technical_findings"],
+                technical_findings=technical_findings,
                 market_comparison=market_comparisons,
                 prompt_injection_detected=doc.injection_scan.detected,
                 prompt_injection_evidence=doc.injection_scan.evidence,
+                supplier_history_alerts=prior_alerts,
+                prior_manipulation_penalty=prior_manipulation_penalty if is_valid else 0.0,
                 ingested_doc=doc,
                 structured_data=structured,
             )
@@ -748,6 +784,11 @@ async def evaluate_proposals_core(
 
     for idx, p in enumerate(ordered_all, start=1):
         p.rank_position = idx
+        hist_str = "; ".join(
+            f"{al.get('date') or str(al.get('created_at', ''))[:10]} ({al.get('project_name', 'Proyecto anterior')}): "
+            f"[{al.get('reason_code', '')}] {al.get('summary', '')}"
+            for al in (p.supplier_history_alerts or [])[:3]
+        )
         if p.is_valid:
             if not p.recommendation_rationale:
                 findings_str = "; ".join(p.technical_findings[:3]) or "Cumple integralmente el alcance técnico."
@@ -755,9 +796,13 @@ async def evaluate_proposals_core(
                     f"Puesto #{idx} (Válida) — Calidad técnica {p.technical_score:.1f}/100, "
                     f"TCO real ${p.adjusted_tco_usd:,.2f} USD. {findings_str}"
                 )
+            if hist_str:
+                p.recommendation_rationale = f"{p.recommendation_rationale} | ALERTA DE ANTECEDENTES: {hist_str}"
         else:
             reasons_str = "; ".join(f"[{r['code']}] {r['detail']}" for r in p.discard_reasons)
             p.discard_verdict_text = f"Propuesta {p.proposal_identifier} DESCARTADA: {reasons_str}"
+            if hist_str:
+                p.discard_verdict_text = f"{p.discard_verdict_text} | Antecedentes previos registrados: {hist_str}"
 
     ranking_identifiers = [p.proposal_identifier for p in ordered_all]
     recommended = valid_props[0] if valid_props else None
@@ -768,7 +813,14 @@ async def evaluate_proposals_core(
         fin=fin_iso,
         procesados=procesados,
         ranking=ranking_identifiers,
+        repo_dir=repo_dir,
     )
+
+    with_history = [p for p in ordered_all if p.supplier_history_alerts]
+    history_exec_note = ""
+    if with_history:
+        names = ", ".join(dict.fromkeys(p.supplier_name for p in with_history))
+        history_exec_note = f" Alerta de antecedentes previos detectada para: {names}."
 
     if recommended:
         executive_summary = (
@@ -778,13 +830,13 @@ async def evaluate_proposals_core(
             f"**{recommended.supplier_name}** (`{recommended.proposal_identifier}`) con un Costo Total Real (TCO) "
             f"de **${recommended.adjusted_tco_usd:,.2f} USD** (Bs. {recommended.adjusted_tco_ves:,.2f} a tasa BCV "
             f"{bcv_rate:.4f}) y puntaje técnico de {recommended.technical_score:.1f}/100. "
-            f"{recommended.recommendation_rationale}"
+            f"{recommended.recommendation_rationale}{history_exec_note}"
         )
     else:
         executive_summary = (
             f"Se auditaron {len(ordered_all)} propuestas para '{project_name}' y ninguna cumplió "
             "los criterios mínimos de validez técnica, aritmética y contractual. Se recomienda declarar desierto "
-            "el proceso o solicitar subsanación formal."
+            f"el proceso o solicitar subsanación formal.{history_exec_note}"
         )
 
     await emit(
@@ -826,7 +878,22 @@ async def run_project_evaluation_in_db(
 
     storage = EncryptedFileStorage()
     run.status = EvaluationStatus.RUNNING.value
+    prev_status = project.status
     project.status = ProjectStatus.EN_EVALUACION.value
+    if prev_status != ProjectStatus.EN_EVALUACION.value:
+        actor = await db.get(User, run.triggered_by_id) if run.triggered_by_id else None
+        await record_audit(
+            db,
+            action="project.status_transition",
+            resource_type="project",
+            resource_id=project.id,
+            user=actor,
+            details={
+                "from_status": prev_status,
+                "to_status": ProjectStatus.EN_EVALUACION.value,
+                "notes": "Transición automática al iniciar evaluación agéntica.",
+            },
+        )
     await db.commit()
 
     # Load project proposals
@@ -999,6 +1066,7 @@ async def run_project_evaluation_in_db(
                     market_comparison=res.market_comparison,
                     prompt_injection_detected=res.prompt_injection_detected,
                     prompt_injection_evidence=res.prompt_injection_evidence,
+                    supplier_history_alerts=res.supplier_history_alerts or None,
                     processed_at_iso=res.processed_at_iso,
                 )
             )
