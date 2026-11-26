@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import math
+import time
+from collections import deque
+
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, get_current_user, issue_stream_ticket, require_roles
+from app.core.config import get_settings
 from app.core.crypto import blind_index
 from app.core.security import (
     ROLES_ADMIN,
@@ -32,17 +37,96 @@ from app.services.audit.service import record_audit
 
 router = APIRouter(prefix="/auth", tags=["Autenticación y Roles"])
 
+# Sliding-window failed login tracker keyed by client IP and blind-indexed email
+_FAILED_LOGINS_BY_IP: dict[str, deque[float]] = {}
+_FAILED_LOGINS_BY_EMAIL: dict[str, deque[float]] = {}
+
+
+def reset_login_rate_limiter() -> None:
+    """Clear in-memory failed login windows (used in test isolation)."""
+    _FAILED_LOGINS_BY_IP.clear()
+    _FAILED_LOGINS_BY_EMAIL.clear()
+
+
+def _prune_window(dq: deque[float], now: float, window_seconds: int) -> None:
+    cutoff = now - window_seconds
+    while dq and dq[0] <= cutoff:
+        dq.popleft()
+
+
+def _get_retry_after(ip: str, email_h: str, now: float, max_attempts: int, window_seconds: int) -> int:
+    retry_after = 0
+    for store, key in ((_FAILED_LOGINS_BY_IP, ip), (_FAILED_LOGINS_BY_EMAIL, email_h)):
+        if not key:
+            continue
+        dq = store.get(key)
+        if not dq:
+            continue
+        _prune_window(dq, now, window_seconds)
+        if len(dq) >= max_attempts:
+            remaining = math.ceil((dq[0] + window_seconds) - now)
+            retry_after = max(retry_after, max(1, remaining))
+    return retry_after
+
+
+def _record_failed_login(ip: str, email_h: str, now: float) -> None:
+    for store, key in ((_FAILED_LOGINS_BY_IP, ip), (_FAILED_LOGINS_BY_EMAIL, email_h)):
+        if not key:
+            continue
+        store.setdefault(key, deque()).append(now)
+
+
+def _clear_failed_login(ip: str, email_h: str) -> None:
+    _FAILED_LOGINS_BY_IP.pop(ip, None)
+    if email_h:
+        _FAILED_LOGINS_BY_EMAIL.pop(email_h, None)
+
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)) -> TokenResponse:
-    email_h = blind_index(payload.email.lower())
+    settings = get_settings()
+    ip = get_client_ip(request)
+    email_h = blind_index(payload.email.lower()) or ""
+    now = time.monotonic()
+    retry_after = _get_retry_after(
+        ip,
+        email_h,
+        now,
+        settings.login_rate_limit_max_attempts,
+        settings.login_rate_limit_window_seconds,
+    )
+    if retry_after > 0:
+        await record_audit(
+            db,
+            action="auth.login_blocked",
+            resource_type="auth",
+            ip_address=ip,
+            details={"email_hash": email_h, "retry_after_seconds": retry_after},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos fallidos de inicio de sesión. Intente más tarde.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     res = await db.execute(select(User).where(User.email_hash == email_h))
     user = res.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.hashed_password):
+        _record_failed_login(ip, email_h, now)
+        await record_audit(
+            db,
+            action="auth.login_failed",
+            resource_type="auth",
+            ip_address=ip,
+            details={"email_hash": email_h},
+        )
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas.")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario desactivado.")
 
+    _clear_failed_login(ip, email_h)
     access = create_access_token(user.id, user.role, extra={"email": user.email})
     refresh = create_refresh_token(user.id, user.role)
     await record_audit(
@@ -51,7 +135,7 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         resource_type="user",
         resource_id=user.id,
         user=user,
-        ip_address=get_client_ip(request),
+        ip_address=ip,
     )
     await db.commit()
     return TokenResponse(
