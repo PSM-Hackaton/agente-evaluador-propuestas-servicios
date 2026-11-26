@@ -110,6 +110,12 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50 lg:flex">
+      <a
+        href="#contenido"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-indigo-700 focus:shadow"
+      >
+        Saltar al contenido
+      </a>
       {/* Sidebar escritorio */}
       <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col print:hidden">
         {sidebarContent}
@@ -164,6 +170,7 @@ export function AppLayout() {
             <Button
               variant="secondary"
               size="sm"
+              aria-label="Cerrar sesión"
               onClick={() => {
                 logout();
                 navigate('/login');
@@ -175,7 +182,7 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 print:p-0">
+        <main id="contenido" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-7xl flex-1 p-4 sm:p-6 print:p-0">
           <Outlet />
         </main>
       </div>

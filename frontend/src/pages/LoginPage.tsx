@@ -69,12 +69,13 @@ export function LoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <label htmlFor="login-campo-1" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Correo electrónico
                 </label>
                 <div className="relative">
                   <Mail className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
+                    id="login-campo-1"
                     type="email"
                     required
                     className="input pl-9"
@@ -87,12 +88,13 @@ export function LoginPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <label htmlFor="login-campo-2" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Contraseña
                 </label>
                 <div className="relative">
                   <Lock className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
+                    id="login-campo-2"
                     type="password"
                     required
                     className="input pl-9"

@@ -156,9 +156,14 @@ export function ProjectDetailPage() {
 
     setStreaming(false);
     let cancelled = false;
-    api.evaluations.trazas(evaluacion.id).then((list) => {
-      if (!cancelled) setTrazas(list);
-    });
+    api.evaluations
+      .trazas(evaluacion.id)
+      .then((list) => {
+        if (!cancelled) setTrazas(list);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setStreamError(e instanceof Error ? e.message : 'No se pudo cargar la trazabilidad');
+      });
     return () => {
       cancelled = true;
     };
@@ -347,7 +352,7 @@ export function ProjectDetailPage() {
                         ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
                         : done
                           ? 'bg-emerald-50/70 text-emerald-700'
-                          : 'text-slate-400',
+                          : 'text-slate-500',
                     )}
                   >
                     <span
@@ -373,7 +378,7 @@ export function ProjectDetailPage() {
 
       {/* Pestañas */}
       <div className="border-b border-slate-200 print:hidden">
-        <nav className="-mb-px flex gap-1 overflow-x-auto">
+        <nav className="-mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Secciones del proyecto">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -381,15 +386,32 @@ export function ProjectDetailPage() {
               <button
                 key={t.key}
                 type="button"
+                role="tab"
+                id={`tab-${t.key}`}
+                aria-selected={active}
+                aria-controls={`panel-${t.key}`}
+                tabIndex={active ? 0 : -1}
                 onClick={() => pickTab(t.key)}
+                onKeyDown={(e) => {
+                  const idx = tabs.findIndex((x) => x.key === t.key);
+                  let next = -1;
+                  if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+                  else if (e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+                  else if (e.key === 'Home') next = 0;
+                  else if (e.key === 'End') next = tabs.length - 1;
+                  if (next < 0) return;
+                  e.preventDefault();
+                  pickTab(tabs[next].key);
+                  document.getElementById(`tab-${tabs[next].key}`)?.focus();
+                }}
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors',
+                  'inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500',
                   active
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800',
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
                 <span>{t.label}</span>
                 {t.badge != null && (
                   <span
@@ -408,6 +430,8 @@ export function ProjectDetailPage() {
       </div>
 
       {actionError && <Alert tone="error">{actionError}</Alert>}
+
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
 
       {/* TAB 1: PROPUESTAS */}
       {tab === 'propuestas' && (
@@ -541,8 +565,9 @@ export function ProjectDetailPage() {
                                 type="button"
                                 onClick={() => deleteMut.mutate(p.id)}
                                 disabled={deleteMut.isPending || enCurso}
-                                className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                                className="rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
                                 title="Eliminar propuesta"
+                                aria-label={`Eliminar propuesta ${p.codigo}`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -648,7 +673,7 @@ export function ProjectDetailPage() {
                       <h3 className="text-xl font-bold text-slate-900">
                         {recomendada.proveedor}
                       </h3>
-                      <p className="font-mono text-xs text-slate-600">{recomendada.codigo}</p>
+                      <p className="break-all font-mono text-xs text-slate-600">{recomendada.codigo}</p>
                       <p className="text-sm text-slate-800">{recomendada.dictamen}</p>
                     </div>
 
@@ -713,11 +738,11 @@ export function ProjectDetailPage() {
                           className="rounded-xl border border-red-200 bg-red-50/40 p-4"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <AlertTriangle className="h-4 w-4 text-red-600" />
                                 <span className="font-semibold text-slate-900">{r.proveedor}</span>
-                                <span className="font-mono text-xs text-slate-500">{r.codigo}</span>
+                                <span className="break-all font-mono text-xs text-slate-500">{r.codigo}</span>
                               </div>
                               <div className="mt-1.5 flex flex-wrap gap-1.5">
                                 {r.motivos_descarte.map((m) => (
@@ -836,6 +861,8 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
+      </div>
+
       {/* Modal desglose de propuesta recomendada */}
       <Modal
         open={!!recDetalle}
@@ -862,10 +889,11 @@ export function ProjectDetailPage() {
               <strong>{ESTADO_LABEL[transicionModal.a]}</strong>.
             </p>
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <label htmlFor="projectdetail-campo-1" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Nota o motivo (opcional)
               </label>
               <textarea
+                id="projectdetail-campo-1"
                 rows={3}
                 className="input"
                 placeholder="Agrega una observación para el historial..."

@@ -100,7 +100,7 @@ export function ProjectChat({ projectId }: { projectId: string }) {
                     <p
                       className={cn(
                         'mt-1 text-[10px]',
-                        esUser ? 'text-indigo-200 text-right' : 'text-slate-400',
+                        esUser ? 'text-indigo-200 text-right' : 'text-slate-500',
                       )}
                     >
                       {time(m.fecha)}
@@ -133,6 +133,7 @@ export function ProjectChat({ projectId }: { projectId: string }) {
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
+            aria-label="Pregunta sobre el proyecto"
             className="input flex-1"
             placeholder="Escribe una pregunta sobre las propuestas o el dictamen..."
             value={texto}

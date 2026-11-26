@@ -42,6 +42,7 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
           <button
             key={k}
             type="button"
+            aria-pressed={filtro === k}
             onClick={() => setFiltro(k)}
             className={cn(
               'rounded-full px-3 py-1 text-xs font-medium transition-colors',
@@ -94,7 +95,7 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv }: Comparis
                   <td className="text-right tabular-nums text-slate-700">
                     <div>{money(r.total_declarado, r.moneda)}</div>
                     {r.moneda !== 'USD' && (
-                      <div className="text-xs text-slate-400">{money(r.total_declarado_usd)}</div>
+                      <div className="text-xs text-slate-500">{money(r.total_declarado_usd)}</div>
                     )}
                   </td>
                   <td className="text-right tabular-nums">

@@ -42,6 +42,7 @@ export function AuditPage() {
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
             type="search"
+            aria-label="Buscar en el registro de auditoría"
             className="input pl-9"
             placeholder="Filtrar por usuario, acción o entidad..."
             value={busqueda}
@@ -99,7 +100,7 @@ export function AuditPage() {
                       <td className="text-xs text-slate-600">
                         <span className="font-medium text-slate-800">{r.entidad}</span>
                         {r.entidad_id && (
-                          <span className="ml-1.5 font-mono text-slate-400">{r.entidad_id}</span>
+                          <span className="ml-1.5 font-mono text-slate-500">{r.entidad_id}</span>
                         )}
                       </td>
                       <td className="text-xs text-slate-600">

@@ -172,10 +172,11 @@ export function UsersPage() {
         <form onSubmit={handleCreate} className="space-y-4">
           {formError && <Alert tone="error">{formError}</Alert>}
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="users-campo-1" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Nombre completo *
             </label>
             <input
+              id="users-campo-1"
               type="text"
               required
               className="input"
@@ -184,10 +185,11 @@ export function UsersPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="users-campo-2" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Correo electrónico *
             </label>
             <input
+              id="users-campo-2"
               type="email"
               required
               className="input"
@@ -196,10 +198,11 @@ export function UsersPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="users-campo-3" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Rol *
             </label>
             <select
+              id="users-campo-3"
               className="input"
               value={rol}
               onChange={(e) => setRol(e.target.value as Rol)}
@@ -212,10 +215,11 @@ export function UsersPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="users-campo-4" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Contraseña inicial *
             </label>
             <input
+              id="users-campo-4"
               type="password"
               required
               minLength={6}

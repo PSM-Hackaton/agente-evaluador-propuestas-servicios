@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
@@ -17,15 +17,47 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({ open, onClose, title, size = 'md', children, footer }: ModalProps) {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Escape cierra, Tab queda atrapado dentro del diálogo y el foco vuelve al disparador al cerrar.
   useEffect(() => {
     if (!open) return;
+    const previo = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const primero = panel?.querySelector<HTMLElement>(FOCUSABLE);
+    (primero ?? panel)?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !panel) return;
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      previo?.focus?.();
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -33,19 +65,24 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
     >
       <div
-        className={cn('flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl', SIZES[size])}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={cn('flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl focus:outline-none', SIZES[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+          <h2 id={titleId} className="text-base font-semibold text-slate-900">
+            {title}
+          </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-600"
             aria-label="Cerrar"
           >
             <X className="h-5 w-5" />

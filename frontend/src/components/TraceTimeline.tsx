@@ -23,7 +23,7 @@ export function TraceTimeline({ trazas, running = false }: TraceTimelineProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5" role="status" aria-live="polite">
           {running ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
@@ -60,7 +60,7 @@ export function TraceTimeline({ trazas, running = false }: TraceTimelineProps) {
                 </span>
                 <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs text-slate-400">{time(t.ts)}</span>
+                    <span className="font-mono text-xs text-slate-500">{time(t.ts)}</span>
                     <Badge tone={cfg.tone}>{PASO_LABEL[t.paso]}</Badge>
                     {t.codigo && (
                       <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-700">

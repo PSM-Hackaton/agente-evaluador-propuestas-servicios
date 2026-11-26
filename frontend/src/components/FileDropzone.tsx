@@ -74,8 +74,18 @@ export function FileDropzone({
         onClick={() => {
           if (!disabled && !uploading) inputRef.current?.click();
         }}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !disabled && !uploading) {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+        role="button"
+        tabIndex={disabled || uploading ? -1 : 0}
+        aria-disabled={disabled || uploading}
+        aria-label="Seleccionar archivos de propuestas (PDF, XLSX, JPG o PNG)"
         className={cn(
-          'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors',
+          'flex cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors',
           dragging
             ? 'border-indigo-500 bg-indigo-50/70'
             : 'border-slate-300 bg-slate-50/60 hover:border-indigo-400 hover:bg-slate-50',
@@ -139,7 +149,7 @@ export function FileDropzone({
                     type="button"
                     onClick={() => setQueue((q) => q.filter((x) => x.name !== f.name))}
                     disabled={uploading}
-                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600"
                     aria-label={`Quitar ${f.name}`}
                   >
                     <Trash2 className="h-4 w-4" />

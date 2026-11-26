@@ -47,6 +47,7 @@ export function SuppliersPage() {
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
             type="search"
+            aria-label="Buscar proveedor"
             className="input pl-9"
             placeholder="Buscar por nombre, RIF o ciudad..."
             value={busqueda}

@@ -96,10 +96,11 @@ export function ReviewPanel({ evaluacion, proyecto }: ReviewPanelProps) {
           <div className="space-y-3 border-t border-slate-200 pt-4 print:hidden">
             {error && <Alert tone="error">{error}</Alert>}
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <label htmlFor="reviewpanel-campo-1" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Comentario u observación del evaluador
               </label>
               <textarea
+                id="reviewpanel-campo-1"
                 rows={3}
                 className="input"
                 placeholder="Agrega observaciones técnicas, confirmación de precios o motivos de aprobación/devolución..."

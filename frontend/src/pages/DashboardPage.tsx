@@ -175,6 +175,7 @@ export function DashboardPage() {
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
             type="search"
+            aria-label="Buscar proyecto o ubicación"
             className="input pl-9"
             placeholder="Buscar proyecto o ubicación..."
             value={busqueda}
@@ -266,10 +267,11 @@ export function DashboardPage() {
           {formError && <Alert tone="error">{formError}</Alert>}
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="dashboard-campo-1" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Nombre del proyecto *
             </label>
             <input
+              id="dashboard-campo-1"
               type="text"
               required
               className="input"
@@ -280,10 +282,11 @@ export function DashboardPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="dashboard-campo-2" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Ubicación de ejecución *
             </label>
             <input
+              id="dashboard-campo-2"
               type="text"
               required
               className="input"
@@ -294,10 +297,11 @@ export function DashboardPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="dashboard-campo-3" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Descripción y alcance
             </label>
             <textarea
+              id="dashboard-campo-3"
               rows={3}
               className="input"
               placeholder="Resumen de objetivos, equipos requeridos o alcance del servicio..."
@@ -308,10 +312,11 @@ export function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <label htmlFor="dashboard-campo-4" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Presupuesto referencial (opcional)
               </label>
               <input
+                id="dashboard-campo-4"
                 type="number"
                 min="0"
                 step="0.01"
@@ -322,10 +327,11 @@ export function DashboardPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <label htmlFor="dashboard-campo-5" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Moneda de referencia
               </label>
               <select
+                id="dashboard-campo-5"
                 className="input"
                 value={moneda}
                 onChange={(e) => setMoneda(e.target.value as Moneda)}
@@ -340,10 +346,11 @@ export function DashboardPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <label htmlFor="dashboard-campo-6" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Documento del proyecto / Términos de referencia (PDF)
             </label>
             <input
+              id="dashboard-campo-6"
               type="file"
               accept=".pdf,.doc,.docx"
               onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}

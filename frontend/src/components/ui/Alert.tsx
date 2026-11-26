@@ -21,8 +21,11 @@ interface AlertProps {
 export function Alert({ tone = 'info', title, children, className }: AlertProps) {
   const { box, icon: Icon } = STYLES[tone];
   return (
-    <div className={cn('flex gap-3 rounded-xl border px-4 py-3 text-sm', box, className)}>
-      <Icon className="h-5 w-5 shrink-0 mt-0.5" />
+    <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      className={cn('flex gap-3 rounded-xl border px-4 py-3 text-sm', box, className)}
+    >
+      <Icon className="h-5 w-5 shrink-0 mt-0.5" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         {title && <p className="font-semibold">{title}</p>}
         <div className={cn(title && 'mt-0.5')}>{children}</div>
