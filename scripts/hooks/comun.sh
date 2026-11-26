@@ -18,6 +18,9 @@ PERMITIDOS_ARCHIVOS='(^|/)\.env\.example$'
 # Correos que no son de una persona real.
 PATRON_CORREO_FALSO='@[^@]*\.(local|localdomain|invalid|example|test)$|@example\.(com|org|net)$|@localhost$|noreply|\[bot\]'
 
+# Correo noreply personal del GitLab del evento (Preferencias > Perfil > Correo de commits): sí es de una persona.
+PERMITIDO_CORREO_NOREPLY='^[0-9]+-[a-z0-9._-]+@users\.noreply\.gitlab\.nube\.gob\.ve$'
+
 LIMITE_BYTES=5242880   # 5 MB
 
 hook_error() { printf '\n[%s] BLOQUEADO: %s\n' "$NOMBRE_HOOK" "$1" >&2; }
@@ -28,6 +31,9 @@ hook_identidad() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     hook_error 'configure su identidad: git config user.name "Nombre Apellido" y git config user.email "correo"'
     return 1
+  fi
+  if printf '%s\n' "$2" | grep -Eiq "$PERMITIDO_CORREO_NOREPLY"; then
+    printf '%s\n' "$1" | grep -Eiq "$PATRON_HERRAMIENTAS|\[bot\]" || return 0
   fi
   if printf '%s\n' "$2" | grep -Eiq "$PATRON_CORREO_FALSO" || printf '%s %s\n' "$1" "$2" | grep -Eiq "$PATRON_HERRAMIENTAS"; then
     hook_error "la identidad «$1 <$2>» no parece una persona del equipo (use su correo real de GitLab)"
