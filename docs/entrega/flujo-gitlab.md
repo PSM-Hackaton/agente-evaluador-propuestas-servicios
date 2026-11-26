@@ -21,7 +21,7 @@ instructivo de GitLab del evento: commits y pushes frecuentes en ramas de trabaj
 1. Diego o Juan abren un **issue** en GitHub con el requisito citado y el criterio de aceptación, asignado a quien
    lo implementa (backend → Enggel, frontend → Javier, pruebas → Giovani).
 2. La persona asignada trabaja en su rama de GitHub (`enggel`, `javier`, …) y abre un **Pull Request hacia
-   `staging`**. `staging` y `main` están protegidas con CODEOWNERS: solo fusionan con la aprobación de Diego o Juan.
+   `staging`**. `staging` y `main` están protegidas con revisores obligatorios en GitHub: solo fusionan con la aprobación de Diego o Juan.
 3. Diego o Juan revisan, piden o hacen correcciones y **aprueban**. **Nadie sube a GitLab un cambio que no esté
    aprobado** por Diego o Juan.
 4. Aprobado el cambio, **cada integrante lo sube con su propia cuenta** de GitLab a su rama de trabajo (sección 5).
