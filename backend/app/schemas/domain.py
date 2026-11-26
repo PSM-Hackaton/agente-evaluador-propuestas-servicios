@@ -24,6 +24,11 @@ class ProposalOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProposalDetailOut(ProposalOut):
+    extracted_text_preview: str | None = None
+    has_hidden_text_findings: bool = False
+
+
 class SupplierCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     rif: str | None = Field(default=None, max_length=64)

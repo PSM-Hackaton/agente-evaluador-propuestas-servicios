@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.security import ROLES_READ, ROLES_UPLOAD
 from app.db.base import get_db
 from app.db.models import Project, Proposal, User
-from app.schemas.domain import ProposalOut
+from app.schemas.domain import ProposalDetailOut, ProposalOut
 from app.services.audit.service import record_audit
 from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.storage.encrypted_storage import EncryptedFileStorage
@@ -132,6 +132,33 @@ async def list_proposals(
         select(Proposal).where(Proposal.project_id == project_id).order_by(Proposal.original_filename)
     )
     return list(res.scalars().all())
+
+
+@router.get("/proposals/{proposal_id}", response_model=ProposalDetailOut)
+async def get_proposal_detail(
+    proposal_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(ROLES_READ)),
+) -> ProposalDetailOut:
+    """Get metadata and sanitized extracted text preview for a single uploaded proposal."""
+    prop = await db.get(Proposal, proposal_id)
+    if prop is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Propuesta no encontrada.")
+    return ProposalDetailOut(
+        id=prop.id,
+        project_id=prop.project_id,
+        supplier_id=prop.supplier_id,
+        proposal_identifier=prop.proposal_identifier,
+        original_filename=prop.original_filename,
+        file_extension=prop.file_extension,
+        mime_type=prop.mime_type,
+        file_size_bytes=prop.file_size_bytes,
+        file_sha256=prop.file_sha256,
+        ingestion_method=prop.ingestion_method,
+        created_at=prop.created_at,
+        extracted_text_preview=(prop.extracted_text or "")[:1500] or None,
+        has_hidden_text_findings=bool(prop.hidden_text_findings),
+    )
 
 
 @router.get("/proposals/{proposal_id}/download")

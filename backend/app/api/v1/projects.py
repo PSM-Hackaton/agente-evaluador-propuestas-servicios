@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, require_roles
+from app.api.deps import get_client_ip, require_roles, require_roles_flexible
 from app.core.config import get_settings
 from app.core.security import ROLES_APPROVE, ROLES_READ, ROLES_REVIEW, ROLES_UPLOAD, UserRole
 from app.db.base import get_db
@@ -61,6 +62,7 @@ async def _to_project_out(db: AsyncSession, project: Project) -> ProjectOut:
         evaluations_count=int(e_cnt),
         latest_evaluation_id=latest_eval_id,
         has_requirements_text=bool(project.extracted_requirements_text),
+        requirements_preview=(project.extracted_requirements_text or "")[:600] or None,
         created_by_id=project.created_by_id,
         created_at=project.created_at,
         updated_at=project.updated_at,
@@ -208,6 +210,43 @@ async def upload_project_document(
     await db.commit()
     await db.refresh(project)
     return await _to_project_out(db, project)
+
+
+@router.get("/{project_id}/document/download")
+async def download_project_document(
+    project_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles_flexible(ROLES_READ)),
+) -> Response:
+    """Decrypt and download the project's base requirements document."""
+    project = await db.get(Project, project_id)
+    if project is None or not project.document_storage_key or not project.document_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Documento base del proyecto no encontrado.",
+        )
+
+    storage = EncryptedFileStorage()
+    content = storage.read_decrypted(project.document_storage_key)
+    media_type = mimetypes.guess_type(project.document_filename)[0] or "application/octet-stream"
+
+    await record_audit(
+        db,
+        action="project.download_document",
+        resource_type="project",
+        resource_id=project.id,
+        user=current_user,
+        ip_address=get_client_ip(request),
+        details={"filename": project.document_filename},
+    )
+    await db.commit()
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{project.document_filename}"'},
+    )
 
 
 @router.post("/{project_id}/status", response_model=ProjectOut)

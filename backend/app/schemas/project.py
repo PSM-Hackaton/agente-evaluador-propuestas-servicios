@@ -47,6 +47,7 @@ class ProjectOut(BaseModel):
     evaluations_count: int = 0
     latest_evaluation_id: str | None = None
     has_requirements_text: bool = False
+    requirements_preview: str | None = None
     created_by_id: str | None
     created_at: datetime
     updated_at: datetime

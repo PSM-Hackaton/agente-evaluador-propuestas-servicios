@@ -202,3 +202,48 @@ async def test_full_platform_workflow_and_rbac(app_client: AsyncClient) -> None:
     assert ddata["prompt_injections_blocked"] >= 1
     assert ddata["active_supplier_alerts"] >= 2
     assert ddata["security_status"]["encryption_at_rest"] == "AES-256-GCM"
+
+    # 13. Frontend convenience checks: project document download, proposal detail, CORS Content-Disposition, override & chat clear
+    proj_dl = await app_client.get(f"/api/v1/projects/{project_id}/document/download?token={raw_token}")
+    assert proj_dl.status_code == 200
+    assert proj_dl.content == proj_pdf
+
+    first_prop_id = up_resp.json()[0]["id"]
+    prop_detail = await app_client.get(f"/api/v1/proposals/{first_prop_id}", headers=auditor_hdr)
+    assert prop_detail.status_code == 200
+    assert prop_detail.json()["extracted_text_preview"] is not None
+
+    cors_resp = await app_client.get(
+        f"/api/v1/evaluations/{eval_id}/export/pdf",
+        headers={
+            **auditor_hdr,
+            "Origin": "http://127.0.0.1:5173",
+        },
+    )
+    assert cors_resp.status_code == 200
+    assert cors_resp.headers.get("access-control-allow-origin") == "http://127.0.0.1:5173"
+    assert "content-disposition" in cors_resp.headers.get("access-control-expose-headers", "").lower()
+
+    override_target = next(
+        p["id"]
+        for p in up_resp.json()
+        if p["proposal_identifier"] == "Propuesta_638_TecnoAndes_Soluciones_CA"
+    )
+    ovr_resp = await app_client.post(
+        f"/api/v1/evaluations/{eval_id}/reviews",
+        json={
+            "decision": "overridden",
+            "notes": "Ajuste de prueba por comité.",
+            "override_recommended_proposal_id": override_target,
+        },
+        headers=aprobador_hdr,
+    )
+    assert ovr_resp.status_code == 201
+    ev_after = await app_client.get(f"/api/v1/evaluations/{eval_id}", headers=auditor_hdr)
+    assert ev_after.json()["recommended_identifier"] == "Propuesta_638_TecnoAndes_Soluciones_CA"
+
+    clr_resp = await app_client.delete(f"/api/v1/projects/{project_id}/chat", headers=revisor_hdr)
+    assert clr_resp.status_code == 204
+    chat_hist = await app_client.get(f"/api/v1/projects/{project_id}/chat", headers=auditor_hdr)
+    assert chat_hist.status_code == 200
+    assert chat_hist.json() == []

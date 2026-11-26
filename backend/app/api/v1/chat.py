@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, require_roles
-from app.core.security import ROLES_READ
+from app.core.security import ROLES_READ, ROLES_REVIEW
 from app.db.base import get_db
 from app.db.models import ChatMessage, Project, User
 from app.schemas.domain import ChatMessageOut, ChatQuestionRequest
@@ -65,3 +65,27 @@ async def get_chat_history(
         .order_by(ChatMessage.created_at)
     )
     return list(res.scalars().all())
+
+
+@router.delete("/projects/{project_id}/chat", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_chat_history(
+    project_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLES_REVIEW)),
+) -> None:
+    """Clear natural-language Q&A history for a project."""
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado.")
+
+    await db.execute(delete(ChatMessage).where(ChatMessage.project_id == project_id))
+    await record_audit(
+        db,
+        action="project.chat_clear",
+        resource_type="project",
+        resource_id=project_id,
+        user=current_user,
+        ip_address=get_client_ip(request),
+    )
+    await db.commit()

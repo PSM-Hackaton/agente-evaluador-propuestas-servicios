@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     host: str = "0.0.0.0"
     port: int = 8000
-    cors_origins: str = "https://localhost:5173,http://localhost:5173,https://localhost:3000,http://localhost:3000"
+    cors_origins: str = (
+        "https://localhost:5173,http://localhost:5173,http://127.0.0.1:5173,https://127.0.0.1:5173,"
+        "http://localhost:5174,http://localhost:4173,"
+        "https://localhost:3000,http://localhost:3000,http://127.0.0.1:3000"
+    )
 
     # Database & Encrypted Storage
     database_url: str = "sqlite+aiosqlite:///./data/evaluador.db"

@@ -165,47 +165,58 @@ async def stream_evaluation_trace(
     _: User = Depends(require_roles_flexible(ROLES_READ)),
 ) -> EventSourceResponse:
     """Server-Sent Events (SSE) endpoint streaming live agent traceability steps (Section 2.D.3)."""
-    run = await _load_evaluation_detail(db, evaluation_id)
+    # Subscribe BEFORE reading DB snapshot to prevent missing any step between query and subscribe
+    queue = subscribe_trace(evaluation_id)
+    try:
+        run = await _load_evaluation_detail(db, evaluation_id)
+    except Exception:
+        unsubscribe_trace(evaluation_id, queue)
+        raise
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
-        # Replay already persisted steps first
-        for step in run.trace_steps:
-            yield {
-                "event": "trace_step",
-                "data": json.dumps(
-                    {
-                        "step_number": step.step_number,
-                        "phase": step.phase,
-                        "proposal_identifier": step.proposal_identifier,
-                        "tool_name": step.tool_name,
-                        "message": step.message,
-                        "metadata": step.metadata_json or {},
-                        "timestamp": step.created_at.isoformat(),
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-
-        if run.status in (EvaluationStatus.COMPLETED.value, EvaluationStatus.FAILED.value):
-            yield {
-                "event": run.status,
-                "data": json.dumps(
-                    {
-                        "evaluation_id": run.id,
-                        "status": run.status,
-                        "recommended_identifier": run.recommended_identifier,
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-            return
-
-        queue = subscribe_trace(evaluation_id)
+        last_sent_step = 0
         try:
+            for step in run.trace_steps:
+                last_sent_step = max(last_sent_step, step.step_number)
+                yield {
+                    "event": "trace_step",
+                    "data": json.dumps(
+                        {
+                            "step_number": step.step_number,
+                            "phase": step.phase,
+                            "proposal_identifier": step.proposal_identifier,
+                            "tool_name": step.tool_name,
+                            "message": step.message,
+                            "metadata": step.metadata_json or {},
+                            "timestamp": step.created_at.isoformat(),
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+
+            if run.status in (EvaluationStatus.COMPLETED.value, EvaluationStatus.FAILED.value):
+                yield {
+                    "event": run.status,
+                    "data": json.dumps(
+                        {
+                            "evaluation_id": run.id,
+                            "status": run.status,
+                            "recommended_identifier": run.recommended_identifier,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+                return
+
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=20.0)
                     evt_name = evt.get("event", "trace_step")
+                    if evt_name == "trace_step":
+                        step_no = int(evt.get("step_number") or 0)
+                        if step_no and step_no <= last_sent_step:
+                            continue
+                        last_sent_step = max(last_sent_step, step_no)
                     yield {"event": evt_name, "data": json.dumps(evt, ensure_ascii=False)}
                     if evt_name in ("completed", "failed"):
                         break
@@ -243,7 +254,10 @@ async def add_human_review(
     db.add(review)
 
     if payload.decision == "overridden" and payload.override_recommended_proposal_id:
+        override_prop = await db.get(Proposal, payload.override_recommended_proposal_id)
         run.recommended_proposal_id = payload.override_recommended_proposal_id
+        if override_prop is not None:
+            run.recommended_identifier = override_prop.proposal_identifier
 
     await db.flush()
     await record_audit(

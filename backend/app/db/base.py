@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Text, TypeDecorator
+from sqlalchemy import Text, TypeDecorator, event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -75,13 +75,26 @@ def get_engine() -> AsyncEngine:
     if _engine is None:
         settings = get_settings()
         _ensure_sqlite_dir(settings.database_url)
-        connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+        connect_args = (
+            {"check_same_thread": False, "timeout": 15}
+            if settings.database_url.startswith("sqlite")
+            else {}
+        )
         _engine = create_async_engine(
             settings.database_url,
             echo=False,
             future=True,
             connect_args=connect_args,
         )
+        if settings.database_url.startswith("sqlite"):
+
+            @event.listens_for(_engine.sync_engine, "connect")
+            def _set_sqlite_pragmas(dbapi_connection: Any, _: Any) -> None:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL;")
+                cursor.execute("PRAGMA busy_timeout=15000;")
+                cursor.execute("PRAGMA foreign_keys=ON;")
+                cursor.close()
     return _engine
 
 
