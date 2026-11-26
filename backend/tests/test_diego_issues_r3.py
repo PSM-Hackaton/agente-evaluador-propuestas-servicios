@@ -385,10 +385,14 @@ async def test_r3_b4_sqlite_file_contains_zero_plaintext_supplier_names_rifs_or_
     assert proj.status_code == 201
     pid = proj.json()["id"]
 
-    krypton = "Propuesta_602_Krypton_Ingenieria_CA.png"
+    upload_files = [
+        ("Propuesta_602_Krypton_Ingenieria_CA.png", "image/png"),
+        ("Propuesta_923_Grupo_Digital_Miranda_CA.pdf", "application/pdf"),
+        ("Propuesta_638_TecnoAndes_Soluciones_CA.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ]
     up = await app_client.post(
         f"/api/v1/projects/{pid}/proposals",
-        files=[("files", (krypton, (PROPUESTAS_DIR / krypton).read_bytes(), "image/png"))],
+        files=[("files", (fname, (PROPUESTAS_DIR / fname).read_bytes(), mime)) for fname, mime in upload_files],
         headers=hdr_c,
     )
     assert up.status_code == 201
@@ -411,9 +415,23 @@ async def test_r3_b4_sqlite_file_contains_zero_plaintext_supplier_names_rifs_or_
     for sensitive in (
         b"krypton",
         b"j-41223344",
-        b"23020",
+        b"23020.0",
+        b"23,020",
         b"cargador@evaluador.ve",
         b"auditoria cifrado r3-b4",
         b"propuesta_602_krypton",
     ):
         assert sensitive not in raw_lower, f"Plaintext leak detected in SQLite DB: {sensitive!r}"
+
+    import sqlite3
+
+    with sqlite3.connect(str(db_file)) as conn:
+        rows = conn.execute(
+            "SELECT supplier_name, supplier_rif, declared_total_usd, adjusted_tco_usd FROM proposal_evaluations"
+        ).fetchall()
+    assert len(rows) >= 3
+    for s_name, s_rif, decl_usd, tco_usd in rows:
+        for val in (s_name, decl_usd, tco_usd):
+            assert isinstance(val, str) and val.startswith("enc:v1:"), f"Unencrypted DB column: {val!r}"
+        if s_rif is not None:
+            assert isinstance(s_rif, str) and s_rif.startswith("enc:v1:")
