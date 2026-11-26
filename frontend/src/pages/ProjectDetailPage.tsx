@@ -261,6 +261,7 @@ export function ProjectDetailPage() {
   const puedeEvaluar =
     can(user?.rol, 'evaluacion.ejecutar') &&
     propuestas.length >= 3 &&
+    propuestas.length <= 20 &&
     !enCurso &&
     !bloqueadoPorEstado;
 
@@ -480,6 +481,10 @@ export function ProjectDetailPage() {
                 <Alert tone="warning">
                   Se requieren al menos 3 propuestas cargadas para iniciar la evaluación (actualmente hay {propuestas.length}).
                 </Alert>
+              ) : propuestas.length > 20 ? (
+                <Alert tone="warning">
+                  El límite máximo permitido es de 20 propuestas por proyecto (actualmente hay {propuestas.length}). Elimina las excedentes antes de evaluar.
+                </Alert>
               ) : null}
             </CardBody>
           </Card>
@@ -488,10 +493,20 @@ export function ProjectDetailPage() {
             <Card>
               <CardHeader
                 title="Carga masiva de propuestas"
-                subtitle="Sube de 3 a 20 o más propuestas en PDF, Excel, imágenes manuscritas o capturas de chat"
+                subtitle="Sube entre 3 y 20 propuestas en PDF, Excel, imágenes manuscritas o capturas de chat"
               />
-              <CardBody>
+              <CardBody className="space-y-3">
+                {propuestas.length >= 20 && (
+                  <div role="alert">
+                    <Alert tone="warning" title="Capacidad máxima alcanzada">
+                      Ya se alcanzó el máximo de 20 propuestas para este proyecto. Elimina alguna si deseas reemplazarla.
+                    </Alert>
+                  </div>
+                )}
                 <FileDropzone
+                  maxFiles={20}
+                  currentCount={propuestas.length}
+                  disabled={propuestas.length >= 20}
                   onUpload={async (files) => {
                     await uploadMut.mutateAsync(files);
                   }}
