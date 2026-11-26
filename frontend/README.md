@@ -36,6 +36,9 @@ Edita `frontend/.env`:
 VITE_USE_MOCK=false
 VITE_API_URL=/api/v1
 BACKEND_URL=http://localhost:8000
+# HTTPS opcional en `npm run dev` (TLS 1.2+). Rutas locales fuera del repositorio:
+# VITE_TLS_CERT=
+# VITE_TLS_KEY=
 ```
 
 Cuentas sembradas por el backend (`app/db/seed.py`): `admin@evaluador.ve`, `cargador@evaluador.ve`, `revisor@evaluador.ve`, `aprobador@evaluador.ve`, `auditor@evaluador.ve` (las contraseñas están en el README del backend).

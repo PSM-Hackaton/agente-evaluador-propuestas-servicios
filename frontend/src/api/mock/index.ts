@@ -295,7 +295,13 @@ export const mockApi: Api = {
       if (!user.activo) throw new ApiError(403, 'Usuario desactivado');
       registrar(user.nombre, 'auth.login', 'usuario', user.id);
       persist();
-      return { token: `mock-${user.id}`, user: clone(user) };
+      return { token: `mock-${user.id}`, refreshToken: `mock-rt-${user.id}`, user: clone(user) };
+    },
+    async refresh(refreshToken) {
+      await delay(80);
+      const user = db.usuarios.find((u) => `mock-rt-${u.id}` === refreshToken);
+      if (!user || !user.activo) throw new ApiError(401, 'Sesión expirada');
+      return { token: `mock-${user.id}`, refreshToken };
     },
     async me() {
       await delay(50);
@@ -370,7 +376,7 @@ export const mockApi: Api = {
       await delay(80);
       return db.historial.filter((h) => h.proyecto_id === id).sort((a, b) => a.fecha.localeCompare(b.fecha));
     },
-    documentUrl: () => null,
+    documentUrl: async () => null,
   },
 
   proposals: {
@@ -423,7 +429,7 @@ export const mockApi: Api = {
       registrar(u.nombre, 'propuesta.eliminar', 'propuesta', id, { codigo: p.codigo });
       persist();
     },
-    downloadUrl: () => null,
+    downloadUrl: async () => null,
   },
 
   evaluations: {

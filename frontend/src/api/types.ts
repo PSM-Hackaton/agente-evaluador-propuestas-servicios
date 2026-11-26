@@ -309,7 +309,8 @@ export interface DashboardStats {
 /** Contrato que implementan tanto la API real (http.ts) como la simulada (mock/). */
 export interface Api {
   auth: {
-    login(email: string, password: string): Promise<{ token: string; user: Usuario }>;
+    login(email: string, password: string): Promise<{ token: string; refreshToken?: string | null; user: Usuario }>;
+    refresh(refreshToken: string): Promise<{ token: string; refreshToken?: string | null }>;
     me(): Promise<Usuario>;
   };
   dashboard: {
@@ -326,13 +327,13 @@ export interface Api {
       propuestaAdjudicadaId?: string | null,
     ): Promise<Proyecto>;
     history(id: string): Promise<HistorialEstado[]>;
-    documentUrl(id: string): string | null;
+    documentUrl(id: string): Promise<string | null>;
   };
   proposals: {
     list(projectId: string): Promise<Propuesta[]>;
     upload(projectId: string, files: File[]): Promise<Propuesta[]>;
     remove(id: string): Promise<void>;
-    downloadUrl(id: string): string | null;
+    downloadUrl(id: string): Promise<string | null>;
   };
   evaluations: {
     start(projectId: string, params?: ParametrosEvaluacion): Promise<Evaluacion>;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCheck, MessageSquarePlus, ShieldCheck, XOctagon } from 'lucide-react';
 import { api, type AccionRevision, type Evaluacion, type OpcionesRevision, type Proyecto } from '../api';
@@ -27,15 +27,13 @@ export function ReviewPanel({ evaluacion, proyecto }: ReviewPanelProps) {
     .filter((r) => r.valida)
     .sort((a, b) => a.posicion - b.posicion);
   const [comentario, setComentario] = useState('');
-  const [propuestaElegida, setPropuestaElegida] = useState<string>(
-    evaluacion.recomendada_id ?? validas[0]?.propuesta_id ?? '',
-  );
+  const [selectedOverride, setSelectedOverride] = useState<{ evalId: string; proposalId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setPropuestaElegida(evaluacion.recomendada_id ?? validas[0]?.propuesta_id ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evaluacion.id, evaluacion.recomendada_id]);
+  const propuestaElegida =
+    selectedOverride?.evalId === evaluacion.id
+      ? selectedOverride.proposalId
+      : (evaluacion.recomendada_id ?? validas[0]?.propuesta_id ?? '');
 
   const { data: revisiones = [], isLoading } = useQuery({
     queryKey: ['reviews', evaluacion.id],
@@ -140,7 +138,7 @@ export function ReviewPanel({ evaluacion, proyecto }: ReviewPanelProps) {
                   id="reviewpanel-adjudicar"
                   className="input text-sm"
                   value={propuestaElegida}
-                  onChange={(e) => setPropuestaElegida(e.target.value)}
+                  onChange={(e) => setSelectedOverride({ evalId: evaluacion.id, proposalId: e.target.value })}
                   disabled={mut.isPending}
                 >
                   {validas.map((r) => (

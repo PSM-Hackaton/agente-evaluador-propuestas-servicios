@@ -25,7 +25,7 @@ import { Alert, Badge, Button, Modal, Spinner } from '../components/ui';
 const DEMO_USER_IDS = new Set(['u-admin', 'u-carga', 'u-rev', 'u-apro', 'u-aud']);
 
 export function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, sessionExpiringSoon, renewing, renewSession } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -169,12 +169,15 @@ export function AppLayout() {
 
       {/* Drawer móvil */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 flex lg:hidden print:hidden"
-          onClick={() => setSidebarOpen(false)}
-        >
-          <div className="fixed inset-0 bg-slate-900/50" />
-          <aside className="relative z-10 w-64 max-w-xs" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-40 flex lg:hidden print:hidden">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Cerrar menú lateral"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-900/50"
+          />
+          <aside className="relative z-10 w-64 max-w-xs">
             {sidebarContent}
           </aside>
         </div>
@@ -238,6 +241,23 @@ export function AppLayout() {
             </Button>
           </div>
         </header>
+
+        {sessionExpiringSoon && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 sm:px-6 print:hidden"
+          >
+            <span>Tu sesión está por expirar pronto. Renueva el acceso para evitar interrupciones.</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={renewing}
+              onClick={() => void renewSession()}
+            >
+              Renovar sesión
+            </Button>
+          </div>
+        )}
 
         <main id="contenido" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-7xl flex-1 p-4 sm:p-6 print:p-0">
           <Outlet />

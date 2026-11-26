@@ -327,7 +327,7 @@ function conceptoDesdePaso(step: string): ConceptoAjuste {
   return 'otro';
 }
 
-function toAjustes(pe: BProposalEvaluation): AjusteCosto[] {
+export function toAjustes(pe: BProposalEvaluation): AjusteCosto[] {
   // tco_breakdown.steps es la fuente de verdad: el primer paso es el monto declarado y el
   // último el TCO; los intermedios son los costos añadidos. Los campos shipping_cost_usd e
   // installation_cost_usd pueden venir incluidos en el total declarado, por eso no se suman.

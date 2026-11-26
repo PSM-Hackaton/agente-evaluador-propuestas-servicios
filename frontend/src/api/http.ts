@@ -36,12 +36,44 @@ import {
   type BUser,
 } from './adapters';
 import { detectarTipo } from '../lib/files';
-import { ApiError, clearSession, getToken } from './session';
+import { ApiError, clearSession, getRefreshToken, getToken, updateTokens } from './session';
 import type { Api, DashboardStats, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
 
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '');
 
-async function raw(path: string, opts: RequestInit = {}, token: string | null = getToken()): Promise<Response> {
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function tryRefreshSession(): Promise<string | null> {
+  const rt = getRefreshToken();
+  if (!rt) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+        if (!res.ok) return null;
+        const data = (await res.json()) as BToken;
+        updateTokens(data.access_token, data.refresh_token);
+        return data.access_token;
+      } catch {
+        return null;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
+async function raw(
+  path: string,
+  opts: RequestInit = {},
+  token: string | null = getToken(),
+  retried = false,
+): Promise<Response> {
   const headers = new Headers(opts.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (opts.body && !(opts.body instanceof FormData)) headers.set('Content-Type', 'application/json');
@@ -52,7 +84,11 @@ async function raw(path: string, opts: RequestInit = {}, token: string | null = 
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifique que el backend esté en ejecución.');
   }
-  if (res.status === 401 && !path.startsWith('/auth/login')) {
+  if (res.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/refresh')) {
+    if (!retried) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) return raw(path, opts, refreshed, true);
+    }
     clearSession();
     window.location.assign('/login');
   }
@@ -79,6 +115,11 @@ async function req<T>(path: string, opts: RequestInit = {}, token?: string): Pro
 }
 
 const json = (body: unknown) => JSON.stringify(body);
+
+async function streamTicket(): Promise<string> {
+  const { ticket } = await req<{ ticket: string }>('/auth/stream-ticket', { method: 'POST' });
+  return ticket;
+}
 
 function parseContentDispositionFilename(header: string | null): string | null {
   if (!header) return null;
@@ -114,7 +155,14 @@ export const httpApi: Api = {
     async login(email, password) {
       const t = await req<BToken>('/auth/login', { method: 'POST', body: json({ email, password }) });
       const me = await req<BUser>('/auth/me', {}, t.access_token);
-      return { token: t.access_token, user: toUsuario(me) };
+      return { token: t.access_token, refreshToken: t.refresh_token, user: toUsuario(me) };
+    },
+    async refresh(refreshToken) {
+      const t = await req<BToken>('/auth/refresh', {
+        method: 'POST',
+        body: json({ refresh_token: refreshToken }),
+      });
+      return { token: t.access_token, refreshToken: t.refresh_token };
     },
     me: async () => toUsuario(await req<BUser>('/auth/me')),
   },
@@ -210,9 +258,9 @@ export const httpApi: Api = {
       }
       return out;
     },
-    documentUrl(id) {
-      const token = getToken() ?? '';
-      return `${BASE}/projects/${id}/document/download?token=${encodeURIComponent(token)}`;
+    async documentUrl(id) {
+      const ticket = await streamTicket();
+      return `${BASE}/projects/${id}/document/download?ticket=${encodeURIComponent(ticket)}`;
     },
   },
 
@@ -225,9 +273,9 @@ export const httpApi: Api = {
       return r.map(toPropuesta);
     },
     remove: (id) => req<void>(`/proposals/${id}`, { method: 'DELETE' }),
-    downloadUrl(id) {
-      const token = getToken() ?? '';
-      return `${BASE}/proposals/${id}/download?token=${encodeURIComponent(token)}`;
+    async downloadUrl(id) {
+      const ticket = await streamTicket();
+      return `${BASE}/proposals/${id}/download?ticket=${encodeURIComponent(ticket)}`;
     },
   },
 
@@ -261,36 +309,47 @@ export const httpApi: Api = {
       return (e.trace_steps ?? []).map((t) => toTraza(id, t));
     },
     stream(id, onEvent, onDone, onError) {
-      // EventSource no permite cabeceras: el token viaja como query param (?token=).
-      const token = getToken() ?? '';
-      const es = new EventSource(`${BASE}/evaluations/${id}/stream?token=${encodeURIComponent(token)}`);
       let terminado = false;
-      es.addEventListener('trace_step', (ev) => {
-        try {
-          onEvent(toTraza(id, JSON.parse((ev as MessageEvent).data) as BTraceStep));
-        } catch {
-          /* evento mal formado */
-        }
-      });
-      const fin = async () => {
-        terminado = true;
-        es.close();
-        try {
-          onDone(await evaluacionDetalle(id));
-        } catch {
-          onDone(null);
-        }
-      };
-      es.addEventListener('completed', fin);
-      es.addEventListener('failed', fin);
-      es.onerror = () => {
-        if (terminado) return;
-        es.close();
-        onError?.('Se perdió la conexión con el agente. Recargue la página para ver el estado actual.');
-      };
+      let es: EventSource | null = null;
+
+      void streamTicket()
+        .then((ticket) => {
+          if (terminado) return;
+          es = new EventSource(`${BASE}/evaluations/${id}/stream?ticket=${encodeURIComponent(ticket)}`);
+          es.addEventListener('trace_step', (ev) => {
+            try {
+              onEvent(toTraza(id, JSON.parse((ev as MessageEvent).data) as BTraceStep));
+            } catch {
+              /* evento mal formado */
+            }
+          });
+          const fin = async () => {
+            terminado = true;
+            es?.close();
+            try {
+              onDone(await evaluacionDetalle(id));
+            } catch {
+              onDone(null);
+            }
+          };
+          es.addEventListener('completed', fin);
+          es.addEventListener('failed', fin);
+          es.onerror = () => {
+            if (terminado) return;
+            terminado = true;
+            es?.close();
+            onError?.('Se perdió la conexión con el agente. Recargue la página para ver el estado actual.');
+          };
+        })
+        .catch(() => {
+          if (terminado) return;
+          terminado = true;
+          onError?.('No se pudo autorizar el flujo de trazabilidad en vivo.');
+        });
+
       return () => {
         terminado = true;
-        es.close();
+        es?.close();
       };
     },
     async exportFile(id, formato) {

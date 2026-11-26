@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import {
   api,
+  isMock,
   type EstadoProyecto,
   type ParametrosEvaluacion,
   type ResultadoPropuesta,
@@ -64,23 +65,26 @@ export function ProjectDetailPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>('propuestas');
-  const userPickedTab = useRef(false);
-  const pickTab = (t: Tab) => {
-    userPickedTab.current = true;
-    setTab(t);
-  };
+  const [pickedTab, setPickedTab] = useState<{ projectId: string; tab: Tab } | null>(null);
+  const pickTab = (t: Tab) => setPickedTab({ projectId: id, tab: t });
 
-  const [trazas, setTrazas] = useState<TrazaAgente[]>([]);
-  const [streaming, setStreaming] = useState(false);
-  const [streamError, setStreamError] = useState<string | null>(null);
+  const [selectedEvalState, setSelectedEvalState] = useState<{ projectId: string; evalId: string } | null>(null);
+  const selectedEvalId = selectedEvalState?.projectId === id ? selectedEvalState.evalId : null;
+  const setSelectedEvalId = (evalId: string | null) =>
+    setSelectedEvalState(evalId ? { projectId: id, evalId } : null);
+
+  const [traceState, setTraceState] = useState<{
+    evalId: string;
+    list: TrazaAgente[];
+    ended: boolean;
+    error: string | null;
+  } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [transicionModal, setTransicionModal] = useState<Transicion | null>(null);
   const [transicionNota, setTransicionNota] = useState('');
   const [recDetalle, setRecDetalle] = useState<ResultadoPropuesta | null>(null);
   const [verOtrasValidas, setVerOtrasValidas] = useState(false);
-  const [selectedEvalId, setSelectedEvalId] = useState<string | null>(null);
   const [evalModalOpen, setEvalModalOpen] = useState(false);
   const [paramWebSearch, setParamWebSearch] = useState(true);
   const [paramIvaPct, setParamIvaPct] = useState('16');
@@ -117,40 +121,42 @@ export function ProjectDetailPage() {
   });
 
   const evaluacion = evaluationQ.data ?? null;
+  const defaultTab: Tab =
+    evaluacion?.estado === 'en_curso'
+      ? 'trazabilidad'
+      : evaluacion?.estado === 'completada'
+        ? 'informe'
+        : 'propuestas';
+  const tab: Tab = pickedTab?.projectId === id ? pickedTab.tab : defaultTab;
 
-  // Selección automática de pestaña inicial al cargar por primera vez
-  useEffect(() => {
-    userPickedTab.current = false;
-    setSelectedEvalId(null);
-    setTrazas([]);
-    setStreamError(null);
-  }, [id]);
-
-  useEffect(() => {
-    if (userPickedTab.current || evaluationQ.isLoading) return;
-    if (evaluacion?.estado === 'en_curso') setTab('trazabilidad');
-    else if (evaluacion?.estado === 'completada') setTab('informe');
-    else setTab('propuestas');
-  }, [evaluacion?.estado, evaluationQ.isLoading]);
+  const evalId = evaluacion?.id ?? null;
+  const evalEstado = evaluacion?.estado ?? null;
+  const trazas = evalId && traceState?.evalId === evalId ? traceState.list : [];
+  const streamError = evalId && traceState?.evalId === evalId ? traceState.error : null;
+  const streaming = Boolean(
+    evalId && evalEstado === 'en_curso' && !(traceState?.evalId === evalId && traceState.ended),
+  );
 
   // Suscripción SSE o carga de trazas persistidas
   useEffect(() => {
-    if (!evaluacion) {
-      setTrazas([]);
-      setStreaming(false);
-      return;
-    }
-    if (evaluacion.estado === 'en_curso') {
-      setTrazas([]);
-      setStreaming(true);
-      setStreamError(null);
+    if (!evalId || !evalEstado) return;
+    if (evalEstado === 'en_curso') {
       const stop = api.evaluations.stream(
-        evaluacion.id,
+        evalId,
         (evento) => {
-          setTrazas((prev) => (prev.some((x) => x.id === evento.id) ? prev : [...prev, evento]));
+          setTraceState((prev) => {
+            const base = prev?.evalId === evalId ? prev.list : [];
+            if (base.some((x) => x.id === evento.id)) return prev;
+            return { evalId, list: [...base, evento], ended: false, error: null };
+          });
         },
         async () => {
-          setStreaming(false);
+          setTraceState((prev) => ({
+            evalId,
+            list: prev?.evalId === evalId ? prev.list : [],
+            ended: true,
+            error: null,
+          }));
           await Promise.all([
             qc.invalidateQueries({ queryKey: ['project', id] }),
             qc.invalidateQueries({ queryKey: ['proposals', id] }),
@@ -162,27 +168,37 @@ export function ProjectDetailPage() {
           ]);
         },
         (msg) => {
-          setStreaming(false);
-          setStreamError(msg);
+          setTraceState((prev) => ({
+            evalId,
+            list: prev?.evalId === evalId ? prev.list : [],
+            ended: true,
+            error: msg,
+          }));
         },
       );
       return stop;
     }
 
-    setStreaming(false);
     let cancelled = false;
     api.evaluations
-      .trazas(evaluacion.id)
+      .trazas(evalId)
       .then((list) => {
-        if (!cancelled) setTrazas(list);
+        if (!cancelled) setTraceState({ evalId, list, ended: true, error: null });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setStreamError(e instanceof Error ? e.message : 'No se pudo cargar la trazabilidad');
+        if (!cancelled) {
+          setTraceState({
+            evalId,
+            list: [],
+            ended: true,
+            error: e instanceof Error ? e.message : 'No se pudo cargar la trazabilidad',
+          });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [evaluacion?.id, evaluacion?.estado, id, qc]);
+  }, [evalId, evalEstado, id, qc]);
 
   const uploadMut = useMutation({
     mutationFn: (files: File[]) => api.proposals.upload(id, files),
@@ -342,6 +358,15 @@ export function ProjectDetailPage() {
   const descartadas = ordenada.filter((r) => !r.valida);
   const otrasValidas = ordenada.filter((r) => r.valida && r.propuesta_id !== recomendada?.propuesta_id);
 
+  const abrirDescarga = async (getUrl: () => Promise<string | null>) => {
+    try {
+      const url = await getUrl();
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'No se pudo autorizar la descarga');
+    }
+  };
+
   const tabs: { key: Tab; label: string; icon: typeof FolderOpen; badge?: string | number }[] = [
     { key: 'propuestas', label: 'Propuestas', icon: FolderOpen, badge: propuestas.length },
     { key: 'trazabilidad', label: 'Trazabilidad', icon: Activity, badge: enCurso ? 'En vivo' : trazas.length || undefined },
@@ -388,27 +413,24 @@ export function ProjectDetailPage() {
                 <MapPin className="h-4 w-4" />
                 {proyecto.ubicacion}
               </span>
-              {proyecto.archivo_proyecto && (() => {
-                const docUrl = api.projects.documentUrl(proyecto.id);
-                return docUrl ? (
-                  <a
-                    href={docUrl}
-                    target="_blank"
-                    rel="noreferrer"
+              {proyecto.archivo_proyecto &&
+                (!isMock ? (
+                  <button
+                    type="button"
+                    onClick={() => void abrirDescarga(() => api.projects.documentUrl(proyecto.id))}
                     className="inline-flex items-center gap-1.5 text-indigo-600 hover:underline"
                     title="Descargar documento cifrado"
                   >
                     <FileText className="h-4 w-4" />
                     {proyecto.archivo_proyecto}
                     <Download className="h-3.5 w-3.5" />
-                  </a>
+                  </button>
                 ) : (
                   <span className="inline-flex items-center gap-1.5">
                     <FileText className="h-4 w-4" />
                     {proyecto.archivo_proyecto}
                   </span>
-                );
-              })()}
+                ))}
               <span>
                 Presupuesto ref.:{' '}
                 <strong className="text-slate-700">
@@ -478,7 +500,7 @@ export function ProjectDetailPage() {
 
       {/* Pestañas */}
       <div className="border-b border-slate-200 print:hidden">
-        <nav className="-mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Secciones del proyecto">
+        <div className="-mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Secciones del proyecto">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -526,7 +548,7 @@ export function ProjectDetailPage() {
               </button>
             );
           })}
-        </nav>
+        </div>
       </div>
 
       {actionError && <Alert tone="error">{actionError}</Alert>}
@@ -647,23 +669,19 @@ export function ProjectDetailPage() {
                             )}
                           </td>
                           <td className="text-xs text-slate-500">
-                            {(() => {
-                              const dl = api.proposals.downloadUrl(p.id);
-                              return dl ? (
-                                <a
-                                  href={dl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
-                                  title="Descargar archivo original descifrado"
-                                >
-                                  <span>{p.archivo_nombre}</span>
-                                  <Download className="h-3 w-3 shrink-0" />
-                                </a>
-                              ) : (
-                                p.archivo_nombre
-                              );
-                            })()}
+                            {!isMock ? (
+                              <button
+                                type="button"
+                                onClick={() => void abrirDescarga(() => api.proposals.downloadUrl(p.id))}
+                                className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
+                                title="Descargar archivo original descifrado"
+                              >
+                                <span>{p.archivo_nombre}</span>
+                                <Download className="h-3 w-3 shrink-0" />
+                              </button>
+                            ) : (
+                              p.archivo_nombre
+                            )}
                           </td>
                           <td>
                             <Badge tone="indigo">{TIPO_LABEL[p.tipo]}</Badge>
