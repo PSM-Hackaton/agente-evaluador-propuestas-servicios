@@ -5,6 +5,7 @@ import { detectarTipo, proveedorDesdeCodigo } from '../lib/files';
 import type {
   AccionRevision,
   AjusteCosto,
+  AlertaProveedor,
   ConceptoAjuste,
   EstadoProyecto,
   Evaluacion,
@@ -174,15 +175,22 @@ export interface BSupplier {
   name: string;
   rif: string | null;
   location: string | null;
+  representative?: string | null;
   phone: string | null;
   email: string | null;
+  notes?: string | null;
   alerts_count: number;
   proposals_count: number;
 }
 
 export interface BSupplierAlert {
+  id: string;
+  supplier_id: string;
+  severity: string;
+  reason_code: string;
   summary: string;
   is_resolved: boolean;
+  created_at: string;
 }
 
 export interface BParticipation {
@@ -509,12 +517,26 @@ export function toProveedor(s: BSupplier, motivo: string | null = null): Proveed
     nombre: s.name,
     rif: s.rif,
     ubicacion: s.location,
+    representante: s.representative ?? null,
     telefono: s.phone,
     email: s.email,
+    notas: s.notes ?? null,
     alerta: s.alerts_count > 0,
     motivo_alerta:
       motivo ?? (s.alerts_count > 0 ? `${s.alerts_count} alerta(s) de antecedentes registradas` : null),
     total_participaciones: s.proposals_count,
+  };
+}
+
+export function toAlertaProveedor(a: BSupplierAlert): AlertaProveedor {
+  return {
+    id: a.id,
+    proveedor_id: a.supplier_id,
+    severidad: a.severity,
+    motivo: a.reason_code,
+    resumen: a.summary,
+    resuelta: a.is_resolved,
+    fecha: fechaUtc(a.created_at),
   };
 }
 

@@ -6,6 +6,7 @@ import {
   fechaUtc,
   estadoDesdeBackend,
   estadoHaciaBackend,
+  toAlertaProveedor,
   toAuditoria,
   toEvaluacion,
   toEvaluacionResumen,
@@ -324,7 +325,8 @@ export const httpApi: Api = {
       const d = await req<{ supplier: BSupplier; alerts: BSupplierAlert[]; participation_history: BParticipation[] }>(
         `/suppliers/${id}`,
       );
-      const alerta = d.alerts.find((a) => !a.is_resolved) ?? null;
+      const activas = d.alerts.filter((a) => !a.is_resolved);
+      const alerta = activas[0] ?? null;
       // El historial trae evaluation_run_id; se resuelve el proyecto y la fecha de cada evaluación.
       const runs = new Map<string, { proyecto_id: string; fecha: string; nombre: string }>();
       await Promise.all(
@@ -351,12 +353,50 @@ export const httpApi: Api = {
           total_ajustado_usd: h.adjusted_tco_usd,
         };
       });
+      const base = toProveedor(d.supplier, alerta?.summary ?? null);
       const detalle: ProveedorDetalle = {
-        ...toProveedor(d.supplier, alerta?.summary ?? null),
+        ...base,
+        alerta: activas.length > 0,
+        motivo_alerta: alerta?.summary ?? null,
+        alertas: d.alerts.map(toAlertaProveedor),
         participaciones,
       };
       return detalle;
     },
+    create: async (data) =>
+      toProveedor(
+        await req<BSupplier>('/suppliers', {
+          method: 'POST',
+          body: json({
+            name: data.nombre,
+            rif: data.rif || null,
+            location: data.ubicacion || null,
+            representative: data.representante || null,
+            phone: data.telefono || null,
+            email: data.email || null,
+            notes: data.notas || null,
+          }),
+        }),
+      ),
+    update: async (id, data) =>
+      toProveedor(
+        await req<BSupplier>(`/suppliers/${id}`, {
+          method: 'PATCH',
+          body: json({
+            ...(data.nombre !== undefined ? { name: data.nombre } : {}),
+            ...(data.rif !== undefined ? { rif: data.rif || null } : {}),
+            ...(data.ubicacion !== undefined ? { location: data.ubicacion || null } : {}),
+            ...(data.representante !== undefined ? { representative: data.representante || null } : {}),
+            ...(data.telefono !== undefined ? { phone: data.telefono || null } : {}),
+            ...(data.email !== undefined ? { email: data.email || null } : {}),
+            ...(data.notas !== undefined ? { notes: data.notas || null } : {}),
+          }),
+        }),
+      ),
+    resolveAlert: async (alertId) =>
+      toAlertaProveedor(
+        await req<BSupplierAlert>(`/suppliers/alerts/${alertId}/resolve`, { method: 'POST' }),
+      ),
   },
 
   audit: {

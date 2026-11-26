@@ -2,6 +2,7 @@
 // Persiste en localStorage y simula la ejecución del agente con trazas en vivo.
 import { ApiError, getToken } from '../session';
 import type {
+  AlertaProveedor,
   Api,
   EstadoProyecto,
   Evaluacion,
@@ -576,13 +577,25 @@ export const mockApi: Api = {
     async list() {
       await delay();
       return db.proveedores
-        .map((p) => ({ ...p, total_participaciones: db.propuestas.filter((x) => x.proveedor_id === p.id).length }))
+        .map((p) => {
+          const activas = (db.alertas ?? []).filter((a) => a.proveedor_id === p.id && !a.resuelta);
+          return {
+            ...p,
+            alerta: activas.length > 0 || (db.alertas == null && p.alerta),
+            motivo_alerta: activas[0]?.resumen ?? (activas.length === 0 && db.alertas != null ? null : p.motivo_alerta),
+            total_participaciones: db.propuestas.filter((x) => x.proveedor_id === p.id).length,
+          };
+        })
         .sort((a, b) => a.nombre.localeCompare(b.nombre));
     },
     async get(id) {
       await delay();
       const p = db.proveedores.find((x) => x.id === id);
       if (!p) throw new ApiError(404, 'Proveedor no encontrado');
+      const alertasProv: AlertaProveedor[] = (db.alertas ?? [])
+        .filter((a) => a.proveedor_id === id)
+        .sort((a, b) => b.fecha.localeCompare(a.fecha));
+      const activas = alertasProv.filter((a) => !a.resuelta);
       const participaciones: Participacion[] = db.propuestas
         .filter((x) => x.proveedor_id === id)
         .map((prop) => {
@@ -605,8 +618,76 @@ export const mockApi: Api = {
           };
         })
         .sort((a, b) => b.fecha.localeCompare(a.fecha));
-      const detalle: ProveedorDetalle = { ...p, total_participaciones: participaciones.length, participaciones };
+      const detalle: ProveedorDetalle = {
+        ...p,
+        alerta: activas.length > 0,
+        motivo_alerta: activas[0]?.resumen ?? null,
+        total_participaciones: participaciones.length,
+        alertas: clone(alertasProv),
+        participaciones,
+      };
       return detalle;
+    },
+    async create(data) {
+      await delay();
+      const u = exigir('proveedor.crear');
+      const rifNorm = data.rif?.trim() ? data.rif.trim().toUpperCase() : null;
+      if (rifNorm && db.proveedores.some((x) => x.rif?.toUpperCase() === rifNorm)) {
+        throw new ApiError(409, 'Ya existe un proveedor con ese RIF');
+      }
+      const row = {
+        id: uid(),
+        nombre: data.nombre.trim(),
+        rif: rifNorm,
+        ubicacion: data.ubicacion?.trim() || null,
+        representante: data.representante?.trim() || null,
+        telefono: data.telefono?.trim() || null,
+        email: data.email?.trim() || null,
+        notas: data.notas?.trim() || null,
+        alerta: false,
+        motivo_alerta: null,
+      };
+      db.proveedores.push(row);
+      registrar(u.nombre, 'proveedor.crear', 'proveedor', row.id, { nombre: row.nombre, rif: row.rif });
+      persist();
+      return { ...row, total_participaciones: 0 };
+    },
+    async update(id, data) {
+      await delay();
+      const u = exigir('proveedor.editar');
+      const target = db.proveedores.find((x) => x.id === id);
+      if (!target) throw new ApiError(404, 'Proveedor no encontrado');
+      const rifNorm = data.rif !== undefined ? (data.rif?.trim() ? data.rif.trim().toUpperCase() : null) : target.rif;
+      if (rifNorm && db.proveedores.some((x) => x.id !== id && x.rif?.toUpperCase() === rifNorm)) {
+        throw new ApiError(409, 'Ya existe otro proveedor con ese RIF');
+      }
+      if (data.nombre !== undefined) target.nombre = data.nombre.trim();
+      if (data.rif !== undefined) target.rif = rifNorm;
+      if (data.ubicacion !== undefined) target.ubicacion = data.ubicacion?.trim() || null;
+      if (data.representante !== undefined) target.representante = data.representante?.trim() || null;
+      if (data.telefono !== undefined) target.telefono = data.telefono?.trim() || null;
+      if (data.email !== undefined) target.email = data.email?.trim() || null;
+      if (data.notas !== undefined) target.notas = data.notas?.trim() || null;
+      registrar(u.nombre, 'proveedor.actualizar', 'proveedor', id, { nombre: target.nombre, rif: target.rif });
+      persist();
+      return { ...clone(target), total_participaciones: db.propuestas.filter((x) => x.proveedor_id === id).length };
+    },
+    async resolveAlert(alertId) {
+      await delay();
+      const u = exigir('proveedor.editar');
+      const lista = (db.alertas ??= []);
+      const alerta = lista.find((a) => a.id === alertId);
+      if (!alerta) throw new ApiError(404, 'Alerta no encontrada');
+      alerta.resuelta = true;
+      const prov = db.proveedores.find((x) => x.id === alerta.proveedor_id);
+      if (prov) {
+        const restantes = lista.filter((a) => a.proveedor_id === prov.id && !a.resuelta);
+        prov.alerta = restantes.length > 0;
+        prov.motivo_alerta = restantes[0]?.resumen ?? null;
+      }
+      registrar(u.nombre, 'proveedor.alerta_revisada', 'alerta', alertId, { proveedor_id: alerta.proveedor_id });
+      persist();
+      return clone(alerta);
     },
   },
 

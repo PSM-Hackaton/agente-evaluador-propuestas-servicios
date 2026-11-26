@@ -65,11 +65,33 @@ export interface Proveedor {
   nombre: string;
   rif: string | null;
   ubicacion: string | null;
+  representante?: string | null;
   telefono: string | null;
   email: string | null;
+  notas?: string | null;
   alerta: boolean;
   motivo_alerta: string | null;
   total_participaciones: number;
+}
+
+export interface AlertaProveedor {
+  id: string;
+  proveedor_id: string;
+  severidad: string;
+  motivo: string;
+  resumen: string;
+  resuelta: boolean;
+  fecha: string;
+}
+
+export interface ProveedorInput {
+  nombre: string;
+  rif?: string | null;
+  ubicacion?: string | null;
+  representante?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  notas?: string | null;
 }
 
 export interface Participacion {
@@ -84,6 +106,7 @@ export interface Participacion {
 }
 
 export interface ProveedorDetalle extends Proveedor {
+  alertas: AlertaProveedor[];
   participaciones: Participacion[];
 }
 
@@ -301,6 +324,9 @@ export interface Api {
   suppliers: {
     list(): Promise<Proveedor[]>;
     get(id: string): Promise<ProveedorDetalle>;
+    create(data: ProveedorInput): Promise<Proveedor>;
+    update(id: string, data: Partial<ProveedorInput>): Promise<Proveedor>;
+    resolveAlert(alertId: string): Promise<AlertaProveedor>;
   };
   audit: {
     list(): Promise<RegistroAuditoria[]>;

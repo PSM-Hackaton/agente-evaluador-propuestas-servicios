@@ -1,6 +1,7 @@
 // Base de datos simulada en localStorage (solo modo demo).
 // Mismas entidades que las tablas del backend (docs/PLAN_DE_TRABAJO.md §3.2).
 import type {
+  AlertaProveedor,
   Evaluacion,
   HistorialEstado,
   MensajeChat,
@@ -25,6 +26,7 @@ export interface DB {
   proyectos: ProyectoRow[];
   historial: HistorialEstado[];
   proveedores: ProveedorRow[];
+  alertas?: AlertaProveedor[];
   propuestas: Propuesta[];
   evaluaciones: Evaluacion[];
   trazas: Record<string, TrazaAgente[]>;
@@ -176,6 +178,17 @@ function crearSeed(): DB {
   const ofertas = provPorNombre('Ofertas Express Digital C.A.');
   ofertas.alerta = true;
   ofertas.motivo_alerta = 'Descartado en "Equipos para sala de reuniones" (oct. 2026): Costos o condiciones abusivas';
+  const alertas: AlertaProveedor[] = [
+    {
+      id: 'alerta-ofertas-1',
+      proveedor_id: ofertas.id,
+      severidad: 'alta',
+      motivo: 'abusive_surcharges',
+      resumen: 'Descartado en "Equipos para sala de reuniones" (oct. 2026): Recargo de envío del 45 % oculto en nota al pie.',
+      resuelta: false,
+      fecha: '2026-10-08T14:02:31-04:00',
+    },
+  ];
 
   const propuestas: Propuesta[] = Object.entries(DEMO_SPECS).map(([codigo, s], i) => ({
     id: `prop-${codigo.split('_')[1]}`,
@@ -260,6 +273,7 @@ function crearSeed(): DB {
     proyectos,
     historial,
     proveedores,
+    alertas,
     propuestas,
     evaluaciones,
     trazas,
@@ -275,7 +289,10 @@ export function cargarDB(): DB {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed.version === VERSION) return parsed;
+      if (parsed.version === VERSION) {
+        parsed.alertas ??= [];
+        return parsed;
+      }
     }
   } catch {
     /* datos corruptos: se regenera */
