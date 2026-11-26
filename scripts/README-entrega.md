@@ -84,15 +84,37 @@ sh scripts/subir-por-etapas.sh --ref staging --salida ../entrega-gitlab --forzar
 
 | Etapa | Autor | Rama | Contenido |
 | :--- | :--- | :--- | :--- |
-| 1 `estructura` | Diego Landaeta | `diego` | `.gitignore`, `backend/.gitkeep`, material del reto (`docs/reto/`) |
-| 2 `backend-nucleo` | Enggel Rodríguez | `enggel` | Configuración, cifrado AES-256-GCM, modelos, roles, almacenamiento cifrado, bitácora y sus pruebas |
-| 3 `backend-agente` | Enggel Rodríguez | `enggel` | Ingesta multimodal, cliente de IA, auditoría técnica, TCO, BCV, búsqueda de precios y sus pruebas |
-| 4 `backend-api` | Enggel Rodríguez | `enggel` | API REST/SSE, informes, modo lote, TLS, prueba e2e, `backend/README.md` y cualquier otro archivo de `backend/` |
-| 5 `frontend-base` | Javier Rodríguez | `javier` | Proyecto Vite, cliente de la API, sesión, roles, componentes base |
-| 6 `frontend-modulos` | Javier Rodríguez | `javier` | Páginas y componentes de negocio, `frontend/README.md` y el resto de `frontend/` |
-| 7 `documentacion` | Diego Landaeta | `diego` | `README.md` con los apartados de la plantilla del evento, `docs/cumplimiento/`, `docs/entrega/`, plantilla `.gitlab/` y ganchos `scripts/hooks/` + `scripts/instalar-hooks.sh` |
+| 1 `backend-nucleo` | Enggel Rodriguez | `enggel` | Configuración, cifrado AES-256-GCM, modelos, roles, almacenamiento cifrado, bitácora y sus pruebas; `backend/README.md` (lo exige `pyproject.toml`), `.gitignore` y material del reto (`docs/reto/`) |
+| 2 `backend-agente` | Enggel Rodriguez | `enggel` | Ingesta multimodal, cliente de IA, auditoría técnica, TCO, BCV, búsqueda de precios y sus pruebas |
+| 3 `frontend` | Javier Rodriguez | `javier` | Todo `frontend/` (una sola etapa: `App.tsx` enlaza todas las páginas y partido no compila) |
+| 4 `backend-api` | Enggel Rodriguez | `enggel` | API REST/SSE, informes, modo lote, TLS, pruebas e2e y cualquier otro archivo de `backend/` |
+| en espera `documentacion` | sin asignar | — | `README.md` final, `docs/cumplimiento/`, `docs/entrega/`, `.gitlab/`, `.github/` y ganchos: no son de Javier ni de Enggel |
+| en espera `pruebas-lote`, `evidencias`, `demo` | Giovani Marcano | `giovani` | Trabajo aún no hecho (issues #13 y #12 de GitLab) |
 
-El orden sigue la cronología de GitHub (estructura 11:34, backend desde 13:42, frontend 14:08). Si la rama
+En el GitLab del evento los autores son solo Javier y Enggel (con su identidad de GitLab, p. ej. el correo
+noreply personal, que ahora se acepta). Las etapas con `estado espera` reparten sus archivos pero no se
+confirman. Cada etapa lleva un cuerpo detallado (`cuerpo`, mínimo 2 líneas) y sus issues (`issue` →
+`Closes #n`, `refs` → `Refs #n`); el script añade `Pruebas ejecutadas: ...` con el resultado real.
+
+### Modelo del evento: sobre `desarrollo` de GitLab (`--sobre-gitlab`)
+
+```sh
+git clone <URL de propuesta_servicios> ../propuesta_servicios   # remoto "gitlab", sin token en la URL
+sh scripts/subir-por-etapas.sh --ref staging --sobre-gitlab ../propuesta_servicios --proyecto 1407 \
+   --autor-enggel "Enggel Rodriguez <1017-metagamingprohd@users.noreply.gitlab.nube.gob.ve>" \
+   --autor-javier "Javier Rodriguez <1015-jarmolina2015@users.noreply.gitlab.nube.gob.ve>"
+```
+
+Construye las etapas encima de `gitlab/desarrollo` (commit del organizador con su `README.md`), sin reescribir
+historia: rama local `integracion` desde la base, un commit por etapa (autor y quien confirma = la persona de la
+etapa) y las ramas `enggel` y `javier` movidas por avance rápido. Exige que `gitlab/enggel` y `gitlab/javier`
+estén contenidas en la base. Prueba **cada etapa sobre su propio árbol** (pytest y build). No prepara `avance`:
+imprime el push de cada etapa, uno a uno (`git push gitlab <commit>:refs/heads/<rama>`), y los Merge Request
+hacia `desarrollo` con `remove_source_branch=false`. **En este proyecto el merge a `desarrollo` lo hacen los
+organizadores (Maintainers)**: antes de subir la etapa de la otra persona, el Merge Request anterior debe estar
+fusionado.
+
+El orden sigue la cronología de GitHub (backend desde 13:42, frontend 14:08, backend 14:10-15:35). Si la rama
 integrada trae archivos nuevos fuera de `backend/` y `frontend/`, el plan falla diciendo cuáles quedaron sin
 etapa: añádalos a `scripts/etapas-entrega.txt` (formato en su cabecera) y repita sin `--subir`.
 
