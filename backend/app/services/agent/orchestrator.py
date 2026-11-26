@@ -44,8 +44,33 @@ from app.services.storage.encrypted_storage import EncryptedFileStorage
 
 logger = logging.getLogger(__name__)
 
-# In-memory SSE pub/sub bus keyed by evaluation_run_id
+# In-memory SSE pub/sub bus and per-run event replay buffer keyed by evaluation_run_id
 _TRACE_SUBSCRIBERS: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+_TRACE_BUFFERS: dict[str, list[dict[str, Any]]] = {}
+_TRACE_BUFFER_MAX_RUNS = 64
+
+ALERT_REASON_PRIORITY: dict[str, int] = {
+    DiscardReasonCode.INYECCION_PROMPT.value: 0,
+    DiscardReasonCode.INCOMPATIBILIDAD_TECNICA.value: 1,
+    DiscardReasonCode.CAPACIDAD_INSUFICIENTE.value: 2,
+    DiscardReasonCode.EQUIPOS_OBSOLETOS_RECICLADOS.value: 3,
+    DiscardReasonCode.ERROR_ARITMETICO.value: 4,
+    DiscardReasonCode.COSTOS_CONDICIONES_ABUSIVAS.value: 5,
+    DiscardReasonCode.ALCANCE_INCOMPLETO.value: 6,
+}
+
+
+def init_trace_buffer(evaluation_id: str) -> None:
+    """Initialize an in-memory replay buffer for a new evaluation run."""
+    if evaluation_id not in _TRACE_BUFFERS and len(_TRACE_BUFFERS) >= _TRACE_BUFFER_MAX_RUNS:
+        oldest = next(iter(_TRACE_BUFFERS))
+        _TRACE_BUFFERS.pop(oldest, None)
+    _TRACE_BUFFERS[evaluation_id] = []
+
+
+def get_buffered_trace_events(evaluation_id: str) -> list[dict[str, Any]]:
+    """Return a snapshot of buffered trace events for an evaluation run."""
+    return list(_TRACE_BUFFERS.get(evaluation_id, ()))
 
 
 def subscribe_trace(evaluation_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -63,6 +88,10 @@ def unsubscribe_trace(evaluation_id: str, q: asyncio.Queue[dict[str, Any]]) -> N
 
 
 def _publish_trace_event(evaluation_id: str, event: dict[str, Any]) -> None:
+    if evaluation_id not in _TRACE_BUFFERS and len(_TRACE_BUFFERS) >= _TRACE_BUFFER_MAX_RUNS:
+        oldest = next(iter(_TRACE_BUFFERS))
+        _TRACE_BUFFERS.pop(oldest, None)
+    _TRACE_BUFFERS.setdefault(evaluation_id, []).append(event)
     for q in _TRACE_SUBSCRIBERS.get(evaluation_id, []):
         q.put_nowait(event)
 
@@ -103,16 +132,36 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _spec_context_for_price(text: str, unit_price: float, window: int = 260) -> str:
-    """Return the text right before the first occurrence of a unit price (the item's specs)."""
+def _spec_context_for_price(text: str, unit_price: float, item_category: str = "", window: int = 260) -> str:
+    """Return specs preceding a unit price without crossing station or section boundaries."""
     if unit_price <= 0 or not text:
         return ""
+    search_offset = 0
+    if item_category == "estacion_docente":
+        anchor = re.search(r"\b(?:estaci[oó]n\s+)?docente\b", text, re.I)
+        if anchor:
+            search_offset = anchor.start()
+    elif item_category == "estaciones_estudiantes":
+        anchor = re.search(r"\b(?:estaci[oó]n\s+)?estudiantes\b", text, re.I)
+        if anchor:
+            search_offset = anchor.start()
+
     whole = int(unit_price)
     candidates = [f"{whole:,}", str(whole), f"{whole:,}".replace(",", ".")]
-    for cand in candidates:
-        m = re.search(rf"\$\s*{re.escape(cand)}(?![0-9])", text)
-        if m:
-            return re.sub(r"\s+", " ", text[max(0, m.start() - window) : m.start()]).strip()
+    for offset in (search_offset, 0) if search_offset > 0 else (0,):
+        sub_text = text[offset:]
+        for cand in candidates:
+            m = re.search(rf"\$\s*{re.escape(cand)}(?![0-9])", sub_text)
+            if m:
+                abs_pos = offset + m.start()
+                raw_slice = text[max(offset, abs_pos - window) : abs_pos]
+                bullet_parts = re.split(r"(?:^|\n)\s*[+•*]\s+", raw_slice)
+                scoped = bullet_parts[-1] if bullet_parts else raw_slice
+                if item_category == "estacion_docente":
+                    m_doc = re.search(r"\b(?:estaci[oó]n\s+)?docente\b", scoped, re.I)
+                    if m_doc:
+                        scoped = scoped[m_doc.start() :]
+                return re.sub(r"\s+", " ", scoped).strip()
     return ""
 
 
@@ -535,18 +584,32 @@ async def evaluate_proposals_core(
         line_items = structured.get("line_items") or []
         declared_total = float(structured.get("declared_total") or 0.0)
         arith = toolbox.tool_verify_arithmetic(line_items=line_items, declared_total=declared_total)
-        await emit(
-            "verificacion_aritmetica",
-            (
+        if not arith["is_valid"]:
+            arith_msg = (
+                f"ERROR ARITMÉTICO detectado: suma=${arith['computed_total']:.2f} vs "
+                f"declarado=${arith['declared_total']:.2f} (dif=${arith['discrepancy']:.2f})."
+            )
+        elif arith.get("declared_total_missing"):
+            arith_msg = (
+                "Advertencia aritmética: total declarado no localizado en el documento "
+                f"(verificación no concluyente; suma de partidas=${arith['computed_total']:.2f})."
+            )
+        else:
+            arith_msg = (
                 f"Verificación aritmética OK: suma=${arith['computed_total']:.2f} vs "
                 f"declarado=${arith['declared_total']:.2f}."
-                if arith["is_valid"]
-                else f"ERROR ARITMÉTICO detectado: suma=${arith['computed_total']:.2f} vs "
-                f"declarado=${arith['declared_total']:.2f} (dif=${arith['discrepancy']:.2f})."
-            ),
+            )
+        await emit(
+            "verificacion_aritmetica",
+            arith_msg,
             proposal_identifier=doc.identifier,
             tool_name="verify_arithmetic",
-            metadata={"is_valid": arith["is_valid"], "discrepancy": arith["discrepancy"]},
+            metadata={
+                "is_valid": arith["is_valid"],
+                "declared_total_missing": bool(arith.get("declared_total_missing")),
+                "computed_total": arith["computed_total"],
+                "discrepancy": arith["discrepancy"],
+            },
         )
         if not arith["is_valid"]:
             discard_reasons.append(
@@ -558,7 +621,8 @@ async def evaluate_proposals_core(
 
         # Step 6: Deterministic TCO & Currency Normalization Tool
         tco = toolbox.tool_compute_tco(
-            declared_total=declared_total if declared_total > 0 else float(arith["computed_total"]),
+            declared_total=declared_total,
+            computed_fallback_total=float(arith["computed_total"]),
             currency=str(structured.get("currency") or "USD"),
             bcv_rate=bcv_rate,
             shipping_included_in_total=bool(structured.get("shipping_included_in_total", True)),
@@ -668,6 +732,7 @@ async def evaluate_proposals_core(
                 metadata={"comparisons": len(market_comparisons), "status": first_mc["status"]},
             )
 
+        discard_reasons.sort(key=lambda r: ALERT_REASON_PRIORITY.get(r["code"], 99))
         is_valid = len(discard_reasons) == 0
         prior_alert_notes = [
             f"Antecedente previo ({al.get('date') or str(al.get('created_at', ''))[:10]} — {al.get('project_name', 'Proyecto anterior')}): "
@@ -914,6 +979,7 @@ async def run_project_evaluation_in_db(
         prop_by_id[prop.id] = prop
 
     step_num = 0
+    init_trace_buffer(run.id)
 
     async def persist_and_stream_trace(
         phase: str,

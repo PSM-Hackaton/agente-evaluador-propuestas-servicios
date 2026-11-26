@@ -12,6 +12,7 @@ from app.core.security import ROLES_READ, ROLES_REVIEW, ROLES_UPLOAD
 from app.db.base import get_db
 from app.db.models import EvaluationRun, Project, Proposal, ProposalEvaluation, Supplier, SupplierAlert, User
 from app.schemas.domain import SupplierAlertOut, SupplierCreate, SupplierOut, SupplierUpdate
+from app.services.agent.orchestrator import ALERT_REASON_PRIORITY
 from app.services.audit.service import record_audit
 
 router = APIRouter(prefix="/suppliers", tags=["Directorio de Proveedores"])
@@ -117,6 +118,13 @@ async def get_supplier_detail(
                 .order_by(desc(SupplierAlert.created_at))
             )
         ).scalars().all()
+    )
+    alerts.sort(
+        key=lambda a: (
+            0 if a.severity == "critical" else 1,
+            ALERT_REASON_PRIORITY.get(a.reason_code, 99),
+            -a.created_at.timestamp(),
+        )
     )
     proposals = list(
         (

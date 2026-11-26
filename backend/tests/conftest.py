@@ -43,3 +43,12 @@ async def app_client(test_tmp_dir: Path):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="https://testserver") as client:
         yield client
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_between_tests():
+    from app.api.v1.auth import reset_login_rate_limiter
+
+    reset_login_rate_limiter()
+    yield
+    reset_login_rate_limiter()

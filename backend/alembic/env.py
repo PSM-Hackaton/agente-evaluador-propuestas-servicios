@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
@@ -54,9 +56,18 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+def _ensure_sqlite_parent_dir(database_url: str) -> None:
+    """Create parent directory for file-backed SQLite databases in clean clones."""
+    url = make_url(database_url)
+    if url.drivername.startswith("sqlite") and url.database and url.database != ":memory:":
+        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
+
+
 async def run_async_migrations() -> None:
+    db_url = _resolve_db_url()
+    _ensure_sqlite_parent_dir(db_url)
     configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = _resolve_db_url()
+    configuration["sqlalchemy.url"] = db_url
 
     connectable = async_engine_from_config(
         configuration,

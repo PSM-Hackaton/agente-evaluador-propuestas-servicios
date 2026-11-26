@@ -61,11 +61,12 @@ def _make_valid_txt(name: str, rif: str, unit_price: float = 1200.0) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Issue #5: Alembic initial migration on fresh SQLite DB
+# Issue #5: Alembic initial migration on fresh SQLite DB (clean clone without parent dir)
 # ---------------------------------------------------------------------------
 def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
-    """Verify `alembic upgrade head` and `downgrade base` execute cleanly on a fresh database."""
-    db_file = tmp_path / "alembic_fresh.db"
+    """Verify `alembic upgrade head` creates missing parent dirs and runs cleanly on a fresh database."""
+    db_file = tmp_path / "clean_clone_data" / "nested" / "alembic_fresh.db"
+    assert not db_file.parent.exists()
     env = {
         **os.environ,
         "DATABASE_URL": f"sqlite+aiosqlite:///{db_file}",
@@ -639,3 +640,240 @@ async def test_issue3_and_issue10_utc_dates_rejected_review_audit_transition_and
     assert first_hist["project_id"]
     assert first_hist["project_name"]
     assert first_hist["evaluated_at"].endswith(("Z", "+00:00"))
+
+
+# ---------------------------------------------------------------------------
+# Issue #36 (R3-E13): SSE background evaluation delivers all steps from step 1
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue36_sse_background_evaluation_delivers_all_steps_from_step_1(app_client: AsyncClient) -> None:
+    """Verify delayed SSE subscription on run_in_background=True receives step 1..N matching GET /evaluations/{id}."""
+    import asyncio
+    import re as _re
+
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+
+    proj = await app_client.post(
+        "/api/v1/projects",
+        json={"name": "SSE Background Buffer R3-E13", "execution_location": "Caracas"},
+        headers=cargador,
+    )
+    pid = proj.json()["id"]
+    files = [
+        ("files", (f"Prop_SSE_BG_{i}.txt", _make_valid_txt(f"SSE BG {i} C.A.", f"J-4300000{i}-1", 1210 + i * 15), "text/plain"))
+        for i in range(1, 4)
+    ]
+    assert (await app_client.post(f"/api/v1/projects/{pid}/proposals", files=files, headers=cargador)).status_code == 201
+
+    ev_resp = await app_client.post(
+        f"/api/v1/projects/{pid}/evaluate",
+        json={"enable_web_search": False, "run_in_background": True, "bcv_rate_override": 50.0},
+        headers=revisor,
+    )
+    assert ev_resp.status_code == 201
+    eval_id = ev_resp.json()["id"]
+
+    # Simulate client subscribing slightly after trigger (first steps already buffered in memory)
+    await asyncio.sleep(0.05)
+    tkt_resp = await app_client.post("/api/v1/auth/stream-ticket", headers=revisor)
+    assert tkt_resp.status_code == 200
+    ticket = tkt_resp.json()["ticket"]
+
+    sse_resp = await app_client.get(f"/api/v1/evaluations/{eval_id}/stream?ticket={ticket}")
+    assert sse_resp.status_code == 200
+    assert "event: completed" in sse_resp.text
+
+    step_nums = [
+        int(json.loads(match.group(1))["step_number"])
+        for match in _re.finditer(r"event:\s*trace_step\s*\r?\ndata:\s*(\{[^\r\n]+\})", sse_resp.text)
+    ]
+    assert step_nums == list(range(1, len(step_nums) + 1))
+
+    final_eval = (await app_client.get(f"/api/v1/evaluations/{eval_id}", headers=revisor)).json()
+    assert len(step_nums) == len(final_eval["trace_steps"])
+    assert step_nums[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #37 (R3-E14): No false overprices on 131/331 and ReTech alert priority
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue37_no_false_overprice_and_retech_alert_priority(
+    app_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify logistics/cross-station specs do not cause false overprices and ReTech surfaces inyeccion_prompt first."""
+    from app.services.agent.orchestrator import _spec_context_for_price
+    from app.services.agent.tools import extract_proposal_structured_heuristic
+    from app.services.market import search as market_search
+
+    doc_331 = await ingestion_pipeline.ingest_document(
+        "Propuesta_331_Mayorista_Sin_Fronteras_CA.png",
+        (PROPUESTAS_DIR / "Propuesta_331_Mayorista_Sin_Fronteras_CA.png").read_bytes(),
+        llm_client=None,
+    )
+    h_331 = extract_proposal_structured_heuristic(doc_331.identifier, doc_331.sanitized_text)
+    targets_331 = market_search.extract_market_searchable_items(
+        doc_331.sanitized_text,
+        h_331["line_items"],
+        spec_context_fn=_spec_context_for_price,
+    )
+    assert all(t["category"] not in ("envio", "instalacion") for t in targets_331)
+
+    teacher_target = next(t for t in targets_331 if t["category"] == "estacion_docente")
+    assert "ryzen 7 7700" in teacher_target["description"].lower()
+    assert "ryzen 5 7600" not in teacher_target["description"].lower()
+
+    # Shipping line evaluated directly returns sin_referencia without overprice
+    ship_res = await market_search.search_market_price("Envío y Logística $160", 160.0, enable_web=False)
+    assert ship_res["status"] == "sin_referencia"
+    assert ship_res["is_abusive_overprice"] is False
+
+    # Web returning only loose component prices ($280/$310) must NOT mark a $1,590 workstation as overprice
+    async def _mock_loose_parts(query: str) -> list[dict]:
+        return [
+            {"title": "AMD Ryzen 7 7700 CPU Only", "url": "https://example.com/cpu", "snippet": "$280.00", "extracted_price_usd": 280.0, "retrieved_at": "2026-11-26T00:00:00Z"},
+            {"title": "RTX 4060 GPU Only", "url": "https://example.com/gpu", "snippet": "$310.00", "extracted_price_usd": 310.0, "retrieved_at": "2026-11-26T00:00:00Z"},
+        ]
+
+    market_search._SEARCH_CACHE.clear()
+    monkeypatch.setattr(market_search, "_search_ddgs", _mock_loose_parts)
+    monkeypatch.setattr(market_search.get_settings(), "tavily_api_key", "")
+    ws_res = await market_search.search_market_price(teacher_target["description"], 1590.0, enable_web=True)
+    assert ws_res["is_abusive_overprice"] is False
+    assert ws_res["reference_source_type"] == "baseline_fallback_only"
+    market_search._SEARCH_CACHE.clear()
+
+    # End-to-end supplier alert ordering for ReTech (131) puts inyeccion_prompt first
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+    pid = (await app_client.post("/api/v1/projects", json={"name": "ReTech Priority R3-E14", "execution_location": "Caracas"}, headers=cargador)).json()["id"]
+    files = [
+        ("files", ("Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf", (PROPUESTAS_DIR / "Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf").read_bytes(), "application/pdf")),
+        ("files", ("Propuesta_602_Krypton_Ingenieria_CA.png", (PROPUESTAS_DIR / "Propuesta_602_Krypton_Ingenieria_CA.png").read_bytes(), "image/png")),
+        ("files", ("Propuesta_923_Grupo_Digital_Miranda_CA.pdf", (PROPUESTAS_DIR / "Propuesta_923_Grupo_Digital_Miranda_CA.pdf").read_bytes(), "application/pdf")),
+    ]
+    assert (await app_client.post(f"/api/v1/projects/{pid}/proposals", files=files, headers=cargador)).status_code == 201
+    ev = await app_client.post(
+        f"/api/v1/projects/{pid}/evaluate",
+        json={"enable_web_search": False, "run_in_background": False, "bcv_rate_override": 50.0},
+        headers=revisor,
+    )
+    assert ev.status_code == 201
+    retech_eval = next(pe for pe in ev.json()["proposal_evaluations"] if "131" in pe["proposal_identifier"])
+    assert retech_eval["discard_reasons"][0]["code"] == "inyeccion_prompt"
+
+    sups = (await app_client.get("/api/v1/suppliers?search=ReTech", headers=revisor)).json()
+    assert len(sups) >= 1
+    detail = (await app_client.get(f"/api/v1/suppliers/{sups[0]['id']}", headers=revisor)).json()
+    assert detail["alerts"][0]["reason_code"] == "inyeccion_prompt"
+    assert detail["alerts"][0]["severity"] == "critical"
+
+
+# ---------------------------------------------------------------------------
+# Issue #38 (R3-E15): Login brute-force rate limiting
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue38_login_rate_limiting_and_audit_log(app_client: AsyncClient) -> None:
+    """Verify 5 failed logins yield 401, 6th yields 429 + Retry-After, and reset restores 200."""
+    from app.api.v1.auth import reset_login_rate_limiter
+
+    reset_login_rate_limiter()
+    for _ in range(5):
+        r = await app_client.post("/api/v1/auth/login", json={"email": "revisor@evaluador.ve", "password": "WrongPassword!"})
+        assert r.status_code == 401
+
+    blocked = await app_client.post("/api/v1/auth/login", json={"email": "revisor@evaluador.ve", "password": "WrongPassword!"})
+    assert blocked.status_code == 429
+    retry_after = int(blocked.headers.get("Retry-After", "0"))
+    assert retry_after >= 1
+
+    reset_login_rate_limiter()
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+    logs = (await app_client.get("/api/v1/audit-logs?action=auth.login_blocked&limit=10", headers=revisor)).json()
+    assert len(logs) >= 1
+    assert "WrongPassword" not in json.dumps(logs)
+
+
+# ---------------------------------------------------------------------------
+# Issue #39 (R3-E16) & Issue #40 (R3-E17): 331 total extraction, missing total warning & batch causes
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue39_and_issue40_total_extraction_warning_and_batch_causes() -> None:
+    """Verify Propuesta_331 extracts $14,950.00, missing total never emits arithmetic OK, and docs/reto causes align."""
+    from app.services.agent.orchestrator import evaluate_proposals_core
+    from app.services.agent.tools import extract_proposal_structured_heuristic
+    from app.services.finance.tco import verify_arithmetic
+
+    doc_331 = await ingestion_pipeline.ingest_document(
+        "Propuesta_331_Mayorista_Sin_Fronteras_CA.png",
+        (PROPUESTAS_DIR / "Propuesta_331_Mayorista_Sin_Fronteras_CA.png").read_bytes(),
+        llm_client=None,
+    )
+    h_331 = extract_proposal_structured_heuristic(doc_331.identifier, doc_331.sanitized_text)
+    assert h_331["declared_total"] == pytest.approx(14950.0, abs=0.01)
+    arith_331 = verify_arithmetic(h_331["line_items"], h_331["declared_total"])
+    assert arith_331.declared_total_missing is False
+    assert arith_331.is_valid is True
+
+    # Document without declared total must warn (never "Verificación aritmética OK") and keep declared_total_usd=0.0
+    no_total_txt = b"""Proveedor: Demo Sin Total C.A. RIF J-51234567-8
+Estacion Estudiantes (10x): AMD Ryzen 5 7600, 32GB DDR5, 1TB NVMe, RTX 4060 8GB - $1,200.00 c/u
+Estacion Docente (1x): AMD Ryzen 7 7700, 32GB DDR5, 1TB NVMe, RTX 4060 8GB - $1,500.00
+Monitor 24 IPS FHD, teclado/raton, UPS 1200VA | SO: Ubuntu 24.04 | Instalacion en sitio
+Garantia: 24 meses en Venezuela
+"""
+    out = await evaluate_proposals_core(
+        project_name="Demo Sin Total",
+        project_location="Caracas",
+        project_requirements_text="10 estudiantes + 1 docente",
+        proposal_files=[(None, "Propuesta_Sin_Total.txt", no_total_txt)],
+        enable_web_search=False,
+        bcv_rate_override=50.0,
+    )
+    res_nt = out.results[0]
+    assert res_nt.declared_total_usd == 0.0
+    assert res_nt.tco_breakdown["declared_total_missing"] is True
+    assert res_nt.adjusted_tco_usd >= 13500.0
+    arith_steps = [e for e in out.trace_events if e["phase"] == "verificacion_aritmetica"]
+    assert len(arith_steps) == 1
+    assert "Verificación aritmética OK" not in arith_steps[0]["message"]
+    assert "Advertencia aritmética" in arith_steps[0]["message"]
+
+    # Check discarded causes in docs/reto match expected batch doc (Issue #40)
+    discarded_files = [
+        ("131", "Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf"),
+        ("331", "Propuesta_331_Mayorista_Sin_Fronteras_CA.png"),
+        ("734", "Propuesta_734_Inversiones_Elite_Tech_2026_CA.xlsx"),
+        ("898", "Propuesta_898_Distribuidora_10x10_Tech_CA.png"),
+        ("975", "Propuesta_975_Ofertas_Express_Digital_CA.jpg"),
+    ]
+    req_doc = await ingestion_pipeline.ingest_document(
+        "proyecto.pdf", (RETO_DIR / "proyecto.pdf").read_bytes(), llm_client=None
+    )
+    batch_files = [(None, fname, (PROPUESTAS_DIR / fname).read_bytes()) for _, fname in discarded_files]
+    batch_out = await evaluate_proposals_core(
+        project_name="Lote Causes Check",
+        project_location="Caracas",
+        project_requirements_text=req_doc.visible_text,
+        proposal_files=batch_files,
+        enable_web_search=False,
+        bcv_rate_override=50.0,
+    )
+    by_tag = {
+        tag: next(r for r in batch_out.results if tag in r.proposal_identifier)
+        for tag, _ in discarded_files
+    }
+    assert any(r["code"] == "inyeccion_prompt" for r in by_tag["131"].discard_reasons)
+    assert any(r["code"] == "incompatibilidad_tecnica" for r in by_tag["131"].discard_reasons)
+    assert any(r["code"] == "costos_condiciones_abusivas" for r in by_tag["331"].discard_reasons)
+    assert by_tag["331"].declared_total_usd == pytest.approx(14950.0, abs=0.01)
+    assert any(r["code"] in ("incompatibilidad_tecnica", "error_aritmetico") for r in by_tag["734"].discard_reasons)
+    assert any(r["code"] == "equipos_obsoletos_reciclados" for r in by_tag["898"].discard_reasons)
+    assert by_tag["975"].is_valid is False
+    steps_975 = [
+        e for e in batch_out.trace_events
+        if e["phase"] == "verificacion_aritmetica" and "975" in str(e.get("proposal_identifier") or "")
+    ]
+    assert steps_975 and "Verificación aritmética OK" not in steps_975[0]["message"]
