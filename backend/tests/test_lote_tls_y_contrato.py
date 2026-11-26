@@ -61,11 +61,12 @@ def _make_valid_txt(name: str, rif: str, unit_price: float = 1200.0) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Issue #5: Alembic initial migration on fresh SQLite DB
+# Issue #5: Alembic initial migration on fresh SQLite DB (clean clone without parent dir)
 # ---------------------------------------------------------------------------
 def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
-    """Verify `alembic upgrade head` and `downgrade base` execute cleanly on a fresh database."""
-    db_file = tmp_path / "alembic_fresh.db"
+    """Verify `alembic upgrade head` creates missing parent dirs and runs cleanly on a fresh database."""
+    db_file = tmp_path / "clean_clone_data" / "nested" / "alembic_fresh.db"
+    assert not db_file.parent.exists()
     env = {
         **os.environ,
         "DATABASE_URL": f"sqlite+aiosqlite:///{db_file}",
