@@ -42,6 +42,7 @@ export const TIPO_LABEL: Record<TipoArchivo, string> = {
   xlsx: 'Hoja de cálculo',
   imagen: 'Imagen / manuscrito',
   captura: 'Captura de chat',
+  documento: 'Documento de texto',
 };
 
 export const MOTIVO_LABEL: Record<MotivoDescarte, string> = {

@@ -1,7 +1,12 @@
 import type { TipoArchivo } from '../api/types';
 
-export const ACCEPT_PROPUESTAS = '.pdf,.xlsx,.xls,.jpg,.jpeg,.png';
-export const EXT_PERMITIDAS = ['pdf', 'xlsx', 'xls', 'jpg', 'jpeg', 'png'];
+// Mismas extensiones que SUPPORTED_DOCUMENT_EXTENSIONS del backend (services/ingestion/pipeline.py)
+export const EXT_PERMITIDAS = [
+  'pdf', 'docx', 'xlsx', 'xlsm', 'xls', 'csv', 'tsv',
+  'jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'txt', 'md',
+];
+export const ACCEPT_PROPUESTAS = EXT_PERMITIDAS.map((e) => `.${e}`).join(',');
+export const ACCEPT_DOCUMENTO_PROYECTO = '.pdf,.docx,.txt,.md';
 
 export function extension(name: string): string {
   const i = name.lastIndexOf('.');
@@ -12,7 +17,8 @@ export function extension(name: string): string {
 export function detectarTipo(name: string): TipoArchivo {
   const ext = extension(name);
   if (ext === 'pdf') return 'pdf';
-  if (ext === 'xlsx' || ext === 'xls') return 'xlsx';
+  if (['xlsx', 'xlsm', 'xls', 'csv', 'tsv'].includes(ext)) return 'xlsx';
+  if (['docx', 'txt', 'md'].includes(ext)) return 'documento';
   if (ext === 'png') return 'captura';
   return 'imagen';
 }

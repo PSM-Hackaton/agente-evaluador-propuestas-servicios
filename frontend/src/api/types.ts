@@ -87,7 +87,7 @@ export interface ProveedorDetalle extends Proveedor {
   participaciones: Participacion[];
 }
 
-export type TipoArchivo = 'pdf' | 'pdf_escaneado' | 'xlsx' | 'imagen' | 'captura';
+export type TipoArchivo = 'pdf' | 'pdf_escaneado' | 'xlsx' | 'imagen' | 'captura' | 'documento';
 
 export interface Propuesta {
   id: string;

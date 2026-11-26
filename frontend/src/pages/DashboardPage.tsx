@@ -12,6 +12,7 @@ import {
 import { api, type EstadoProyecto, type Moneda } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
+import { ACCEPT_DOCUMENTO_PROYECTO } from '../lib/files';
 import { date, money } from '../lib/format';
 import { ESTADOS, ESTADO_LABEL, ESTADO_TONE, MONEDAS } from '../lib/labels';
 import { can } from '../lib/roles';
@@ -347,12 +348,12 @@ export function DashboardPage() {
 
           <div>
             <label htmlFor="dashboard-campo-6" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Documento del proyecto / Términos de referencia (PDF)
+              Documento del proyecto / Términos de referencia (PDF, DOCX, TXT o MD)
             </label>
             <input
               id="dashboard-campo-6"
               type="file"
-              accept=".pdf,.doc,.docx"
+              accept={ACCEPT_DOCUMENTO_PROYECTO}
               onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
               className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-indigo-700 hover:file:bg-indigo-100"
             />

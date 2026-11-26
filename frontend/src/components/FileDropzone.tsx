@@ -83,7 +83,7 @@ export function FileDropzone({
         role="button"
         tabIndex={disabled || uploading ? -1 : 0}
         aria-disabled={disabled || uploading}
-        aria-label="Seleccionar archivos de propuestas (PDF, XLSX, JPG o PNG)"
+        aria-label="Seleccionar archivos de propuestas (PDF, XLSX, JPG, PNG y otros formatos admitidos)"
         className={cn(
           'flex cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors',
           dragging
@@ -110,7 +110,7 @@ export function FileDropzone({
           Arrastra aquí las propuestas o haz clic para seleccionar archivos
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          Formatos admitidos: PDF (digital o escaneado), Excel (.xlsx), imágenes/manuscritos (.jpg) y capturas de chat (.png). De 3 a 20+ archivos.
+          Formatos admitidos: PDF (digital o escaneado), hojas de cálculo (.xlsx, .xls, .csv), imágenes o manuscritos (.jpg, .png, .webp, .tiff), capturas de chat y documentos (.docx, .txt). De 3 a 20 o más archivos.
         </p>
       </div>
 
