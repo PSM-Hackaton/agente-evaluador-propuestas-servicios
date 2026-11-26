@@ -88,7 +88,7 @@ def audit_proposal_technically(
 
     # DIMM slots & max RAM overflow (e.g., 4x16GB or 64GB on 2xDIMM / max 32GB board like H610M-K)
     ram_sticks_match = re.search(r"(\d)\s*x\s*(\d+)\s*gb", low)
-    board_slots_match = re.search(r"(\d)\s*x\s*dimm|(\d)\s*slots?(?!\s*libres)", low)
+    board_slots_match = re.search(r"(\d)\s*x\s*dimm|(\d)\s*slots?\b(?!\s*libres)", low)
     board_max_ram_match = re.search(r"m[aá]x\.?\s*(\d+)\s*gb", low)
     ram_total_match = re.search(r"ram[:\s]*(\d+)\s*gb|(\d+)\s*gb\s*(?:\(\s*)?ddr[45]", low)
 
@@ -174,11 +174,18 @@ def audit_proposal_technically(
     # -------------------------------------------------------------------------
     # 4. COSTOS O CONDICIONES ABUSIVAS (Software de prueba pago, flete abusivo, garantía exterior)
     # -------------------------------------------------------------------------
-    if re.search(
-        r"(evaluaci[oó]n|trial|prueba\s*de\s*\d+\s*d[ií]as|vencer\s*\d+\s*d[ií]as|"
-        r"requiere\s+compra\s+de\s+licencias|lic\.?\s*anual[:\s]*\$?\s*[1-9]\d*)",
-        low,
-    ):
+    # "Evaluación" alone is a common word in proposals ("para su evaluación", "comité de evaluación"),
+    # so it only counts as a trial license when it qualifies a software/license/edition.
+    has_trial_software = bool(
+        re.search(
+            r"(?:windows|office|licencia|software|edici[oó]n|versi[oó]n|so:)[^\n|]{0,40}\((?:evaluaci[oó]n|trial|prueba)\)|"
+            r"(?:windows|office|licencia|software)[^\n|]{0,40}\b(?:evaluaci[oó]n|trial|de\s+prueba)\b|"
+            r"\btrial\b|prueba\s*de\s*\d+\s*d[ií]as|vencer\s*\d+\s*d[ií]as|"
+            r"requiere\s+compra\s+de\s+licencias|lic\.?\s*anual[:\s]*\$?\s*[1-9]\d*",
+            low,
+        )
+    )
+    if has_trial_software:
         _add_discard(
             reasons,
             DiscardReasonCode.COSTOS_CONDICIONES_ABUSIVAS,
@@ -359,7 +366,9 @@ def audit_proposal_technically(
     else:
         score_warranty_support = 6.0
 
-    if re.search(r"ubuntu|pop!_os|fedora|linux\s*mint|open\s*source|software\s*libre", low):
+    if not has_trial_software and re.search(
+        r"ubuntu|pop!_os|fedora|linux\s*mint|open\s*source|software\s*libre", low
+    ):
         findings.append("Incluye sistema operativo y herramientas 100% open source ($0/año en licencias).")
 
     total_tech_score = round(
