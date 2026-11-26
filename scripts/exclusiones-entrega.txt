@@ -26,6 +26,11 @@ scripts/etapas-entrega.txt
 scripts/subir-por-etapas.sh
 scripts/sincronizar-gitlab.sh
 
+# --- Configuración propia de GitHub ------------------------------------------------
+# CODEOWNERS y flujos de GitHub usan cuentas y funciones de GitHub; en GitLab la revisión se configura con
+# ramas protegidas y aprobaciones (docs/entrega/flujo-gitlab.md).
+.github/
+
 # --- Carpetas locales de editores y herramientas ------------------------------------
 .claude/
 .vscode/
