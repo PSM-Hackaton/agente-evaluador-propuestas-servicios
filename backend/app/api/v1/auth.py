@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, get_current_user, require_roles
+from app.api.deps import get_client_ip, get_current_user, issue_stream_ticket, require_roles
 from app.core.crypto import blind_index
 from app.core.security import (
     ROLES_ADMIN,
@@ -23,6 +23,7 @@ from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    StreamTicketResponse,
     TokenResponse,
     UserOut,
     UserRoleUpdate,
@@ -120,6 +121,12 @@ async def refresh_token(payload: RefreshRequest, db: AsyncSession = Depends(get_
         user_id=user.id,
         full_name=user.full_name,
     )
+
+
+@router.post("/stream-ticket", response_model=StreamTicketResponse)
+async def create_stream_ticket(current_user: User = Depends(get_current_user)) -> StreamTicketResponse:
+    """Issue a 60s single-use opaque ticket for SSE EventSource and direct report downloads."""
+    return StreamTicketResponse(ticket=issue_stream_ticket(current_user.id, ttl_seconds=60), expires_in_seconds=60)
 
 
 @router.get("/me", response_model=UserOut)

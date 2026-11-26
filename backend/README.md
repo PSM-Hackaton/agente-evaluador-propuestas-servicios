@@ -45,17 +45,35 @@ backend/
 └── tests/                              # Suite pytest unitaria e integración E2E
 ```
 
-## Instalación y Configuración
+## Prerrequisitos del Sistema y Dependencias
+
+- **Python** `>= 3.11` (`python3 --version`)
+- **Tesseract OCR** con paquete de idioma español/inglés para OCR local en memoria (sin crear archivos temporales en disco):
+  ```bash
+  sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng openssl
+  ```
+- **uv** o `pip` para entorno virtual Python.
+
+## Instalación, Migraciones y Configuración
 
 ```bash
 cd backend
 cp .env.example .env
-# Configurar GEMINI_API_KEY o OPENAI_API_KEY, MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY en .env
+# Configurar GEMINI_API_KEY o OPENAI_API_KEY, MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y MAX_UPLOAD_SIZE_MB en .env
 
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
+
+# Aplicar esquema inicial (SQLite por defecto o PostgreSQL/Supabase según DATABASE_URL)
+alembic upgrade head
 ```
+
+> **TLS 1.2 / TLS 1.3 en Tránsito:** `app/run.py` construye explícitamente un `ssl.SSLContext` con `minimum_version = TLSv1_2`, rechazando TLS 1.0/1.1. En Nginx (`nginx/tls.conf`), se habilita `proxy_ssl_verify on` hacia el certificado del backend.
+>
+> **Regla de Carga Masiva:** Cada proyecto admite **entre 3 y 20 propuestas** (`422 Unprocessable Content` fuera de rango) con límite individual configurable vía `MAX_UPLOAD_SIZE_MB` (25 MB por defecto).
+>
+> **Streaming SSE y Descargas sin JWT en URL:** El cliente autenticado solicita un ticket efímero de un solo uso (60 s) vía `POST /api/v1/auth/stream-ticket` y lo envía como `?ticket=...` en `GET /evaluations/{id}/stream` o descargas directas (alternativamente mediante cookie `HttpOnly` `access_token`). Los tickets (`_STREAM_TICKETS`) se almacenan en memoria del proceso, por lo que esta configuración requiere ejecutar Uvicorn con **un único worker** (para varios workers se requeriría almacenamiento compartido en Redis/BD). El parámetro `?token=` se conserva temporalmente por retrocompatibilidad y se retirará cuando el frontend migre completamente a `?ticket=` (#17 / #23).
 
 ## Ejecución del Servidor (HTTP o HTTPS TLS 1.2/1.3)
 
@@ -79,15 +97,17 @@ source .venv/bin/activate
 python -m app.cli.batch --lote ../docs/reto --output ../salida.json --verbose
 ```
 
-## Roles y Usuarios de Demostración (Seed Automático)
+## Roles y Usuarios de Demostración (Seed Local de Desarrollo)
 
-| Rol | Correo | Contraseña | Permisos |
-|---|---|---|---|
-| `admin` | `admin@evaluador.ve` | `Admin2026!` | Administración total y usuarios |
-| `cargador` | `cargador@evaluador.ve` | `Cargador2026!` | Crear proyectos y cargar documentos/propuestas |
-| `revisor` | `revisor@evaluador.ve` | `Revisor2026!` | Ejecutar evaluaciones, revisar hallazgos, pasar a comité |
-| `aprobador` | `aprobador@evaluador.ve` | `Aprobador2026!` | Adjudicar/cerrar proyectos y sobrescribir tasa BCV |
-| `auditor` | `auditor@evaluador.ve` | `Auditor2026!` | Solo lectura, reportes, chat y auditoría |
+> **Seguridad:** Por buena práctica, las contraseñas de desarrollo no se publican en documentación; consulta [app/db/seed.py](app/db/seed.py) únicamente para entornos locales de prueba y cámbialas antes de cualquier despliegue en `staging` o `production`.
+
+| Rol | Correo | Permisos |
+|---|---|---|
+| `admin` | `admin@evaluador.ve` | Administración total y gestión de usuarios |
+| `cargador` | `cargador@evaluador.ve` | Crear proyectos y cargar documentos/propuestas (3–20) |
+| `revisor` | `revisor@evaluador.ve` | Ejecutar evaluaciones, revisar hallazgos y enviar a comité |
+| `aprobador` | `aprobador@evaluador.ve` | Adjudicar/cerrar proyectos y sobrescribir tasa BCV |
+| `auditor` | `auditor@evaluador.ve` | Solo lectura, reportes, chat documental y bitácora |
 
 ## Endpoints Principales (`/api/v1`)
 
@@ -115,3 +135,4 @@ pytest -v
 - **Base de datos cifrada:** Todas las columnas sensibles (proveedores, RIF, ubicaciones, correos, nombres de archivo, montos declarados/TCO, puntajes, dictámenes y auditoría) se almacenan cifradas con **AES-256-GCM** (`enc:v1:...`), manteniendo únicamente hashes HMAC para búsquedas exactas. Para PostgreSQL remoto en producción, configurar `DATABASE_URL` con `?sslmode=verify-full` y disco cifrado.
 - **Rotación de claves:** Configurar `PREVIOUS_ENCRYPTION_KEY` temporalmente con la clave anterior al rotar `MASTER_ENCRYPTION_KEY` para descifrar registros previos sin interrupción.
 - **Criterio de recargos de envío (`ABUSIVE_SURCHARGE_PCT_THRESHOLD=50.0`):** Recargos ocultos `< 50 %` (como el ejemplo `+45 %` de la Sección 2.D) se consolidan en el Costo Total Real (TCO) desplazando la propuesta en el ranking; recargos `>= 50 %` (Sección 2.B) causan descarte por `costos_condiciones_abusivas`.
+- **Política de antecedentes de proveedor:** Todos los descartes previos registrados en `SupplierAlert` (fecha, proyecto y causa) se incorporan al dictamen del informe y a la ficha de la propuesta. Cuando existe una alerta previa no resuelta de manipulación (`inyeccion_prompt`) y la nueva oferta es técnicamente válida, se aplica automáticamente una penalización de confianza de **-10.0 pts** sobre el puntaje técnico (sin descartar injustamente ofertas legítimas posteriores) y se advierte al comité aprobador.

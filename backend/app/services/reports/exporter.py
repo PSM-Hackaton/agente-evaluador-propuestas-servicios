@@ -93,6 +93,13 @@ def generate_markdown_report(
             lines.append(f"- **Justificación:** {p.recommendation_rationale or ''}")
             if p.fine_print_findings:
                 lines.append(f"- **Letra pequeña / condiciones:** {'; '.join(p.fine_print_findings)}")
+            if getattr(p, "supplier_history_alerts", None):
+                for al in p.supplier_history_alerts:
+                    lines.append(
+                        f"- **Antecedente del proveedor ({al.get('date') or str(al.get('created_at', ''))[:10]} — "
+                        f"{al.get('project_name', 'Proyecto anterior')}):** "
+                        f"`{al.get('reason_code', '')}` — {al.get('summary', '')}"
+                    )
             if p.market_comparison:
                 for mc in p.market_comparison:
                     src_tag = mc.get("reference_source_type") or mc.get("provider") or "n/a"
@@ -118,6 +125,11 @@ def generate_markdown_report(
     if discards:
         for p in discards:
             lines.append(f"- **{p.proposal_identifier}** ({p.supplier_name}): {p.discard_verdict_text}")
+            for al in getattr(p, "supplier_history_alerts", None) or []:
+                lines.append(
+                    f"  - Antecedente proveedor ({al.get('date') or str(al.get('created_at', ''))[:10]} — "
+                    f"{al.get('project_name', 'Proyecto anterior')}): `{al.get('reason_code', '')}` — {al.get('summary', '')}"
+                )
             for mc in (p.market_comparison or [])[:2]:
                 for src in (mc.get("sources") or [])[:3]:
                     price_txt = (
@@ -324,6 +336,26 @@ def generate_xlsx_report(
                 ]
             )
 
+    # Sheet 4: Antecedentes de Proveedores
+    ws_hist = wb.create_sheet("Antecedentes Proveedor")
+    ws_hist.append(["Propuesta", "Proveedor", "Fecha", "Proyecto", "Severidad", "Código", "Resumen"])
+    for cell in ws_hist[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    for p in ordered:
+        for al in getattr(p, "supplier_history_alerts", None) or []:
+            ws_hist.append(
+                [
+                    p.proposal_identifier,
+                    p.supplier_name or "",
+                    al.get("date") or str(al.get("created_at", ""))[:10],
+                    al.get("project_name", ""),
+                    al.get("severity", ""),
+                    al.get("reason_code", ""),
+                    al.get("summary", ""),
+                ]
+            )
+
     # Auto-fit reasonable column widths
     for sheet in wb.worksheets:
         for col in sheet.columns:
@@ -470,6 +502,15 @@ def generate_pdf_report(
             )
         )
         story.append(bd)
+        for al in getattr(p, "supplier_history_alerts", None) or []:
+            story.append(
+                Paragraph(
+                    f"<b>Antecedente ({_x(al.get('date') or str(al.get('created_at', ''))[:10])} — "
+                    f"{_x(al.get('project_name', 'Proyecto anterior'))}):</b> "
+                    f"[{_x(al.get('reason_code', ''))}] {_x(al.get('summary', ''))}",
+                    small_style,
+                )
+            )
         if p.market_comparison:
             for mc in p.market_comparison[:2]:
                 srcs = ", ".join(

@@ -134,11 +134,13 @@ def _heuristic_grounded_answer(
     q = question.lower()
     citations: list[dict[str, str]] = []
 
-    # 1. Question about a specific proposal or supplier
+    # 1. Question about a specific proposal or supplier (identifier, numeric code e.g. 898, or supplier name)
+    nums = re.findall(r"\b\d{3,4}\b", q)
     matched_evals = [
         pe
         for pe in prop_evals
         if pe.proposal_identifier.lower() in q
+        or any(re.search(rf"(?:^|[_\W]){n}(?:$|[_\W])", pe.proposal_identifier) for n in nums)
         or (pe.supplier_name and any(tok in q for tok in pe.supplier_name.lower().split() if len(tok) >= 5))
     ]
     if matched_evals:

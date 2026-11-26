@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+import time
 from collections.abc import Callable
 
 import jwt
@@ -14,6 +16,31 @@ from app.db.base import get_db
 from app.db.models import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# Single-use opaque tickets for SSE EventSource / file downloads without placing JWT in URLs
+_STREAM_TICKETS: dict[str, tuple[str, float]] = {}
+
+
+def issue_stream_ticket(user_id: str, ttl_seconds: int = 60) -> str:
+    """Issue a short-lived single-use opaque ticket for SSE or file download requests."""
+    now = time.monotonic()
+    for key, (_, exp) in list(_STREAM_TICKETS.items()):
+        if exp <= now:
+            _STREAM_TICKETS.pop(key, None)
+    ticket = secrets.token_urlsafe(32)
+    _STREAM_TICKETS[ticket] = (user_id, now + ttl_seconds)
+    return ticket
+
+
+def consume_stream_ticket(ticket: str) -> str | None:
+    """Atomically consume a valid stream ticket and return the associated user_id, or None."""
+    entry = _STREAM_TICKETS.pop(ticket, None)
+    if not entry:
+        return None
+    user_id, exp = entry
+    if time.monotonic() > exp:
+        return None
+    return user_id
 
 
 async def _resolve_user_from_token(raw_token: str | None, db: AsyncSession) -> User:
@@ -53,13 +80,40 @@ async def get_current_user(
 
 
 async def get_current_user_flexible(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    ticket: str | None = Query(
+        default=None,
+        description="Ticket opaco de un solo uso (POST /auth/stream-ticket) para SSE o descargas sin exponer JWT en URL.",
+    ),
     token: str | None = Query(default=None, description="JWT opcional para EventSource (SSE) o descargas."),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Authenticate via Authorization Bearer header OR `?token=<jwt>` (for browser SSE & downloads)."""
-    raw = credentials.credentials if (credentials and credentials.credentials) else token
-    return await _resolve_user_from_token(raw, db)
+    """Authenticate via Bearer header, one-time ?ticket=, HttpOnly cookie, or ?token=."""
+    if credentials and credentials.credentials:
+        return await _resolve_user_from_token(credentials.credentials, db)
+
+    if ticket:
+        user_id = consume_stream_ticket(ticket)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Ticket inválido, usado o expirado.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        user = await db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario inactivo o inexistente.",
+            )
+        return user
+
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        return await _resolve_user_from_token(cookie_token, db)
+
+    return await _resolve_user_from_token(token, db)
 
 
 def require_roles(allowed_roles: set[UserRole]) -> Callable[..., User]:

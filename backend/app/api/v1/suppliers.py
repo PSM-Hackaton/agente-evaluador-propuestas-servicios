@@ -10,7 +10,7 @@ from app.api.deps import get_client_ip, require_roles
 from app.core.crypto import blind_index
 from app.core.security import ROLES_READ, ROLES_REVIEW, ROLES_UPLOAD
 from app.db.base import get_db
-from app.db.models import Proposal, ProposalEvaluation, Supplier, SupplierAlert, User
+from app.db.models import EvaluationRun, Project, Proposal, ProposalEvaluation, Supplier, SupplierAlert, User
 from app.schemas.domain import SupplierAlertOut, SupplierCreate, SupplierOut, SupplierUpdate
 from app.services.audit.service import record_audit
 
@@ -131,12 +131,19 @@ async def get_supplier_detail(
     eval_history: list[dict] = []
     if prop_ids:
         pe_res = await db.execute(
-            select(ProposalEvaluation).where(ProposalEvaluation.proposal_id.in_(prop_ids))
+            select(ProposalEvaluation, EvaluationRun, Project)
+            .join(EvaluationRun, ProposalEvaluation.evaluation_run_id == EvaluationRun.id)
+            .join(Project, EvaluationRun.project_id == Project.id)
+            .where(ProposalEvaluation.proposal_id.in_(prop_ids))
+            .order_by(desc(EvaluationRun.started_at))
         )
-        for pe in pe_res.scalars().all():
+        for pe, run, proj in pe_res.all():
             eval_history.append(
                 {
                     "evaluation_run_id": pe.evaluation_run_id,
+                    "project_id": proj.id,
+                    "project_name": proj.name,
+                    "evaluated_at": run.started_at.isoformat(),
                     "proposal_identifier": pe.proposal_identifier,
                     "is_valid": pe.is_valid,
                     "rank_position": pe.rank_position,
