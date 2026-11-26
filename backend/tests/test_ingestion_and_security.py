@@ -75,3 +75,16 @@ def test_arithmetic_and_tco_normalization_with_hidden_freight_and_iva() -> None:
     assert tco["taxes_iva_usd"] == 2400.0  # 16% of 15,000
     assert tco["adjusted_tco_usd"] == 17400.0
     assert tco["adjusted_tco_ves"] == 913500.0
+
+
+@pytest.mark.asyncio
+async def test_dual_pass_ocr_recovers_lined_paper_proposal_832() -> None:
+    p832 = PROPUESTAS_DIR / "Propuesta_832_Sistemas_del_Valle_CA.jpg"
+    doc = await ingest_document(p832.name, p832.read_bytes(), llm_client=None)
+    st = extract_proposal_structured_heuristic(doc.identifier, doc.sanitized_text)
+    assert st["declared_total"] == 14150.0
+    arith = verify_arithmetic(st["line_items"], st["declared_total"])
+    assert arith.is_valid is True
+    req_text = (await ingest_document("proyecto.pdf", (RETO_DIR / "proyecto.pdf").read_bytes())).visible_text
+    tech = audit_proposal_technically(doc.sanitized_text, st, req_text)
+    assert tech.is_technically_valid is True

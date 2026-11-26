@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import get_client_ip, require_roles
+from app.api.deps import get_client_ip, require_roles, require_roles_flexible
 from app.core.security import ROLES_EVALUATE, ROLES_READ, ROLES_REVIEW
 from app.db.base import get_db, get_session_factory
 from app.db.models import (
@@ -162,7 +162,7 @@ async def get_evaluation(
 async def stream_evaluation_trace(
     evaluation_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(ROLES_READ)),
+    _: User = Depends(require_roles_flexible(ROLES_READ)),
 ) -> EventSourceResponse:
     """Server-Sent Events (SSE) endpoint streaming live agent traceability steps (Section 2.D.3)."""
     run = await _load_evaluation_detail(db, evaluation_id)
@@ -270,7 +270,7 @@ async def export_evaluation_report(
     fmt: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLES_READ)),
+    current_user: User = Depends(require_roles_flexible(ROLES_READ)),
 ) -> Response:
     """Export Committee Report in PDF, Markdown, XLSX, CSV, or Hackathon `salida.json`."""
     run = await _load_evaluation_detail(db, evaluation_id)

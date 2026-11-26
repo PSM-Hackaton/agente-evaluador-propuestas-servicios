@@ -9,6 +9,7 @@ from app.api.v1 import (
     auth,
     batch,
     chat,
+    dashboard,
     evaluations,
     finance,
     projects,
@@ -18,6 +19,7 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(dashboard.router)
 api_router.include_router(projects.router)
 api_router.include_router(proposals.router)
 api_router.include_router(evaluations.router)

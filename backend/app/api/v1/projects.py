@@ -37,6 +37,14 @@ async def _to_project_out(db: AsyncSession, project: Project) -> ProjectOut:
     e_cnt = (
         await db.execute(select(func.count(EvaluationRun.id)).where(EvaluationRun.project_id == project.id))
     ).scalar_one()
+    latest_eval_id = (
+        await db.execute(
+            select(EvaluationRun.id)
+            .where(EvaluationRun.project_id == project.id)
+            .order_by(desc(EvaluationRun.started_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -51,6 +59,8 @@ async def _to_project_out(db: AsyncSession, project: Project) -> ProjectOut:
         adjudication_notes=project.adjudication_notes,
         proposals_count=int(p_cnt),
         evaluations_count=int(e_cnt),
+        latest_evaluation_id=latest_eval_id,
+        has_requirements_text=bool(project.extracted_requirements_text),
         created_by_id=project.created_by_id,
         created_at=project.created_at,
         updated_at=project.updated_at,

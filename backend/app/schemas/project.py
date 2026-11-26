@@ -45,6 +45,8 @@ class ProjectOut(BaseModel):
     adjudication_notes: str | None
     proposals_count: int = 0
     evaluations_count: int = 0
+    latest_evaluation_id: str | None = None
+    has_requirements_text: bool = False
     created_by_id: str | None
     created_at: datetime
     updated_at: datetime

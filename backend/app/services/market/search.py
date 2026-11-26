@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import ssl
+import time
 from statistics import median
 from typing import Any
 
@@ -16,6 +17,10 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _PRICE_RE = re.compile(r"\$\s*([0-9]{2,5}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)")
+
+# In-memory TTL cache for web searches (query -> (timestamp, sources, provider))
+_SEARCH_CACHE: dict[str, tuple[float, list[dict[str, str]], str]] = {}
+_CACHE_TTL_SECONDS = 1800.0
 
 # Baseline reference ranges (USD) for complete workstations & components (sanity anchor + offline fallback)
 BASELINE_MARKET_REFERENCES: list[tuple[str, tuple[float, float], str]] = [
@@ -29,10 +34,27 @@ BASELINE_MARKET_REFERENCES: list[tuple[str, tuple[float, float], str]] = [
 ]
 
 
+def _build_focused_query(item_description: str) -> str:
+    """Extract clean hardware/product terms for higher-precision web pricing queries."""
+    tokens: list[str] = []
+    for pat in (
+        r"(?:amd\s+)?ryzen\s*[579]\s*\d{4}x?|intel\s+core\s+i[3579]-\d{4,5}[a-z]*|xeon\s+e5-\d{4}\s*v\d",
+        r"(?:rtx|gtx)\s*\d{4}(?:\s*(?:ti|super))?(?:\s*\d+gb)?|rx\s*\d{4}(?:\s*\d+gb)?",
+        r"\b(?:16|32|64)\s*gb\s*(?:ddr[45])?",
+    ):
+        m = re.search(pat, item_description, re.I)
+        if m:
+            tokens.append(m.group(0).strip())
+    if tokens:
+        return f"{' '.join(tokens)} desktop PC price USD"
+    clean = re.sub(r"\s+", " ", item_description).strip()
+    return f"{clean[:80]} price USD"
+
+
 async def _search_tavily(query: str, api_key: str) -> list[dict[str, str]]:
     ctx = ssl.create_default_context()
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    async with httpx.AsyncClient(timeout=8.0, verify=ctx) as client:
+    async with httpx.AsyncClient(timeout=12.0, verify=ctx) as client:
         resp = await client.post(
             "https://api.tavily.com/search",
             json={
@@ -70,7 +92,7 @@ async def _search_ddgs(query: str) -> list[dict[str, str]]:
                 for r in results
             ]
 
-    return await asyncio.wait_for(asyncio.to_thread(_run), timeout=8.0)
+    return await asyncio.wait_for(asyncio.to_thread(_run), timeout=20.0)
 
 
 def _baseline_reference(item_spec: str) -> tuple[float, float, str] | None:
@@ -86,26 +108,34 @@ async def search_market_price(
     proposed_unit_price_usd: float,
     enable_web: bool | None = None,
 ) -> dict[str, Any]:
-    """Search live web prices and benchmark proposed unit price against market values."""
+    """Search live web prices (with caching) and benchmark proposed unit price against market values."""
     settings = get_settings()
     do_web = settings.web_search_enabled if enable_web is None else enable_web
 
-    query = f"{item_description[:95]} price USD"
+    query = _build_focused_query(item_description)
     sources: list[dict[str, str]] = []
     web_prices: list[float] = []
     search_provider = "baseline_catalog"
 
     if do_web:
-        try:
-            if settings.tavily_api_key:
-                sources = await _search_tavily(query, settings.tavily_api_key)
-                search_provider = "tavily_web_search"
-            else:
-                sources = await _search_ddgs(query)
-                search_provider = "duckduckgo_web_search"
-        except Exception as exc:
-            logger.debug("Web search fallback triggered for '%s': %s", query, exc)
-            search_provider = "baseline_catalog_fallback"
+        cache_key = query.lower()
+        cached = _SEARCH_CACHE.get(cache_key)
+        now = time.monotonic()
+        if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
+            sources, search_provider = cached[1], f"{cached[2]}_cached"
+        else:
+            try:
+                if settings.tavily_api_key:
+                    sources = await _search_tavily(query, settings.tavily_api_key)
+                    search_provider = "tavily_web_search"
+                else:
+                    sources = await _search_ddgs(query)
+                    search_provider = "duckduckgo_web_search"
+                if sources:
+                    _SEARCH_CACHE[cache_key] = (now, sources, search_provider)
+            except Exception as exc:
+                logger.debug("Web search fallback triggered for '%s': %s", query, exc)
+                search_provider = "baseline_catalog_fallback"
 
         for src in sources:
             text = f"{src.get('title', '')} {src.get('snippet', '')}"
@@ -132,7 +162,7 @@ async def search_market_price(
         ref_high = round(ref_mid * 1.25, 2)
         ref_label = "Estimación de mercado sin referencia directa"
 
-    # Blend web median if within plausible order of magnitude of baseline (avoids component-only vs full-PC noise)
+    # Blend web median if within plausible order of magnitude of baseline
     if baseline and web_prices:
         web_med = median(web_prices)
         if ref_low * 0.6 <= web_med <= ref_high * 1.6:

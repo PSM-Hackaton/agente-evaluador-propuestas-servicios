@@ -92,9 +92,10 @@ python -m app.cli.batch --lote ../docs/reto --output ../salida.json --verbose
 ## Endpoints Principales (`/api/v1`)
 
 - **Auth & Roles**: `POST /auth/login`, `POST /auth/register`, `POST /auth/refresh`, `GET /auth/me`, `GET /auth/users`, `PATCH /auth/users/{id}`
+- **Dashboard & Seguridad**: `GET /dashboard/stats` (conteos por estado, alertas, inyecciones bloqueadas, tasa BCV, estado AES-256/TLS)
 - **Proyectos & Flujo**: `POST /projects`, `GET /projects`, `GET /projects/{id}`, `POST /projects/{id}/document`, `POST /projects/{id}/status`, `GET /projects/{id}/evaluations`
-- **Propuestas (Carga Masiva)**: `POST /projects/{id}/proposals`, `GET /projects/{id}/proposals`, `GET /proposals/{id}/download`, `DELETE /proposals/{id}`
-- **Evaluación Agéntica & Reportes**: `POST /projects/{id}/evaluate`, `GET /evaluations/{id}`, `GET /evaluations/{id}/stream` (SSE), `POST /evaluations/{id}/reviews`, `GET /evaluations/{id}/export/{pdf|markdown|xlsx|csv|salida-json}`
+- **Propuestas (Carga Masiva)**: `POST /projects/{id}/proposals`, `GET /projects/{id}/proposals`, `GET /proposals/{id}/download` (acepta header Bearer o `?token=`), `DELETE /proposals/{id}`
+- **Evaluación Agéntica & Reportes**: `POST /projects/{id}/evaluate`, `GET /evaluations/{id}`, `GET /evaluations/{id}/stream` (SSE compatible con `EventSource` vía `?token=`), `POST /evaluations/{id}/reviews`, `GET /evaluations/{id}/export/{pdf|markdown|xlsx|csv|salida-json}`
 - **Proveedores & Alertas**: `GET /suppliers`, `POST /suppliers`, `GET /suppliers/{id}`, `PATCH /suppliers/{id}`, `POST /suppliers/alerts/{alert_id}/resolve`
 - **Finanzas & BCV**: `GET /finance/bcv-rate`, `POST /finance/bcv-rate/override`, `GET /finance/bcv-rate/history`, `POST /finance/tco-preview`
 - **Chat Documental**: `POST /projects/{id}/chat`, `GET /projects/{id}/chat`

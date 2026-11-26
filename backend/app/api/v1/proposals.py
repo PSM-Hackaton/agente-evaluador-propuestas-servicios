@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, require_roles
+from app.api.deps import get_client_ip, require_roles, require_roles_flexible
 from app.core.config import get_settings
 from app.core.security import ROLES_READ, ROLES_UPLOAD
 from app.db.base import get_db
@@ -135,7 +135,7 @@ async def download_proposal_decrypted(
     proposal_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLES_READ)),
+    current_user: User = Depends(require_roles_flexible(ROLES_READ)),
 ) -> Response:
     prop = await db.get(Proposal, proposal_id)
     if prop is None:

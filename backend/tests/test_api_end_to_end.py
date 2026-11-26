@@ -187,3 +187,18 @@ async def test_full_platform_workflow_and_rbac(app_client: AsyncClient) -> None:
     assert "proposal.bulk_upload" in actions
     assert "evaluation.trigger" in actions
     assert "project.status_transition" in actions
+
+    # 11. Query-param ?token= auth works for browser EventSource (SSE) & direct report downloads
+    raw_token = auditor_hdr["Authorization"].split(" ", 1)[1]
+    qp_export = await app_client.get(f"/api/v1/evaluations/{eval_id}/export/markdown?token={raw_token}")
+    assert qp_export.status_code == 200
+    assert "Propuesta Recomendada" in qp_export.text
+
+    # 12. Dashboard aggregate stats & security posture endpoint
+    dash = await app_client.get("/api/v1/dashboard/stats", headers=auditor_hdr)
+    assert dash.status_code == 200, dash.text
+    ddata = dash.json()
+    assert ddata["projects_total"] >= 1
+    assert ddata["prompt_injections_blocked"] >= 1
+    assert ddata["active_supplier_alerts"] >= 2
+    assert ddata["security_status"]["encryption_at_rest"] == "AES-256-GCM"
