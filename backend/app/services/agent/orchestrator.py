@@ -165,7 +165,6 @@ def _spec_context_for_price(text: str, unit_price: float, item_category: str = "
     return ""
 
 
-
 _NUMERIC_FIELDS = (
     "declared_total",
     "shipping_cost",
@@ -585,18 +584,32 @@ async def evaluate_proposals_core(
         line_items = structured.get("line_items") or []
         declared_total = float(structured.get("declared_total") or 0.0)
         arith = toolbox.tool_verify_arithmetic(line_items=line_items, declared_total=declared_total)
-        await emit(
-            "verificacion_aritmetica",
-            (
+        if not arith["is_valid"]:
+            arith_msg = (
+                f"ERROR ARITMÉTICO detectado: suma=${arith['computed_total']:.2f} vs "
+                f"declarado=${arith['declared_total']:.2f} (dif=${arith['discrepancy']:.2f})."
+            )
+        elif arith.get("declared_total_missing"):
+            arith_msg = (
+                "Advertencia aritmética: total declarado no localizado en el documento "
+                f"(verificación no concluyente; suma de partidas=${arith['computed_total']:.2f})."
+            )
+        else:
+            arith_msg = (
                 f"Verificación aritmética OK: suma=${arith['computed_total']:.2f} vs "
                 f"declarado=${arith['declared_total']:.2f}."
-                if arith["is_valid"]
-                else f"ERROR ARITMÉTICO detectado: suma=${arith['computed_total']:.2f} vs "
-                f"declarado=${arith['declared_total']:.2f} (dif=${arith['discrepancy']:.2f})."
-            ),
+            )
+        await emit(
+            "verificacion_aritmetica",
+            arith_msg,
             proposal_identifier=doc.identifier,
             tool_name="verify_arithmetic",
-            metadata={"is_valid": arith["is_valid"], "discrepancy": arith["discrepancy"]},
+            metadata={
+                "is_valid": arith["is_valid"],
+                "declared_total_missing": bool(arith.get("declared_total_missing")),
+                "computed_total": arith["computed_total"],
+                "discrepancy": arith["discrepancy"],
+            },
         )
         if not arith["is_valid"]:
             discard_reasons.append(
@@ -608,7 +621,8 @@ async def evaluate_proposals_core(
 
         # Step 6: Deterministic TCO & Currency Normalization Tool
         tco = toolbox.tool_compute_tco(
-            declared_total=declared_total if declared_total > 0 else float(arith["computed_total"]),
+            declared_total=declared_total,
+            computed_fallback_total=float(arith["computed_total"]),
             currency=str(structured.get("currency") or "USD"),
             bcv_rate=bcv_rate,
             shipping_included_in_total=bool(structured.get("shipping_included_in_total", True)),
