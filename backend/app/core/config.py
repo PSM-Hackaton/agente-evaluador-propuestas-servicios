@@ -98,6 +98,18 @@ class Settings(BaseSettings):
             pass
         return hashlib.sha256(raw.encode("utf-8")).digest()
 
+    def insecure_secret_settings(self) -> list[str]:
+        """Names of secrets still using development defaults or `.env.example` placeholders."""
+        weak: list[str] = []
+        for name, value in (
+            ("MASTER_ENCRYPTION_KEY", self.master_encryption_key),
+            ("JWT_SECRET_KEY", self.jwt_secret_key),
+        ):
+            v = (value or "").strip()
+            if not v or "change_me" in v.lower() or "dev-insecure" in v.lower() or len(v) < 32:
+                weak.append(name)
+        return weak
+
     def resolved_llm_provider(self) -> Literal["gemini", "openai", "heuristic"]:
         if self.llm_provider == "gemini" and self.gemini_api_key:
             return "gemini"
