@@ -15,11 +15,12 @@ from app.db.base import get_db
 from app.db.models import Project, Proposal, User
 from app.schemas.domain import ProposalOut
 from app.services.audit.service import record_audit
+from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.storage.encrypted_storage import EncryptedFileStorage
 
 router = APIRouter(tags=["Propuestas de Proveedores"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".xlsm", ".webp", ".tiff"}
+ALLOWED_EXTENSIONS = SUPPORTED_DOCUMENT_EXTENSIONS
 
 
 @router.post("/projects/{project_id}/proposals", response_model=list[ProposalOut], status_code=status.HTTP_201_CREATED)
@@ -49,7 +50,10 @@ async def upload_proposals_bulk(
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Archivo '{filename}' tiene formato no soportado ({ext}). Permitidos: PDF, JPG, PNG, XLSX.",
+                detail=(
+                    f"Archivo '{filename}' tiene formato no soportado ({ext}). "
+                    f"Permitidos: {', '.join(sorted(ALLOWED_EXTENSIONS))}."
+                ),
             )
         content = await up.read()
         if not content:

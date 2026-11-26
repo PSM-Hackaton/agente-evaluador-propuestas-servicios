@@ -15,13 +15,13 @@ from app.db.models import User
 from app.schemas.domain import BatchRunRequest
 from app.services.agent.orchestrator import evaluate_proposals_core
 from app.services.audit.service import record_audit
-from app.services.ingestion.pipeline import ingest_document
+from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS, ingest_document
 from app.services.llm.client import UnifiedLLMClient
 from app.services.reports.salida_json import validate_salida_json
 
 router = APIRouter(prefix="/batch", tags=["Modo Lote (salida.json)"])
 
-SUPPORTED_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".xlsm"}
+SUPPORTED_EXTS = SUPPORTED_DOCUMENT_EXTENSIONS
 
 
 @router.post("/run")

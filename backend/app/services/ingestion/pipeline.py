@@ -1,15 +1,40 @@
-"""Unified multimodal document ingestion router (PDF, XLSX, PNG, JPG)."""
+"""Unified multimodal document ingestion router (PDF, Word, Excel, CSV/TSV, Images, TXT/MD)."""
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.services.agent.security_guard import InjectionScanResult, scan_for_prompt_injection
+from app.services.ingestion.docx_parser import extract_docx
 from app.services.ingestion.image_parser import extract_image
 from app.services.ingestion.pdf_parser import extract_pdf
+from app.services.ingestion.tabular_parser import decode_text_safely, extract_csv_or_tsv, extract_xls
 from app.services.ingestion.xlsx_parser import extract_xlsx
 from app.services.llm.client import UnifiedLLMClient
+
+# Single source of truth for supported document extensions across API, uploads, and batch mode
+SUPPORTED_DOCUMENT_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".xlsm",
+        ".xls",
+        ".csv",
+        ".tsv",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".bmp",
+        ".tiff",
+        ".tif",
+        ".txt",
+        ".md",
+    }
+)
 
 VISION_TRANSCRIPTION_PROMPT = """Transcribe de forma fiel, completa y estructurada TODO el contenido de esta imagen de cotización/presupuesto (puede ser manuscrita, escaneada o captura de chat).
 Incluye literalmente:
@@ -38,7 +63,7 @@ async def ingest_document(
     content: bytes,
     llm_client: UnifiedLLMClient | None = None,
 ) -> IngestedDocument:
-    """Ingest any supported document format (PDF, XLSX, PNG, JPG/JPEG) with injection scanning."""
+    """Ingest any supported document format (PDF, DOCX, XLSX/XLS, CSV/TSV, Images, TXT/MD)."""
     path = Path(filename)
     ext = path.suffix.lower()
     identifier = path.stem
@@ -68,14 +93,17 @@ async def ingest_document(
                         used_vision_llm = True
                         ingestion_method = "pymupdf_scanned_vision_llm"
                         continue
-                # Fallback to local Tesseract on rendered page
-                import base64
-
                 img_res = extract_image(base64.b64decode(img_b64))
                 if img_res.ocr_text:
                     ocr_chunks.append(img_res.ocr_text)
             if ocr_chunks:
                 visible_text = "\n\n".join(ocr_chunks)
+
+    elif ext == ".docx":
+        docx_res = extract_docx(content)
+        visible_text = docx_res.text
+        hidden_findings = docx_res.hidden_findings
+        ingestion_method = "docx_xml_parser"
 
     elif ext in (".xlsx", ".xlsm"):
         xlsx_res = extract_xlsx(content)
@@ -83,7 +111,18 @@ async def ingest_document(
         hidden_findings = xlsx_res.hidden_findings
         ingestion_method = "openpyxl_formula_eval"
 
-    elif ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"):
+    elif ext == ".xls":
+        xls_res = extract_xls(content)
+        visible_text = xls_res.text
+        hidden_findings = xls_res.hidden_findings
+        ingestion_method = "xlrd_legacy_excel"
+
+    elif ext in (".csv", ".tsv"):
+        tab_res = extract_csv_or_tsv(content, is_tsv=(ext == ".tsv"))
+        visible_text = tab_res.text
+        ingestion_method = f"tabular_{ext.lstrip('.')}"
+
+    elif ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"):
         img_res = extract_image(content)
         images_b64.append((img_res.image_b64, img_res.mime_type))
         ocr_text = img_res.ocr_text
@@ -102,11 +141,14 @@ async def ingest_document(
         else:
             visible_text = ocr_text
 
-    elif ext in (".txt", ".md", ".csv"):
-        visible_text = content.decode("utf-8", errors="replace")
-        ingestion_method = "plain_text"
+    elif ext in (".txt", ".md"):
+        visible_text = decode_text_safely(content)
+        ingestion_method = f"plain_{ext.lstrip('.')}"
     else:
-        raise ValueError(f"Formato de archivo no soportado: {ext}")
+        raise ValueError(
+            f"Formato de archivo no soportado: '{ext}'. "
+            f"Permitidos: {', '.join(sorted(SUPPORTED_DOCUMENT_EXTENSIONS))}"
+        )
 
     scan = scan_for_prompt_injection(visible_text, hidden_findings=hidden_findings)
 

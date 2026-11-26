@@ -23,7 +23,7 @@ from app.db.models import (
 from app.schemas.domain import EvaluationRunSummaryOut
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectStatusTransition, ProjectUpdate
 from app.services.audit.service import record_audit
-from app.services.ingestion.pipeline import ingest_document
+from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS, ingest_document
 from app.services.llm.client import UnifiedLLMClient
 from app.services.storage.encrypted_storage import EncryptedFileStorage
 
@@ -175,8 +175,14 @@ async def upload_project_document(
 
     filename = file.filename or "proyecto.pdf"
     ext = Path(filename).suffix.lower()
-    if ext not in (".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Formato no soportado para documento base: {ext}")
+    if ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Formato no soportado para documento base: {ext}. "
+                f"Permitidos: {', '.join(sorted(SUPPORTED_DOCUMENT_EXTENSIONS))}."
+            ),
+        )
 
     storage = EncryptedFileStorage()
     if project.document_storage_key:

@@ -10,11 +10,11 @@ from pathlib import Path
 
 from app.core.logging import setup_logging
 from app.services.agent.orchestrator import evaluate_proposals_core
-from app.services.ingestion.pipeline import ingest_document
+from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS, ingest_document
 from app.services.llm.client import UnifiedLLMClient
 from app.services.reports.salida_json import validate_salida_json
 
-SUPPORTED_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".xlsm"}
+SUPPORTED_EXTS = SUPPORTED_DOCUMENT_EXTENSIONS
 
 
 async def _run_cli(args: argparse.Namespace) -> int:
