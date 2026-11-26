@@ -640,3 +640,56 @@ async def test_issue3_and_issue10_utc_dates_rejected_review_audit_transition_and
     assert first_hist["project_id"]
     assert first_hist["project_name"]
     assert first_hist["evaluated_at"].endswith(("Z", "+00:00"))
+
+
+# ---------------------------------------------------------------------------
+# Issue #36 (R3-E13): SSE background evaluation delivers all steps from step 1
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue36_sse_background_evaluation_delivers_all_steps_from_step_1(app_client: AsyncClient) -> None:
+    """Verify delayed SSE subscription on run_in_background=True receives step 1..N matching GET /evaluations/{id}."""
+    import asyncio
+    import re as _re
+
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+
+    proj = await app_client.post(
+        "/api/v1/projects",
+        json={"name": "SSE Background Buffer R3-E13", "execution_location": "Caracas"},
+        headers=cargador,
+    )
+    pid = proj.json()["id"]
+    files = [
+        ("files", (f"Prop_SSE_BG_{i}.txt", _make_valid_txt(f"SSE BG {i} C.A.", f"J-4300000{i}-1", 1210 + i * 15), "text/plain"))
+        for i in range(1, 4)
+    ]
+    assert (await app_client.post(f"/api/v1/projects/{pid}/proposals", files=files, headers=cargador)).status_code == 201
+
+    ev_resp = await app_client.post(
+        f"/api/v1/projects/{pid}/evaluate",
+        json={"enable_web_search": False, "run_in_background": True, "bcv_rate_override": 50.0},
+        headers=revisor,
+    )
+    assert ev_resp.status_code == 201
+    eval_id = ev_resp.json()["id"]
+
+    # Simulate client subscribing slightly after trigger (first steps already buffered in memory)
+    await asyncio.sleep(0.05)
+    tkt_resp = await app_client.post("/api/v1/auth/stream-ticket", headers=revisor)
+    assert tkt_resp.status_code == 200
+    ticket = tkt_resp.json()["ticket"]
+
+    sse_resp = await app_client.get(f"/api/v1/evaluations/{eval_id}/stream?ticket={ticket}")
+    assert sse_resp.status_code == 200
+    assert "event: completed" in sse_resp.text
+
+    step_nums = [
+        int(json.loads(match.group(1))["step_number"])
+        for match in _re.finditer(r"event:\s*trace_step\s*\r?\ndata:\s*(\{[^\r\n]+\})", sse_resp.text)
+    ]
+    assert step_nums == list(range(1, len(step_nums) + 1))
+
+    final_eval = (await app_client.get(f"/api/v1/evaluations/{eval_id}", headers=revisor)).json()
+    assert len(step_nums) == len(final_eval["trace_steps"])
+    assert step_nums[0] == 1
