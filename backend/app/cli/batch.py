@@ -12,7 +12,7 @@ from app.core.logging import setup_logging
 from app.services.agent.orchestrator import evaluate_proposals_core
 from app.services.ingestion.pipeline import SUPPORTED_DOCUMENT_EXTENSIONS, ingest_document
 from app.services.llm.client import UnifiedLLMClient
-from app.services.reports.salida_json import validate_salida_json
+from app.services.reports.salida_json import SalidaJsonMetadataError, validate_salida_json
 
 SUPPORTED_EXTS = SUPPORTED_DOCUMENT_EXTENSIONS
 
@@ -54,16 +54,22 @@ async def _run_cli(args: argparse.Namespace) -> int:
             tag += f"({tool_name})"
         print(f"{tag} {message}")
 
-    output = await evaluate_proposals_core(
-        project_name=f"Lote {lote_dir.name}",
-        project_location="La Hoyada, Caracas",
-        project_requirements_text=project_doc.visible_text,
-        proposal_files=files_payload,
-        db=None,
-        enable_web_search=not args.no_web_search,
-        bcv_rate_override=args.bcv_rate,
-        trace_emitter=print_trace if args.verbose else None,
-    )
+    repo_dir = Path(__file__).resolve().parents[3]
+    try:
+        output = await evaluate_proposals_core(
+            project_name=f"Lote {lote_dir.name}",
+            project_location="La Hoyada, Caracas",
+            project_requirements_text=project_doc.visible_text,
+            proposal_files=files_payload,
+            db=None,
+            enable_web_search=not args.no_web_search,
+            bcv_rate_override=args.bcv_rate,
+            trace_emitter=print_trace if args.verbose else None,
+            repo_dir=repo_dir,
+        )
+    except SalidaJsonMetadataError as exc:
+        print(f"ERROR de metadatos salida.json: {exc}", file=sys.stderr)
+        return 1
 
     ok, errors = validate_salida_json(
         output.salida_json,
