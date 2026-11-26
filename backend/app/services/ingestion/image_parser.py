@@ -135,6 +135,16 @@ def _prepare_for_vision(img: Image.Image, max_dim: int = 1800) -> tuple[str, str
     return base64.b64encode(buf.getvalue()).decode("ascii"), "image/png"
 
 
+def _prepare_rgb_for_ocr(img: Image.Image) -> Image.Image:
+    """Build an in-memory upscaled RGB copy so colored badges/totals remain readable for OCR."""
+    rgb = ImageOps.exif_transpose(img).convert("RGB")
+    w, h = rgb.size
+    if max(w, h) < 1400:
+        scale = min(2.0, 1600 / max(w, h))
+        rgb = rgb.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+    return rgb
+
+
 def _merge_ocr_passes(primary: str, secondary: str) -> str:
     """Merge lines from PSM-6 and PSM-3 passes, recovering lines dropped on lined forms."""
     lines_out: list[str] = []
@@ -181,13 +191,16 @@ def extract_image(content: bytes) -> ImageExtractionResult:
         processed, deskew_angle = _preprocess_for_ocr(img)
         if abs(deskew_angle) >= 0.5:
             vision_b64, mime = _prepare_for_vision(processed)
+        primary_img = processed
+        if img.mode not in ("L", "1") and abs(deskew_angle) < 0.5:
+            primary_img = _prepare_rgb_for_ocr(img)
         try:
-            pass_block = _tesseract_in_memory(processed, lang="spa+eng", psm=6)
+            pass_block = _tesseract_in_memory(primary_img, lang="spa+eng", psm=6)
             pass_auto = _tesseract_in_memory(processed, lang="spa+eng", psm=3)
             ocr_text = _merge_ocr_passes(pass_block, pass_auto)
             engine = "tesseract:spa+eng"
         except Exception:
-            pass_block = _tesseract_in_memory(processed, lang=None, psm=6)
+            pass_block = _tesseract_in_memory(primary_img, lang=None, psm=6)
             pass_auto = _tesseract_in_memory(processed, lang=None, psm=3)
             ocr_text = _merge_ocr_passes(pass_block, pass_auto)
             engine = "tesseract:default"

@@ -245,8 +245,8 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
     declared_total = tabular_total
     if declared_total <= 0:
         for pat in (
-            r"TOTAL\s+GENERAL\s*(?:\((?:USD|VES|Bs\.?)\))?\s*[:\|]?\s*(?:USD\s*|Bs\.?\s*)?\$?\s*([0-9][0-9,\.]+)",
-            r"TOTAL\s*(?:A\s+PAGAR)?\s*[:\|]\s*(?:USD\s*|Bs\.?\s*)?\$?\s*([0-9][0-9,\.]+)",
+            r"(?:GRAN\s+TOTAL|TOTAL\s+GENERAL)\s*(?:\((?:USD|VES|Bs\.?)\))?\s*[:\|]?\s*(?:(?:USD|VES|Bs\.?)\s*)?\$?\s*([0-9][0-9,\.]+)",
+            r"(?:MONTO\s+TOTAL|TOTAL\s*(?:A\s+PAGAR|OFERTA|PROPUESTA|NETO|FINAL)?)\s*(?:\((?:USD|VES|Bs\.?)\))?\s*[:\|]\s*(?:(?:USD|VES|Bs\.?)\s*)?\$?\s*([0-9][0-9,\.]+)",
         ):
             m = re.search(pat, text, re.I)
             if m:
@@ -445,6 +445,7 @@ class AgentToolbox:
             "declared_total": res.declared_total,
             "computed_total": res.computed_total,
             "discrepancy": res.discrepancy,
+            "declared_total_missing": res.declared_total_missing,
             "errors": res.errors,
             "items": [
                 {

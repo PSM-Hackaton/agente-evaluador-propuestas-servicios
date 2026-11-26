@@ -43,6 +43,7 @@ class ArithmeticAuditResult:
     declared_total: float
     computed_total: float
     discrepancy: float
+    declared_total_missing: bool = False
     item_audits: list[LineItemAudit] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -97,9 +98,10 @@ def verify_arithmetic(
         )
 
     decl_total_d = _d(declared_total)
-    total_discrepancy = (running_sum - decl_total_d).copy_abs() if decl_total_d > 0 else Decimal("0")
+    declared_total_missing = decl_total_d <= Decimal("0")
+    total_discrepancy = (running_sum - decl_total_d).copy_abs() if not declared_total_missing else Decimal("0")
     total_ok = True
-    if decl_total_d > 0 and line_items and total_discrepancy > tol:
+    if not declared_total_missing and line_items and total_discrepancy > tol:
         total_ok = False
         errors.append(
             f"La suma real de subtotales (${running_sum:.2f}) no coincide con el Total General "
@@ -111,6 +113,7 @@ def verify_arithmetic(
         declared_total=_r2(decl_total_d),
         computed_total=_r2(running_sum),
         discrepancy=_r2(total_discrepancy),
+        declared_total_missing=declared_total_missing,
         item_audits=item_audits,
         errors=errors,
     )
@@ -131,6 +134,7 @@ def compute_tco_breakdown(
     iva_included: bool = True,
     iva_rate: float = 0.16,
     payment_surcharge_pct: float = 0.0,
+    computed_fallback_total: float = 0.0,
     notes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Normalize currency (USD/VES at BCV rate) and build transparent step-by-step TCO breakdown."""
@@ -144,21 +148,34 @@ def compute_tco_breakdown(
 
     decl_orig_d = _d(declared_total)
     decl_usd_d = _to_usd(decl_orig_d)
+    declared_total_missing = decl_orig_d <= Decimal("0")
+    base_orig_d = decl_orig_d if not declared_total_missing else _d(computed_fallback_total)
+    base_usd_d = _to_usd(base_orig_d)
     ship_usd_d = _to_usd(_d(shipping_cost))
     inst_usd_d = _to_usd(_d(installation_cost))
     extra_flat_usd_d = _to_usd(_d(hidden_surcharge_flat))
 
+    if declared_total_missing and base_usd_d > 0:
+        first_step_note = (
+            "Total declarado no localizado en el documento; TCO estimado desde la suma de partidas "
+            f"(${_r2(base_usd_d):,.2f} USD)."
+        )
+    elif curr != "USD":
+        first_step_note = f"Convertido a USD con tasa BCV {bcv_rate:.4f} Bs/USD"
+    else:
+        first_step_note = "Expresado en USD"
+
     steps: list[dict[str, Any]] = [
         {
-            "step": "Monto declarado",
+            "step": "Monto base (total declarado no localizado)" if declared_total_missing else "Monto declarado",
             "original_amount": _r2(decl_orig_d),
             "original_currency": curr,
-            "amount_usd": _r2(decl_usd_d),
-            "note": f"Convertido a USD con tasa BCV {bcv_rate:.4f} Bs/USD" if curr != "USD" else "Expresado en USD",
+            "amount_usd": _r2(base_usd_d if declared_total_missing else decl_usd_d),
+            "note": first_step_note,
         }
     ]
 
-    adjusted = decl_usd_d
+    adjusted = base_usd_d
 
     if not shipping_included_in_total and ship_usd_d > 0:
         adjusted += ship_usd_d
@@ -182,7 +199,7 @@ def compute_tco_breakdown(
 
     pct_surcharge_usd_d = Decimal("0")
     if hidden_surcharge_pct > 0:
-        pct_surcharge_usd_d = (decl_usd_d * _d(hidden_surcharge_pct) / Decimal("100")).quantize(
+        pct_surcharge_usd_d = (base_usd_d * _d(hidden_surcharge_pct) / Decimal("100")).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
         adjusted += pct_surcharge_usd_d
@@ -246,6 +263,7 @@ def compute_tco_breakdown(
         "declared_currency": curr,
         "declared_total_original": _r2(decl_orig_d),
         "declared_total_usd": _r2(decl_usd_d),
+        "declared_total_missing": declared_total_missing,
         "shipping_cost_usd": _r2(ship_usd_d),
         "installation_cost_usd": _r2(inst_usd_d),
         "hidden_surcharges_usd": _r2(hidden_total_usd),
