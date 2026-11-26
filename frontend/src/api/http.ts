@@ -241,9 +241,24 @@ export const httpApi: Api = {
     },
     async add(evaluacionId, accion, comentario) {
       const body = accionHaciaBackend(accion, comentario);
-      return toRevision(
+      const rev = toRevision(
         await req<BReview>(`/evaluations/${evaluacionId}/reviews`, { method: 'POST', body: json(body) }),
       );
+      // El backend registra la revisión pero no mueve el proceso: «Aprobar» adjudica la
+      // propuesta recomendada y «Rechazar y devolver» regresa el proyecto a evaluación,
+      // igual que en el modo demostración.
+      if (accion === 'aprobar' || accion === 'rechazar') {
+        const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
+        await req<BProject>(`/projects/${e.project_id}/status`, {
+          method: 'POST',
+          body: json(
+            accion === 'aprobar'
+              ? { target_status: 'adjudicado', adjudicated_proposal_id: e.recommended_proposal_id, notes: body.notes }
+              : { target_status: 'en_evaluacion', notes: body.notes },
+          ),
+        });
+      }
+      return rev;
     },
   },
 
