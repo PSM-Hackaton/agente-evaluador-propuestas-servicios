@@ -34,6 +34,11 @@ class TokenResponse(BaseModel):
     full_name: str
 
 
+class StreamTicketResponse(BaseModel):
+    ticket: str
+    expires_in_seconds: int = 60
+
+
 class UserOut(BaseModel):
     id: str
     email: str
