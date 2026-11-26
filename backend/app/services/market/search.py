@@ -152,6 +152,14 @@ async def _search_ddgs(query: str) -> list[dict[str, Any]]:
     return await asyncio.wait_for(asyncio.to_thread(_run), timeout=20.0)
 
 
+def _is_service_or_logistics_item(item_spec: str) -> bool:
+    """Return True when an item represents pure logistics/service rather than benchmarkable hardware."""
+    low = (item_spec or "").lower()
+    service_kw = any(k in low for k in ("envío", "envio", "logística", "logistica", "flete", "instalación", "instalacion", "transporte", "garantía", "garantia", "licencia"))
+    hw_kw = any(k in low for k in ("ryzen", "core i", "xeon", "rtx", "gtx", "radeon", "rx ", "monitor", "ups", "regulador", "estación", "estacion", "computadora"))
+    return service_kw and not hw_kw
+
+
 def _baseline_reference(item_spec: str) -> tuple[float, float, str] | None:
     low = item_spec.lower()
     for keyword, (lo, hi), label in BASELINE_MARKET_REFERENCES:
@@ -166,7 +174,7 @@ def extract_market_searchable_items(
     spec_context_fn: Any = None,
     max_items: int = 4,
 ) -> list[dict[str, Any]]:
-    """Select primary workstations plus priced peripherals/components/services for market benchmarking."""
+    """Select primary workstations plus priced hardware peripherals for market benchmarking."""
     candidates: list[dict[str, Any]] = []
     seen_queries: set[str] = set()
 
@@ -182,25 +190,25 @@ def extract_market_searchable_items(
         if it.get("category") not in ("estaciones_estudiantes", "estacion_docente", "envio", "instalacion", "opcional", "software")
         and float(it.get("unit_price") or 0) > 40
     ]
-    logistics = [
-        it
-        for it in line_items
-        if it.get("category") in ("envio", "instalacion")
-        and float(it.get("unit_price") or 0) > 50
-    ]
 
-    for item in [*prioritized, *secondary, *logistics]:
+    for item in [*prioritized, *secondary]:
         unit_p = float(item.get("unit_price") or 0)
+        cat = str(item.get("category") or "item")
         desc = str(item.get("description") or "")
-        if len(desc) < 35 and spec_context_fn is not None:
-            ctx = spec_context_fn(raw_text, unit_p)
+        if _is_service_or_logistics_item(desc):
+            continue
+        if cat in ("estaciones_estudiantes", "estacion_docente") and len(desc) < 35 and spec_context_fn is not None:
+            try:
+                ctx = spec_context_fn(raw_text, unit_p, cat)
+            except TypeError:
+                ctx = spec_context_fn(raw_text, unit_p)
             if ctx:
                 desc = f"{desc} {ctx}".strip()
         q = _build_focused_query(desc).lower()
         if q in seen_queries:
             continue
         seen_queries.add(q)
-        candidates.append({"description": desc, "unit_price": unit_p, "category": item.get("category", "item")})
+        candidates.append({"description": desc, "unit_price": unit_p, "category": cat})
         if len(candidates) >= max_items:
             break
 
@@ -233,6 +241,24 @@ async def search_market_price(
     do_web = settings.web_search_enabled if enable_web is None else enable_web
 
     query = _build_focused_query(item_description)
+    if _is_service_or_logistics_item(item_description):
+        ref_mid = round(proposed_unit_price_usd, 2) if proposed_unit_price_usd > 0 else 0.0
+        return {
+            "item": item_description[:140],
+            "query": query,
+            "provider": "baseline_catalog",
+            "reference_source_type": "sin_referencia",
+            "proposed_unit_price_usd": round(proposed_unit_price_usd, 2),
+            "market_reference_low_usd": round(ref_mid * 0.75, 2),
+            "market_reference_mid_usd": ref_mid,
+            "market_reference_high_usd": round(ref_mid * 1.25, 2),
+            "reference_label": "Partida de logística o servicio (sin referencia web de hardware)",
+            "variance_pct": 0.0,
+            "status": "sin_referencia",
+            "is_abusive_overprice": False,
+            "sources": [],
+        }
+
     sources: list[dict[str, Any]] = []
     web_prices: list[float] = []
     search_provider = "baseline_catalog"
@@ -262,13 +288,13 @@ async def search_market_price(
             if isinstance(p, (int, float)) and p > 0:
                 web_prices.append(float(p))
 
-    # Filter out extreme single-component noise if a baseline range exists and web_prices mix parts & full PCs
+    # Discard mismatched single-component web prices when benchmarking full workstations
     baseline = _baseline_reference(item_description)
     if web_prices and baseline:
         b_lo, b_hi, _ = baseline
-        plausible_web = [p for p in web_prices if b_lo * 0.45 <= p <= b_hi * 3.0]
-        if plausible_web:
-            web_prices = plausible_web
+        min_pc_floor = 450.0 if ("desktop pc" in query.lower() and b_lo >= 950.0) else b_lo * 0.45
+        plausible_web = [p for p in web_prices if max(min_pc_floor, b_lo * 0.45) <= p <= b_hi * 3.0]
+        web_prices = plausible_web
 
     # Web-first pricing: web sources take precedence over fixed baseline
     if web_prices:

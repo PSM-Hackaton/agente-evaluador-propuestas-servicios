@@ -49,6 +49,16 @@ _TRACE_SUBSCRIBERS: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
 _TRACE_BUFFERS: dict[str, list[dict[str, Any]]] = {}
 _TRACE_BUFFER_MAX_RUNS = 64
 
+ALERT_REASON_PRIORITY: dict[str, int] = {
+    DiscardReasonCode.INYECCION_PROMPT.value: 0,
+    DiscardReasonCode.INCOMPATIBILIDAD_TECNICA.value: 1,
+    DiscardReasonCode.CAPACIDAD_INSUFICIENTE.value: 2,
+    DiscardReasonCode.EQUIPOS_OBSOLETOS_RECICLADOS.value: 3,
+    DiscardReasonCode.ERROR_ARITMETICO.value: 4,
+    DiscardReasonCode.COSTOS_CONDICIONES_ABUSIVAS.value: 5,
+    DiscardReasonCode.ALCANCE_INCOMPLETO.value: 6,
+}
+
 
 def init_trace_buffer(evaluation_id: str) -> None:
     """Initialize an in-memory replay buffer for a new evaluation run."""
@@ -122,17 +132,38 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _spec_context_for_price(text: str, unit_price: float, window: int = 260) -> str:
-    """Return the text right before the first occurrence of a unit price (the item's specs)."""
+def _spec_context_for_price(text: str, unit_price: float, item_category: str = "", window: int = 260) -> str:
+    """Return specs preceding a unit price without crossing station or section boundaries."""
     if unit_price <= 0 or not text:
         return ""
+    search_offset = 0
+    if item_category == "estacion_docente":
+        anchor = re.search(r"\b(?:estaci[oó]n\s+)?docente\b", text, re.I)
+        if anchor:
+            search_offset = anchor.start()
+    elif item_category == "estaciones_estudiantes":
+        anchor = re.search(r"\b(?:estaci[oó]n\s+)?estudiantes\b", text, re.I)
+        if anchor:
+            search_offset = anchor.start()
+
     whole = int(unit_price)
     candidates = [f"{whole:,}", str(whole), f"{whole:,}".replace(",", ".")]
-    for cand in candidates:
-        m = re.search(rf"\$\s*{re.escape(cand)}(?![0-9])", text)
-        if m:
-            return re.sub(r"\s+", " ", text[max(0, m.start() - window) : m.start()]).strip()
+    for offset in (search_offset, 0) if search_offset > 0 else (0,):
+        sub_text = text[offset:]
+        for cand in candidates:
+            m = re.search(rf"\$\s*{re.escape(cand)}(?![0-9])", sub_text)
+            if m:
+                abs_pos = offset + m.start()
+                raw_slice = text[max(offset, abs_pos - window) : abs_pos]
+                bullet_parts = re.split(r"(?:^|\n)\s*[+•*]\s+", raw_slice)
+                scoped = bullet_parts[-1] if bullet_parts else raw_slice
+                if item_category == "estacion_docente":
+                    m_doc = re.search(r"\b(?:estaci[oó]n\s+)?docente\b", scoped, re.I)
+                    if m_doc:
+                        scoped = scoped[m_doc.start() :]
+                return re.sub(r"\s+", " ", scoped).strip()
     return ""
+
 
 
 _NUMERIC_FIELDS = (
@@ -687,6 +718,7 @@ async def evaluate_proposals_core(
                 metadata={"comparisons": len(market_comparisons), "status": first_mc["status"]},
             )
 
+        discard_reasons.sort(key=lambda r: ALERT_REASON_PRIORITY.get(r["code"], 99))
         is_valid = len(discard_reasons) == 0
         prior_alert_notes = [
             f"Antecedente previo ({al.get('date') or str(al.get('created_at', ''))[:10]} — {al.get('project_name', 'Proyecto anterior')}): "
