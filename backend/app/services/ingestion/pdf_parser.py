@@ -27,7 +27,7 @@ def _is_near_white(color_int: int) -> bool:
     return r >= 240 and g >= 240 and b >= 240
 
 
-def extract_pdf(content: bytes, render_pages_for_vision: bool = False, max_vision_pages: int = 4) -> PdfExtractionResult:
+def extract_pdf(content: bytes, render_pages_for_vision: bool = False, max_vision_pages: int | None = None) -> PdfExtractionResult:
     """Extract visible text, hidden/invisible text layers, metadata, and optional PNG renders."""
     doc = pymupdf.open(stream=content, filetype="pdf")
     visible_parts: list[str] = []
@@ -97,9 +97,10 @@ def extract_pdf(content: bytes, render_pages_for_vision: bool = False, max_visio
     is_scanned = page_count > 0 and (total_visible_chars / page_count) < 50
 
     if render_pages_for_vision or is_scanned:
-        for page_idx in range(min(page_count, max_vision_pages)):
+        limit = page_count if max_vision_pages is None else min(page_count, max_vision_pages)
+        for page_idx in range(limit):
             page = doc[page_idx]
-            pix = page.get_pixmap(dpi=180)
+            pix = page.get_pixmap(dpi=200)
             png_bytes = pix.tobytes("png")
             page_images_b64.append(base64.b64encode(png_bytes).decode("ascii"))
 
