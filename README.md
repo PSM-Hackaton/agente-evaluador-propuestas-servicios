@@ -245,3 +245,15 @@ TLS_ENABLED=true python -m app.run             # HTTPS directo en Uvicorn
 
 En producción, servir el frontend compilado (`frontend/dist/`) y el backend detrás de Nginx con la plantilla
 `backend/nginx/tls.conf` (`ssl_protocols TLSv1.2 TLSv1.3`), y ajustar `CORS_ORIGINS` al dominio público.
+
+### 6.6 Contribuir
+
+Antes del primer commit en un clon nuevo, activar los ganchos de git del proyecto (bloquean secretos, archivos
+`.env`, archivos de más de 5 MB y mensajes no válidos, y ejecutan las pruebas antes de cada push):
+
+```sh
+sh scripts/instalar-hooks.sh
+```
+
+El flujo de ramas, revisiones y Merge Request del equipo está en
+[docs/entrega/flujo-gitlab.md](docs/entrega/flujo-gitlab.md).

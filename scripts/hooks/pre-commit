@@ -1,0 +1,46 @@
+#!/bin/sh
+# Gancho pre-commit: revisa lo que se va a confirmar (índice de git).
+# Bloquea: archivos .env reales, llaves, certificados, bases de datos, dependencias y datos locales;
+# archivos de más de 5 MB; claves de API o tokens reales en las líneas añadidas; nombres de herramientas
+# de autoría o líneas de coautoría en las líneas añadidas; identidad de git que no sea una persona real.
+# Omitir en un caso justificado: git commit --no-verify (y explicarlo en el Merge Request).
+set -eu
+NOMBRE_HOOK=pre-commit
+DIR_HOOKS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=scripts/hooks/comun.sh
+. "$DIR_HOOKS/comun.sh"
+
+FALLOS=0
+hook_identidad "$(git config user.name || true)" "$(git config user.email || true)" || FALLOS=1
+
+LISTA=$(mktemp); trap 'rm -f "$LISTA"' EXIT
+git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n' > "$LISTA"
+
+while IFS= read -r ARCHIVO; do
+  [ -n "$ARCHIVO" ] || continue
+  if printf '%s\n' "$ARCHIVO" | grep -Eq "$PATRON_ARCHIVOS" && ! printf '%s\n' "$ARCHIVO" | grep -Eq "$PERMITIDOS_ARCHIVOS"; then
+    hook_error "$ARCHIVO: este tipo de archivo no se versiona (.env, llaves, certificados, bases, dependencias o datos locales)"
+    FALLOS=1
+  fi
+  TAMANO=$(git cat-file -s ":$ARCHIVO" 2>/dev/null || echo 0)
+  if [ "$TAMANO" -gt "$LIMITE_BYTES" ]; then
+    hook_error "$ARCHIVO: ocupa $(awk "BEGIN { printf \"%.1f\", $TAMANO / 1048576 }") MB (límite 5 MB)"
+    FALLOS=1
+  fi
+done < "$LISTA"
+
+# Solo las líneas AÑADIDAS (texto). Los archivos binarios no muestran líneas en el diff.
+AGREGADO=$(git diff --cached --no-color --no-ext-diff -U0 --diff-filter=ACMR | grep -E '^\+' | grep -Ev '^\+\+\+ ' || true)
+if printf '%s\n' "$AGREGADO" | grep -Eq "$PATRON_SECRETOS"; then
+  hook_error 'hay una clave de API, token o llave privada en las líneas añadidas (use .env, que no se versiona):'
+  git diff --cached --no-color -U0 --diff-filter=ACMR | grep -En "$PATRON_SECRETOS" | sed -E 's/(.{0,60}).*/    \1.../' | head -5 >&2
+  FALLOS=1
+fi
+if printf '%s\n' "$AGREGADO" | grep -Eiq "$PATRON_HERRAMIENTAS"; then
+  hook_error 'hay nombres de herramientas de autoría o líneas de coautoría en las líneas añadidas:'
+  printf '%s\n' "$AGREGADO" | grep -Ei "$PATRON_HERRAMIENTAS" | cut -c1-100 | head -5 | sed 's/^/    /' >&2
+  FALLOS=1
+fi
+
+[ "$FALLOS" -eq 0 ] || { printf '\nCorrija lo anterior y vuelva a hacer git add / git commit.\n' >&2; exit 1; }
+exit 0

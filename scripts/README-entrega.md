@@ -47,6 +47,14 @@ al GitLab del evento**). Los scripts rechazan correos como `@equipo.local`, `@ex
 En la sincronización, `--asignar <commit>=enggel|javier|diego` corrige la rama (y el autor) de un commit cuyo
 autor de GitHub no es el real. Antes de usarlo, el equipo debe confirmar quién escribió cada commit.
 
+## Regla del equipo para subir
+
+Nadie sube a GitLab un cambio que no esté aprobado por Diego Landaeta o Juan Laya (PR en GitHub hacia `staging`,
+protegida con CODEOWNERS), y **cada integrante sube su rama con su propia cuenta**. Por eso, en la práctica, quien
+ejecuta estos scripts prepara la copia **sin `--subir`** y cada persona empuja su rama (`diego`, `enggel`,
+`javier`) desde la carpeta de salida con sus credenciales. El flujo completo para el equipo está en
+`docs/entrega/flujo-gitlab.md`.
+
 ## Flujo completo
 
 ### Antes de empezar (una vez)
@@ -82,7 +90,7 @@ sh scripts/subir-por-etapas.sh --ref staging --salida ../entrega-gitlab --forzar
 | 4 `backend-api` | Enggel Rodríguez | `enggel` | API REST/SSE, informes, modo lote, TLS, prueba e2e, `backend/README.md` y cualquier otro archivo de `backend/` |
 | 5 `frontend-base` | Javier Rodríguez | `javier` | Proyecto Vite, cliente de la API, sesión, roles, componentes base |
 | 6 `frontend-modulos` | Javier Rodríguez | `javier` | Páginas y componentes de negocio, `frontend/README.md` y el resto de `frontend/` |
-| 7 `documentacion` | Diego Landaeta | `diego` | `README.md` de 6 apartados y `docs/cumplimiento/` |
+| 7 `documentacion` | Diego Landaeta | `diego` | `README.md` de 6 apartados, `docs/cumplimiento/`, `docs/entrega/`, plantilla `.gitlab/` y ganchos `scripts/hooks/` + `scripts/instalar-hooks.sh` |
 
 El orden sigue la cronología de GitHub (estructura 11:34, backend desde 13:42, frontend 14:08). Si la rama
 integrada trae archivos nuevos fuera de `backend/` y `frontend/`, el plan falla diciendo cuáles quedaron sin
