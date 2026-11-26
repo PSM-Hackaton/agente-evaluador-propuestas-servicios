@@ -13,7 +13,13 @@
 
 # Autoría y mensajes de commit: sin rastros de asistentes de programación ni cuentas automáticas.
 # (Los proveedores de IA que usa la aplicación, p. ej. Gemini u OpenAI, sí pueden nombrarse en un mensaje.)
-LIMITE_PALABRAS='claude|anthropic|chatgpt|copilot|co-authored-by|generated with|\[bot\]|noreply'
+LIMITE_HERRAMIENTAS='claude|anthropic|chatgpt|copilot|co-authored-by|generated with|\[bot\]'
+# Lista completa (herramientas + cualquier "noreply"), para quien la use directamente con grep.
+LIMITE_PALABRAS="$LIMITE_HERRAMIENTAS|noreply"
+# Correos noreply PERSONALES de GitLab ("<id>-<usuario>@users.noreply.<servidor>", los del GitLab del evento)
+# y de GitHub ("<id>+<usuario>@users.noreply.github.com"): son de una persona, se aceptan. Cualquier otro
+# "noreply" (noreply@..., no-reply de servicios) sigue rechazándose.
+NOREPLY_PERSONAL='[0-9]+[-+][A-Za-z0-9._-]+@users\.noreply\.[A-Za-z0-9.-]+[A-Za-z]'
 # Correos que no son de una persona real (marcadores locales): no se publican como autor en GitLab.
 CORREOS_FALSOS='@[^@]*\.(local|localdomain|invalid|example|test)$|@example\.(com|org|net)$|@localhost$'
 
@@ -78,6 +84,7 @@ entrega_preparar_salida() {
 }
 
 # 0 si "$1 $2" (nombre y correo) parece una persona del equipo, no una cuenta automática o una herramienta.
+# Acepta los correos noreply personales de GitLab/GitHub (NOREPLY_PERSONAL).
 entrega_identidad_valida() {
   [ -n "$1" ] && [ -n "$2" ] || return 1
   # Correo noreply personal del GitLab del evento: es de una persona (solo se revisa el nombre).
@@ -85,12 +92,37 @@ entrega_identidad_valida() {
     ! printf '%s\n' "$1" | grep -Eiq "$LIMITE_PALABRAS"; return
   fi
   printf '%s\n' "$2" | grep -Eiq "$CORREOS_FALSOS" && return 1
-  ! printf '%s %s\n' "$1" "$2" | grep -Eiq "$LIMITE_PALABRAS"
+  entrega_texto_valido "$1 $2"
 }
 
-# 0 si el texto $1 (mensaje de commit) no contiene autoría o menciones no permitidas.
+# 0 si el texto $1 (mensaje, identidades o un historial) no contiene menciones a herramientas, coautorías,
+# cuentas automáticas ni correos noreply que no sean personales. Las menciones a herramientas se buscan en
+# el texto completo (así "123-copilot@users.noreply..." se rechaza); "noreply", tras quitar los personales.
 entrega_texto_valido() {
-  ! printf '%s\n' "$1" | grep -Eiq "$LIMITE_PALABRAS"
+  printf '%s\n' "$1" | grep -Eiq "$LIMITE_HERRAMIENTAS" && return 1
+  printf '%s\n' "$1" | sed -E "s/$NOREPLY_PERSONAL//g" | grep -Eiq 'no-?reply' && return 1
+  return 0
+}
+
+# 0 si los commits de "git log <resto de argumentos>" en el repositorio $1 (autor, quien confirma y
+# mensaje) son válidos. Ejemplo: entrega_historial_valido "$SALIDA" -1 avance
+entrega_historial_valido() {
+  repo_historial=$1; shift
+  entrega_texto_valido "$(git -C "$repo_historial" log --format='%an <%ae>%n%cn <%ce>%n%B' "$@")"
+}
+
+# Resumen en una línea de las comprobaciones "  OK     <etiqueta>  <resultado>" de un registro de pruebas
+# (salida de entrega_probar), para el cuerpo de los commits.
+entrega_resumen_pruebas() {
+  sed -n 's/^  OK     //p' "$1" | sed -E 's/ {2,}/: /' | paste -sd ';' - | sed 's/;/; /g'
+}
+
+# Mensaje completo de un commit de etapa: título y cuerpo ($1, archivo etapa-N.mensaje), las pruebas
+# ejecutadas ($2, texto resumido; vacío si no hubo) y las líneas «Refs/Closes #n» ($3, archivo etapa-N.issues).
+entrega_mensaje_etapa() {
+  cat -- "$1"
+  if [ -n "$2" ]; then printf 'Pruebas ejecutadas: %s.\n' "$2"; fi
+  if [ -s "$3" ] && grep -q . "$3"; then printf '\n'; grep . "$3"; fi
 }
 
 # Persona del equipo configurada en el repositorio original: AUTOR_NOMBRE y AUTOR_CORREO.
@@ -236,7 +268,7 @@ entrega_confirmar_commit() {
   entrega_identidad_valida "$3" "$4" || falla "autor no permitido para un commit de la entrega: $3 <$4>"
   entrega_texto_valido "$2" || falla "el mensaje del commit contiene texto no permitido: $2"
   GIT_AUTHOR_NAME=$3 GIT_AUTHOR_EMAIL=$4 \
-  GIT_COMMITTER_NAME=$AUTOR_NOMBRE GIT_COMMITTER_EMAIL=$AUTOR_CORREO \
+  GIT_COMMITTER_NAME=${CONFIRMA_NOMBRE:-$AUTOR_NOMBRE} GIT_COMMITTER_EMAIL=${CONFIRMA_CORREO:-$AUTOR_CORREO} \
     entrega_git "$1" commit --quiet --no-verify -m "$2"
 }
 

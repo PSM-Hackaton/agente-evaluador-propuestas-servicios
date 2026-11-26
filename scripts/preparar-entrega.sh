@@ -151,8 +151,7 @@ git -C "$SALIDA" config user.email "$AUTOR_CORREO"
 # Comprobaciones del repositorio creado.
 N_COMMITS=$(git -C "$SALIDA" rev-list --count avance)
 [ "$N_COMMITS" -eq 1 ] || falla "se esperaba un único commit y hay $N_COMMITS"
-git -C "$SALIDA" log -1 --format='%an%n%ae%n%cn%n%ce%n%B' avance | grep -Eiq "$LIMITE_PALABRAS" \
-  && falla 'el commit contiene autoría o texto no permitido'
+entrega_historial_valido "$SALIDA" -1 avance || falla 'el commit contiene autoría o texto no permitido'
 N_VERSIONADOS=$(git -C "$SALIDA" ls-files | wc -l | tr -d ' ')
 N_ARCHIVOS=$(find "$SALIDA" -path "$SALIDA/.git" -prune -o -type f -print | wc -l | tr -d ' ')
 [ "$N_VERSIONADOS" -eq "$N_ARCHIVOS" ] || falla "hay $N_ARCHIVOS archivos en la copia pero solo $N_VERSIONADOS versionados"
