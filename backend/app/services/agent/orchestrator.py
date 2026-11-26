@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
@@ -26,7 +27,11 @@ from app.db.models import (
     SupplierAlert,
 )
 from app.services.agent.security_guard import wrap_untrusted_document
-from app.services.agent.tools import AgentToolbox, extract_proposal_structured_heuristic
+from app.services.agent.tools import (
+    AgentToolbox,
+    clean_supplier_name,
+    extract_proposal_structured_heuristic,
+)
 from app.services.ingestion.pipeline import IngestedDocument, ingest_document
 from app.services.llm.client import UnifiedLLMClient
 from app.services.reports.salida_json import build_salida_json
@@ -68,6 +73,114 @@ def format_iso_local(dt: datetime | None = None) -> str:
     tz = timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
     target = (dt or datetime.now(UTC)).astimezone(tz)
     return target.replace(microsecond=0).isoformat()
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    """Coerce numbers coming from LLM JSON or heuristics ("$1,340.00", "50%", None) into float."""
+    if value is None or isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = re.sub(r"[^0-9.,-]", "", str(value))
+    if cleaned.count(",") and cleaned.count("."):
+        # The last separator is the decimal one: "15,550.00" (US) vs "1.234,50" (VE/ES)
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif cleaned.count(",") == 1 and len(cleaned.split(",")[1]) in (1, 2):
+        cleaned = cleaned.replace(",", ".")
+    else:
+        cleaned = cleaned.replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return default
+
+
+def _spec_context_for_price(text: str, unit_price: float, window: int = 260) -> str:
+    """Return the text right before the first occurrence of a unit price (the item's specs)."""
+    if unit_price <= 0 or not text:
+        return ""
+    whole = int(unit_price)
+    candidates = [f"{whole:,}", str(whole), f"{whole:,}".replace(",", ".")]
+    for cand in candidates:
+        m = re.search(rf"\$\s*{re.escape(cand)}(?![0-9])", text)
+        if m:
+            return re.sub(r"\s+", " ", text[max(0, m.start() - window) : m.start()]).strip()
+    return ""
+
+
+_NUMERIC_FIELDS = (
+    "declared_total",
+    "shipping_cost",
+    "installation_cost",
+    "hidden_surcharge_flat",
+    "hidden_surcharge_pct",
+    "payment_surcharge_pct",
+)
+_BOOL_FIELDS = (
+    "shipping_included_in_total",
+    "installation_included_in_total",
+    "iva_applies",
+    "iva_included",
+)
+
+
+def _to_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    txt = str(value).strip().lower()
+    if txt in ("true", "si", "sí", "yes", "1", "incluido", "incluye"):
+        return True
+    if txt in ("false", "no", "0", "excluido", "no incluye"):
+        return False
+    return default
+
+
+def _normalize_structured(structured: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    """Coerce LLM JSON (strings like "$15,550.00", "50%", "10") into the types the tools expect.
+
+    A malformed LLM answer must never abort the whole evaluation; invalid values fall back to the
+    deterministic heuristic extraction.
+    """
+    out = dict(structured)
+    for key in _NUMERIC_FIELDS:
+        out[key] = _to_float(out.get(key), _to_float(fallback.get(key)))
+    for key in _BOOL_FIELDS:
+        out[key] = _to_bool(out.get(key), _to_bool(fallback.get(key), True))
+    for key in ("student_pc_count", "teacher_pc_count"):
+        out[key] = int(_to_float(out.get(key), _to_float(fallback.get(key))))
+
+    items: list[dict[str, Any]] = []
+    raw_items = out.get("line_items")
+    for it in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        sub = it.get("declared_subtotal")
+        items.append(
+            {
+                "description": str(it.get("description") or it.get("name") or "Ítem"),
+                "quantity": _to_float(it.get("quantity"), 1.0),
+                "unit_price": _to_float(it.get("unit_price")),
+                "declared_subtotal": None if sub in (None, "") else _to_float(sub),
+                "category": str(it.get("category") or "item"),
+            }
+        )
+    out["line_items"] = items or list(fallback.get("line_items") or [])
+
+    notes = out.get("fine_print_notes")
+    if isinstance(notes, str):
+        notes = [notes]
+    out["fine_print_notes"] = [str(n) for n in notes if n] if isinstance(notes, list) else []
+
+    issues = out.get("llm_detected_issues")
+    out["llm_detected_issues"] = [i for i in issues if isinstance(i, dict)] if isinstance(issues, list) else []
+    return out
 
 
 LLM_EXTRACTION_SYSTEM_PROMPT = """Eres un auditor financiero y técnico experto en licitaciones de tecnología y servicios.
@@ -297,7 +410,9 @@ async def evaluate_proposals_core(
                     if v is not None and v != "" and v != []:
                         structured[k] = v
 
-        supplier_name = str(structured.get("supplier_name") or doc.identifier)
+        structured = _normalize_structured(structured, heuristic)
+
+        supplier_name = clean_supplier_name(str(structured.get("supplier_name") or "")) or doc.identifier
         supplier_rif = structured.get("supplier_rif")
 
         # Step 4: Supplier history check tool
@@ -399,19 +514,25 @@ async def evaluate_proposals_core(
             it
             for it in line_items
             if it.get("category") in ("estaciones_estudiantes", "estacion_docente")
-            and float(it.get("unit_price") or 0) > 0
+            and _to_float(it.get("unit_price")) > 0
         ]
         if not primary_items and line_items:
-            primary_items = [it for it in line_items if float(it.get("unit_price") or 0) > 100][:1]
+            primary_items = [
+                it
+                for it in line_items
+                if it.get("category") not in ("envio", "instalacion", "opcional", "software")
+                and _to_float(it.get("unit_price")) > 100
+            ][:1]
 
         for item in primary_items[:2]:
-            # Enrich search query with technical context if line description is generic
+            # Enrich search query with the technical specs written next to the item's price
             desc_for_search = str(item.get("description") or "")
             if len(desc_for_search) < 35:
-                desc_for_search = f"{desc_for_search} {doc.sanitized_text[:240]}"
+                context = _spec_context_for_price(doc.sanitized_text, _to_float(item.get("unit_price")))
+                desc_for_search = f"{desc_for_search} {context}".strip()
             m_res = await toolbox.tool_web_search_market_prices(
                 item_description=desc_for_search,
-                proposed_unit_price_usd=float(item.get("unit_price") or 0.0),
+                proposed_unit_price_usd=_to_float(item.get("unit_price")),
                 enable_web=enable_web_search,
             )
             market_comparisons.append(m_res)

@@ -47,8 +47,24 @@ def _build_focused_query(item_description: str) -> str:
             tokens.append(m.group(0).strip())
     if tokens:
         return f"{' '.join(tokens)} desktop PC price USD"
-    clean = re.sub(r"\s+", " ", item_description).strip()
+    clean = _strip_sensitive_data(item_description)
     return f"{clean[:80]} price USD"
+
+
+_SENSITIVE_PATTERNS = (
+    re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),  # correos
+    re.compile(r"\b[JVEGP]-?\d{6,9}-?\d\b", re.I),  # RIF / cédula
+    re.compile(r"\+?\d[\d\s().-]{8,}\d"),  # teléfonos y cuentas
+    re.compile(r"\b(?:RIF|Rep\.?|Representante|Cliente|Destino|Fecha|Validez|REF|COT)[^|\n]*", re.I),
+)
+
+
+def _strip_sensitive_data(text: str) -> str:
+    """Remove supplier/client identifiers before sending a query to an external search engine (Sección F)."""
+    clean = text
+    for pat in _SENSITIVE_PATTERNS:
+        clean = pat.sub(" ", clean)
+    return re.sub(r"\s+", " ", clean).strip()
 
 
 async def _search_tavily(query: str, api_key: str) -> list[dict[str, str]]:
@@ -160,7 +176,7 @@ async def search_market_price(
         ref_mid = proposed_unit_price_usd if proposed_unit_price_usd > 0 else 1000.0
         ref_low = round(ref_mid * 0.75, 2)
         ref_high = round(ref_mid * 1.25, 2)
-        ref_label = "Estimación de mercado sin referencia directa"
+        ref_label = "Sin referencia de mercado verificable (no se identificó el producto ni hubo precios web)"
 
     # Blend web median if within plausible order of magnitude of baseline
     if baseline and web_prices:
@@ -174,7 +190,10 @@ async def search_market_price(
 
     status = "acorde_al_mercado"
     is_abusive_overprice = False
-    if proposed_unit_price_usd > ref_high * 1.65 or variance_pct >= 85.0:
+    if not baseline and not web_prices:
+        # Without any reference the comparison is not meaningful: never report it as "acorde".
+        status = "sin_referencia"
+    elif proposed_unit_price_usd > ref_high * 1.65 or variance_pct >= 85.0:
         status = "sobrecosto_abusivo"
         is_abusive_overprice = True
     elif proposed_unit_price_usd > ref_high * 1.20 or variance_pct >= 35.0:

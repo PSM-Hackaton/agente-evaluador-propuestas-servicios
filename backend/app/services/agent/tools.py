@@ -23,6 +23,38 @@ def _parse_money(raw: str) -> float:
         return 0.0
 
 
+_CHAT_APP_PREFIX_RE = re.compile(
+    r"^\s*(?:microsoft\s+teams|rocket\.?chat|whatsapp(?:\s+business)?|slack|telegram|mensajes?\s+sms|sms)"
+    r"\s*(?:#\S+)?\s*[•·|:-]?\s*",
+    re.I,
+)
+_RIF_SUFFIX_RE = re.compile(r"\s*[+•·|,]?\s*\bRIF\b.*$", re.I)
+_COMPANY_SUFFIX_RE = re.compile(r"\b(?:C\.\s?A\.?|S\.\s?A\.?|S\.R\.L\.?)\s*$", re.I)
+
+
+def clean_supplier_name(raw: str | None) -> str | None:
+    """Normalize supplier names extracted from headers of chats, scans or spreadsheets.
+
+    Removes chat application banners ("Microsoft Teams #canal", "Rocket.Chat #canal"),
+    trailing RIF fragments ("+ RIF J-..."), and the contact person when the header
+    follows the "Persona — Empresa C.A." pattern. All-caps names are title-cased.
+    """
+    if not raw:
+        return raw
+    name = re.sub(r"\s+", " ", str(raw)).strip()
+    name = _CHAT_APP_PREFIX_RE.sub("", name)
+    name = _RIF_SUFFIX_RE.sub("", name).strip(" -—–|•·+,")
+    segments = [seg.strip() for seg in re.split(r"\s+[—–]\s+|\s+-\s+", name) if seg.strip()]
+    if len(segments) > 1:
+        company = [seg for seg in segments if _COMPANY_SUFFIX_RE.search(seg)]
+        if company:
+            name = company[-1]
+    if name.isupper():
+        name = re.sub(r"\bC\.a\.", "C.A.", name.title())
+        name = re.sub(r"\bS\.a\.", "S.A.", name)
+    return name or raw
+
+
 def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[str, Any]:
     """Deterministic fallback parser extracting supplier, items, shipping, install, and declared total."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -42,6 +74,8 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
             m_ca = re.search(r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúÑñ0-9&×\s\.]{3,60}C\.A\.)", text)
             if m_ca:
                 supplier_name = m_ca.group(1).strip()
+
+    supplier_name = clean_supplier_name(supplier_name) or supplier_name
 
     rif_match = re.search(r"\b([JVEGP]-\d{6,9}-\d)\b", text, re.I)
     supplier_rif = rif_match.group(1).upper() if rif_match else None
