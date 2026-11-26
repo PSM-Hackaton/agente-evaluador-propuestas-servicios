@@ -794,3 +794,86 @@ async def test_issue38_login_rate_limiting_and_audit_log(app_client: AsyncClient
     logs = (await app_client.get("/api/v1/audit-logs?action=auth.login_blocked&limit=10", headers=revisor)).json()
     assert len(logs) >= 1
     assert "WrongPassword" not in json.dumps(logs)
+
+
+# ---------------------------------------------------------------------------
+# Issue #39 (R3-E16) & Issue #40 (R3-E17): 331 total extraction, missing total warning & batch causes
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue39_and_issue40_total_extraction_warning_and_batch_causes() -> None:
+    """Verify Propuesta_331 extracts $14,950.00, missing total never emits arithmetic OK, and docs/reto causes align."""
+    from app.services.agent.orchestrator import evaluate_proposals_core
+    from app.services.agent.tools import extract_proposal_structured_heuristic
+    from app.services.finance.tco import verify_arithmetic
+
+    doc_331 = await ingestion_pipeline.ingest_document(
+        "Propuesta_331_Mayorista_Sin_Fronteras_CA.png",
+        (PROPUESTAS_DIR / "Propuesta_331_Mayorista_Sin_Fronteras_CA.png").read_bytes(),
+        llm_client=None,
+    )
+    h_331 = extract_proposal_structured_heuristic(doc_331.identifier, doc_331.sanitized_text)
+    assert h_331["declared_total"] == pytest.approx(14950.0, abs=0.01)
+    arith_331 = verify_arithmetic(h_331["line_items"], h_331["declared_total"])
+    assert arith_331.declared_total_missing is False
+    assert arith_331.is_valid is True
+
+    # Document without declared total must warn (never "Verificación aritmética OK") and keep declared_total_usd=0.0
+    no_total_txt = b"""Proveedor: Demo Sin Total C.A. RIF J-51234567-8
+Estacion Estudiantes (10x): AMD Ryzen 5 7600, 32GB DDR5, 1TB NVMe, RTX 4060 8GB - $1,200.00 c/u
+Estacion Docente (1x): AMD Ryzen 7 7700, 32GB DDR5, 1TB NVMe, RTX 4060 8GB - $1,500.00
+Monitor 24 IPS FHD, teclado/raton, UPS 1200VA | SO: Ubuntu 24.04 | Instalacion en sitio
+Garantia: 24 meses en Venezuela
+"""
+    out = await evaluate_proposals_core(
+        project_name="Demo Sin Total",
+        project_location="Caracas",
+        project_requirements_text="10 estudiantes + 1 docente",
+        proposal_files=[(None, "Propuesta_Sin_Total.txt", no_total_txt)],
+        enable_web_search=False,
+        bcv_rate_override=50.0,
+    )
+    res_nt = out.results[0]
+    assert res_nt.declared_total_usd == 0.0
+    assert res_nt.tco_breakdown["declared_total_missing"] is True
+    assert res_nt.adjusted_tco_usd >= 13500.0
+    arith_steps = [e for e in out.trace_events if e["phase"] == "verificacion_aritmetica"]
+    assert len(arith_steps) == 1
+    assert "Verificación aritmética OK" not in arith_steps[0]["message"]
+    assert "Advertencia aritmética" in arith_steps[0]["message"]
+
+    # Check discarded causes in docs/reto match expected batch doc (Issue #40)
+    discarded_files = [
+        ("131", "Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf"),
+        ("331", "Propuesta_331_Mayorista_Sin_Fronteras_CA.png"),
+        ("734", "Propuesta_734_Inversiones_Elite_Tech_2026_CA.xlsx"),
+        ("898", "Propuesta_898_Distribuidora_10x10_Tech_CA.png"),
+        ("975", "Propuesta_975_Ofertas_Express_Digital_CA.jpg"),
+    ]
+    req_doc = await ingestion_pipeline.ingest_document(
+        "proyecto.pdf", (RETO_DIR / "proyecto.pdf").read_bytes(), llm_client=None
+    )
+    batch_files = [(None, fname, (PROPUESTAS_DIR / fname).read_bytes()) for _, fname in discarded_files]
+    batch_out = await evaluate_proposals_core(
+        project_name="Lote Causes Check",
+        project_location="Caracas",
+        project_requirements_text=req_doc.visible_text,
+        proposal_files=batch_files,
+        enable_web_search=False,
+        bcv_rate_override=50.0,
+    )
+    by_tag = {
+        tag: next(r for r in batch_out.results if tag in r.proposal_identifier)
+        for tag, _ in discarded_files
+    }
+    assert any(r["code"] == "inyeccion_prompt" for r in by_tag["131"].discard_reasons)
+    assert any(r["code"] == "incompatibilidad_tecnica" for r in by_tag["131"].discard_reasons)
+    assert any(r["code"] == "costos_condiciones_abusivas" for r in by_tag["331"].discard_reasons)
+    assert by_tag["331"].declared_total_usd == pytest.approx(14950.0, abs=0.01)
+    assert any(r["code"] in ("incompatibilidad_tecnica", "error_aritmetico") for r in by_tag["734"].discard_reasons)
+    assert any(r["code"] == "equipos_obsoletos_reciclados" for r in by_tag["898"].discard_reasons)
+    assert by_tag["975"].is_valid is False
+    steps_975 = [
+        e for e in batch_out.trace_events
+        if e["phase"] == "verificacion_aritmetica" and "975" in str(e.get("proposal_identifier") or "")
+    ]
+    assert steps_975 and "Verificación aritmética OK" not in steps_975[0]["message"]
