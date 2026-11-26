@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Send, User } from 'lucide-react';
+import { Bot, Send, Trash2, User } from 'lucide-react';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
 import { time } from '../lib/format';
+import { can } from '../lib/roles';
 import { Alert, Button, Card, CardBody, CardHeader, Spinner } from './ui';
 
 const SUGERENCIAS = [
@@ -21,6 +23,7 @@ function conNegritas(texto: string) {
 }
 
 export function ProjectChat({ projectId }: { projectId: string }) {
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [texto, setTexto] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
@@ -32,6 +35,13 @@ export function ProjectChat({ projectId }: { projectId: string }) {
 
   const mut = useMutation({
     mutationFn: (contenido: string) => api.chat.send(projectId, contenido),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat', projectId] });
+    },
+  });
+
+  const clearMut = useMutation({
+    mutationFn: () => api.chat.clear(projectId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat', projectId] });
     },
@@ -58,6 +68,19 @@ export function ProjectChat({ projectId }: { projectId: string }) {
       <CardHeader
         title="Consulta sobre los documentos del proyecto"
         subtitle="Respuestas basadas únicamente en los documentos cargados y la evaluación del proyecto"
+        action={
+          mensajes.length > 0 && can(user?.rol, 'revision.confirmar') ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => clearMut.mutate()}
+              loading={clearMut.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Limpiar chat
+            </Button>
+          ) : undefined
+        }
       />
       <CardBody className="space-y-4">
         <div className="flex flex-wrap gap-2">
