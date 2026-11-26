@@ -167,11 +167,15 @@ export const httpApi: Api = {
       fd.append('file', archivo);
       return toProyecto(await req<BProject>(`/projects/${p.id}/document`, { method: 'POST', body: fd }));
     },
-    changeState: async (id, estado, nota) =>
+    changeState: async (id, estado, nota, propuestaAdjudicadaId) =>
       toProyecto(
         await req<BProject>(`/projects/${id}/status`, {
           method: 'POST',
-          body: json({ target_status: estadoHaciaBackend(estado), notes: nota ?? null }),
+          body: json({
+            target_status: estadoHaciaBackend(estado),
+            adjudicated_proposal_id: propuestaAdjudicadaId ?? null,
+            notes: nota ?? null,
+          }),
         }),
       ),
     async history(id) {
@@ -303,21 +307,33 @@ export const httpApi: Api = {
       const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
       return (e.human_reviews ?? []).map(toRevision);
     },
-    async add(evaluacionId, accion, comentario) {
-      const body = accionHaciaBackend(accion, comentario);
+    async add(evaluacionId, accion, comentario, opts) {
+      let targetProposalId: string | null = opts?.propuesta_adjudicada_id ?? null;
+      let ev: BEvaluation | null = null;
+      if (accion === 'aprobar' || accion === 'rechazar') {
+        ev = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
+        if (accion === 'aprobar' && !targetProposalId) {
+          targetProposalId = ev.recommended_proposal_id;
+        }
+      }
+      const esOverride = Boolean(
+        accion === 'aprobar' && ev && targetProposalId && targetProposalId !== ev.recommended_proposal_id,
+      );
+      const body = accionHaciaBackend(accion, comentario, {
+        proposal_evaluation_id: opts?.propuesta_evaluacion_id ?? null,
+        override_recommended_proposal_id: esOverride ? targetProposalId : null,
+      });
       const rev = toRevision(
         await req<BReview>(`/evaluations/${evaluacionId}/reviews`, { method: 'POST', body: json(body) }),
       );
       // El backend registra la revisión pero no mueve el proceso: «Aprobar» adjudica la
-      // propuesta recomendada y «Rechazar y devolver» regresa el proyecto a evaluación,
-      // igual que en el modo demostración.
-      if (accion === 'aprobar' || accion === 'rechazar') {
-        const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
-        await req<BProject>(`/projects/${e.project_id}/status`, {
+      // propuesta elegida y «Rechazar y devolver» regresa el proyecto a evaluación.
+      if ((accion === 'aprobar' || accion === 'rechazar') && ev) {
+        await req<BProject>(`/projects/${ev.project_id}/status`, {
           method: 'POST',
           body: json(
             accion === 'aprobar'
-              ? { target_status: 'adjudicado', adjudicated_proposal_id: e.recommended_proposal_id, notes: body.notes }
+              ? { target_status: 'adjudicado', adjudicated_proposal_id: targetProposalId, notes: body.notes }
               : { target_status: 'en_evaluacion', notes: body.notes },
           ),
         });

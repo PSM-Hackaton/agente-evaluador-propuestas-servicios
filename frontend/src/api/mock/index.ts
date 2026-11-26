@@ -355,11 +355,13 @@ export const mockApi: Api = {
       persist();
       return aProyecto(row);
     },
-    async changeState(id, estado, nota) {
+    async changeState(id, estado, nota, propuestaAdjudicadaId) {
       await delay();
       const u = usuarioActual();
       const row = proyectoRow(id);
       if (!puedeTransicionar(row.estado, estado, u.rol)) throw new ApiError(403, 'Transición de estado no permitida para su rol');
+      if (propuestaAdjudicadaId) row.propuesta_adjudicada_id = propuestaAdjudicadaId;
+      if (nota) row.nota_adjudicacion = nota;
       cambiarEstado(row, estado, u.nombre, nota ?? null);
       persist();
       return aProyecto(row);
@@ -555,7 +557,7 @@ export const mockApi: Api = {
       await delay(80);
       return db.revisiones.filter((r) => r.evaluacion_id === evaluacionId).sort((a, b) => a.fecha.localeCompare(b.fecha));
     },
-    async add(evaluacionId, accion, comentario) {
+    async add(evaluacionId, accion, comentario, opts) {
       await delay(200);
       const permiso: Permiso = accion === 'nota' ? 'revision.nota' : accion === 'confirmar' ? 'revision.confirmar' : 'revision.aprobar';
       const u = exigir(permiso);
@@ -565,12 +567,33 @@ export const mockApi: Api = {
       if ((accion === 'aprobar' || accion === 'rechazar') && row.estado !== 'EN_REVISION_COMITE') {
         throw new ApiError(409, 'El proyecto debe estar en revisión del comité');
       }
-      const rev = { id: uid(), evaluacion_id: evaluacionId, usuario: u.nombre, rol: u.rol, accion, comentario, fecha: now() };
+      const targetId = opts?.propuesta_adjudicada_id ?? ev.recomendada_id;
+      const esAnulacion = Boolean(
+        accion === 'aprobar' && opts?.propuesta_adjudicada_id && opts.propuesta_adjudicada_id !== ev.recomendada_id,
+      );
+      const rev = {
+        id: uid(),
+        evaluacion_id: evaluacionId,
+        propuesta_evaluacion_id: opts?.propuesta_evaluacion_id ?? null,
+        propuesta_adjudicada_id: esAnulacion ? targetId : null,
+        es_anulacion: esAnulacion,
+        usuario: u.nombre,
+        rol: u.rol,
+        accion,
+        comentario,
+        fecha: now(),
+      };
       db.revisiones.push(rev);
-      registrar(u.nombre, `revision.${accion}`, 'evaluacion', evaluacionId, comentario ? { comentario } : null);
+      registrar(u.nombre, `revision.${accion}`, 'evaluacion', evaluacionId, {
+        ...(comentario ? { comentario } : {}),
+        ...(opts?.propuesta_evaluacion_id ? { propuesta_evaluacion_id: opts.propuesta_evaluacion_id } : {}),
+        ...(esAnulacion ? { propuesta_adjudicada_id: targetId, anulacion: true } : {}),
+      });
       if (accion === 'aprobar') {
-        const rec = ev.resultados.find((r) => r.propuesta_id === ev.recomendada_id);
-        cambiarEstado(row, 'ADJUDICADO', u.nombre, rec ? `Adjudicado a ${rec.proveedor}` : 'Adjudicado');
+        const rec = ev.resultados.find((r) => r.propuesta_id === targetId);
+        row.propuesta_adjudicada_id = targetId ?? null;
+        row.nota_adjudicacion = comentario || (rec ? `Adjudicado a ${rec.proveedor}` : 'Adjudicado');
+        cambiarEstado(row, 'ADJUDICADO', u.nombre, row.nota_adjudicacion);
       }
       if (accion === 'rechazar') cambiarEstado(row, 'EN_EVALUACION', u.nombre, comentario || 'Devuelto por el comité');
       persist();

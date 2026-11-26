@@ -368,6 +368,21 @@ export function ProjectDetailPage() {
               <h1 className="text-2xl font-bold text-slate-900">{proyecto.nombre}</h1>
               <Badge tone={ESTADO_TONE[proyecto.estado]}>{ESTADO_LABEL[proyecto.estado]}</Badge>
             </div>
+            {proyecto.estado === 'ADJUDICADO' && (() => {
+              const propAdj =
+                propuestas.find((p) => p.id === proyecto.propuesta_adjudicada_id) ?? null;
+              const resAdj =
+                resultados.find((r) => r.propuesta_id === proyecto.propuesta_adjudicada_id) ?? null;
+              return (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2 text-xs text-emerald-900">
+                  <span className="font-semibold">Adjudicado a: </span>
+                  {resAdj ? `${resAdj.proveedor} (${resAdj.codigo})` : propAdj ? `${propAdj.proveedor_nombre ?? propAdj.codigo} (${propAdj.codigo})` : 'Propuesta seleccionada por el comité'}
+                  {proyecto.nota_adjudicacion && (
+                    <span className="text-emerald-800"> · {proyecto.nota_adjudicacion}</span>
+                  )}
+                </div>
+              );
+            })()}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="h-4 w-4" />
@@ -836,6 +851,7 @@ export function ProjectDetailPage() {
                     resultados={resultados}
                     recomendadaId={evaluacion.recomendada_id}
                     tasaBcv={evaluacion.tasa_bcv_usada}
+                    evaluacionId={evaluacion.id}
                   />
                 </CardBody>
               </Card>

@@ -40,6 +40,8 @@ export interface Proyecto {
   creado_por: string; // nombre del usuario
   creado_en: string;
   total_propuestas: number;
+  propuesta_adjudicada_id?: string | null;
+  nota_adjudicacion?: string | null;
 }
 
 export interface NuevoProyecto {
@@ -157,6 +159,7 @@ export interface AjusteCosto {
 }
 
 export interface ResultadoPropuesta {
+  evaluacion_propuesta_id?: string;
   propuesta_id: string;
   codigo: string;
   proveedor: string;
@@ -229,11 +232,19 @@ export type AccionRevision = 'nota' | 'confirmar' | 'aprobar' | 'rechazar';
 export interface Revision {
   id: string;
   evaluacion_id: string;
+  propuesta_evaluacion_id?: string | null;
+  propuesta_adjudicada_id?: string | null;
+  es_anulacion?: boolean;
   usuario: string;
   rol: Rol;
   accion: AccionRevision;
   comentario: string;
   fecha: string;
+}
+
+export interface OpcionesRevision {
+  propuesta_evaluacion_id?: string | null;
+  propuesta_adjudicada_id?: string | null;
 }
 
 export interface RegistroAuditoria {
@@ -308,7 +319,12 @@ export interface Api {
     list(): Promise<Proyecto[]>;
     get(id: string): Promise<Proyecto>;
     create(data: NuevoProyecto, archivo: File | null): Promise<Proyecto>;
-    changeState(id: string, estado: EstadoProyecto, nota?: string): Promise<Proyecto>;
+    changeState(
+      id: string,
+      estado: EstadoProyecto,
+      nota?: string,
+      propuestaAdjudicadaId?: string | null,
+    ): Promise<Proyecto>;
     history(id: string): Promise<HistorialEstado[]>;
     documentUrl(id: string): string | null;
   };
@@ -335,7 +351,12 @@ export interface Api {
   };
   reviews: {
     list(evaluacionId: string): Promise<Revision[]>;
-    add(evaluacionId: string, accion: AccionRevision, comentario: string): Promise<Revision>;
+    add(
+      evaluacionId: string,
+      accion: AccionRevision,
+      comentario: string,
+      opts?: OpcionesRevision,
+    ): Promise<Revision>;
   };
   suppliers: {
     list(): Promise<Proveedor[]>;

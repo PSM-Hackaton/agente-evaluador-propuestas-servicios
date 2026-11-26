@@ -59,6 +59,8 @@ export interface BProject {
   proposals_count: number;
   evaluations_count: number;
   latest_evaluation_id: string | null;
+  adjudicated_proposal_id?: string | null;
+  adjudication_notes?: string | null;
   created_by_id: string | null;
   created_at: string;
 }
@@ -143,10 +145,12 @@ export interface BTraceStep {
 export interface BReview {
   id: string;
   evaluation_run_id: string;
+  proposal_evaluation_id?: string | null;
   reviewer_name: string;
   reviewer_role: string;
   decision: string;
   notes: string;
+  override_recommended_proposal_id?: string | null;
   created_at: string;
 }
 
@@ -273,6 +277,8 @@ export function toProyecto(p: BProject): Proyecto {
     creado_por: '—',
     creado_en: fechaUtc(p.created_at),
     total_propuestas: p.proposals_count,
+    propuesta_adjudicada_id: p.adjudicated_proposal_id ?? null,
+    nota_adjudicacion: p.adjudication_notes ?? null,
   };
 }
 
@@ -379,6 +385,7 @@ export function toResultado(pe: BProposalEvaluation, tipos: Map<string, TipoArch
       (pe.discard_reasons ?? []).map((r) => r.detail ?? r.code).join('; ') ||
       'Propuesta descartada.';
   return {
+    evaluacion_propuesta_id: pe.id,
     propuesta_id: pe.proposal_id,
     codigo: pe.proposal_identifier,
     proveedor: pe.supplier_name ?? proveedorDesdeCodigo(pe.proposal_identifier),
@@ -479,7 +486,16 @@ export function toTraza(evaluacionId: string, t: BTraceStep): TrazaAgente {
 // no existe como decisión: se registra como observación marcada con un prefijo.
 const PREFIJO_RECHAZO = '[Rechazo] ';
 
-export function accionHaciaBackend(accion: AccionRevision, comentario: string): { decision: string; notes: string } {
+export function accionHaciaBackend(
+  accion: AccionRevision,
+  comentario: string,
+  opts?: { proposal_evaluation_id?: string | null; override_recommended_proposal_id?: string | null },
+): {
+  decision: string;
+  notes: string;
+  proposal_evaluation_id?: string | null;
+  override_recommended_proposal_id?: string | null;
+} {
   const defecto: Record<AccionRevision, string> = {
     nota: 'Observación del evaluador',
     confirmar: 'Análisis técnico y financiero confirmado',
@@ -487,30 +503,56 @@ export function accionHaciaBackend(accion: AccionRevision, comentario: string): 
     rechazar: 'Evaluación rechazada y devuelta',
   };
   const texto = comentario.trim().length >= 3 ? comentario.trim() : defecto[accion];
+  const extra: {
+    proposal_evaluation_id?: string | null;
+    override_recommended_proposal_id?: string | null;
+  } = {};
+  if (opts?.proposal_evaluation_id) extra.proposal_evaluation_id = opts.proposal_evaluation_id;
   switch (accion) {
     case 'confirmar':
-      return { decision: 'confirmed', notes: texto };
+      return { decision: 'confirmed', notes: texto, ...extra };
     case 'aprobar':
-      return { decision: 'approved', notes: texto };
+      if (opts?.override_recommended_proposal_id) {
+        return {
+          decision: 'overridden',
+          notes: texto,
+          ...extra,
+          override_recommended_proposal_id: opts.override_recommended_proposal_id,
+        };
+      }
+      return { decision: 'approved', notes: texto, ...extra };
     case 'rechazar':
-      return { decision: 'observed', notes: PREFIJO_RECHAZO + texto };
+      return { decision: 'observed', notes: PREFIJO_RECHAZO + texto, ...extra };
     default:
-      return { decision: 'observed', notes: texto };
+      return { decision: 'observed', notes: texto, ...extra };
   }
 }
 
 export function toRevision(r: BReview): Revision {
   let accion: AccionRevision = 'nota';
   let comentario = r.notes;
+  let es_anulacion = false;
+  let propuesta_adjudicada_id: string | null = null;
   if (r.decision === 'confirmed') accion = 'confirmar';
   else if (r.decision === 'approved') accion = 'aprobar';
-  else if (r.decision === 'overridden' || r.notes.startsWith(PREFIJO_RECHAZO)) {
+  else if (r.decision === 'overridden') {
+    if (r.override_recommended_proposal_id) {
+      accion = 'aprobar';
+      es_anulacion = true;
+      propuesta_adjudicada_id = r.override_recommended_proposal_id;
+    } else {
+      accion = 'rechazar';
+    }
+  } else if (r.notes.startsWith(PREFIJO_RECHAZO)) {
     accion = 'rechazar';
     comentario = r.notes.replace(PREFIJO_RECHAZO, '');
   }
   return {
     id: r.id,
     evaluacion_id: r.evaluation_run_id,
+    propuesta_evaluacion_id: r.proposal_evaluation_id ?? null,
+    propuesta_adjudicada_id,
+    es_anulacion,
     usuario: r.reviewer_name,
     rol: asRol(r.reviewer_role),
     accion,
