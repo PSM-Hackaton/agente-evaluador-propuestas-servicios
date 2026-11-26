@@ -108,9 +108,9 @@ Más detalle en [backend/README.md](backend/README.md), [frontend/README.md](fro
 El estado verificado de cada requisito está en la
 [matriz de cumplimiento](docs/cumplimiento/matriz-cumplimiento.html). Los límites principales:
 
-- **Integración pendiente**: hoy el frontend y el backend están en ramas separadas y sus contratos REST todavía
-  no coinciden (prefijo `/api` frente a `/api/v1`, nombres de rutas y campos). Por defecto el frontend funciona
-  en **modo demostración** (`VITE_USE_MOCK=true`), con datos simulados en el navegador.
+- **Integración en curso**: el frontend y el backend se integran en `staging` mediante los Pull Request #26
+  (frontend, adaptado al contrato `/api/v1`) y #18 (backend); la prueba de extremo a extremo está pendiente. Por
+  defecto el frontend funciona en **modo demostración** (`VITE_USE_MOCK=true`), con datos simulados en el navegador.
 - **Sin clave de API** el agente funciona en modo heurístico (reglas y OCR local), que lee peor los manuscritos y
   escaneos. Las reglas de auditoría técnica están afinadas para el caso del laboratorio de computación del reto.
 - La búsqueda de precios lee los títulos y fragmentos de los resultados (no navega por las páginas) y se apoya
@@ -129,7 +129,7 @@ El estado verificado de cada requisito está en la
 | :--- | :--- |
 | Backend | **Python 3.11 o superior** (`requires-python = ">=3.11"` en `backend/pyproject.toml`). Dependencias: FastAPI, Uvicorn, SQLAlchemy 2 asíncrono con aiosqlite, Pydantic 2, cryptography, PyJWT, httpx, PyMuPDF, pypdf, openpyxl, xlrd, Pillow, pytesseract, ReportLab, ddgs, google-genai, openai, sse-starlette. Desarrollo: pytest, pytest-asyncio, ruff. |
 | OCR local | Programa **Tesseract** con el idioma español (`tesseract-ocr` y `tesseract-ocr-spa` en Debian/Ubuntu). Sin él, las imágenes solo se leen con la visión del modelo de IA. |
-| Frontend | **Node.js** y npm. El proyecto no fija versión (`engines`); Vite 5 requiere Node 18 o superior; recomendado Node 20 LTS o 22. Dependencias: React 18, React Router 6, TanStack Query 5, Vite 5, TypeScript 5, TailwindCSS 3. |
+| Frontend | **Node.js 20.19+ o 22.12+** y npm (requisito de Vite 7; el proyecto aún no fija la versión con `engines`). Dependencias: React 18, React Router 7, TanStack Query 5, Vite 7, TypeScript 5, TailwindCSS 3. |
 | Herramientas | git (el modo lote obtiene el commit con `git rev-parse HEAD`); `uv` o `pip` para instalar el backend; `openssl` para generar certificados TLS locales. |
 
 ### Servicios externos
@@ -145,7 +145,6 @@ El estado verificado de cada requisito está en la
 | Variable | Propósito |
 | :--- | :--- |
 | `APP_NAME`, `APP_ENV`, `DEBUG` | Nombre, entorno (`development`) y modo de depuración (recarga automática). |
-| `API_V1_PREFIX` | Prefijo de la API (`/api/v1`). |
 | `HOST`, `PORT` | Dirección y puerto del servidor (`0.0.0.0:8000`). |
 | `CORS_ORIGINS` | Orígenes del frontend permitidos, separados por comas. |
 | `DATABASE_URL` | Base de datos (`sqlite+aiosqlite:///./data/evaluador.db`; admite PostgreSQL). |
@@ -165,7 +164,7 @@ El estado verificado de cada requisito está en la
 | Variable | Propósito |
 | :--- | :--- |
 | `VITE_USE_MOCK` | `true`: modo demostración en el navegador, sin backend. `false`: usa la API real. |
-| `VITE_API_URL` | Prefijo de la API para el navegador (`/api`, servido por el proxy de Vite). |
+| `VITE_API_URL` | Prefijo de la API para el navegador (`/api/v1`, servido por el proxy de Vite). |
 | `BACKEND_URL` | Destino del proxy de Vite en desarrollo (`http://localhost:8000`). |
 
 ## 6. Instalación y despliegue
@@ -220,7 +219,7 @@ npm run build        # verificación de TypeScript y compilación de producción
 
 Con `VITE_USE_MOCK=true` (valor por defecto) la interfaz funciona sola, con datos de demostración.
 Para usar el backend real **(a confirmar tras la integración)**: en `frontend/.env`, `VITE_USE_MOCK=false`,
-`VITE_API_URL=/api` y `BACKEND_URL=http://localhost:8000`; con el backend en marcha, `npm run dev`.
+`VITE_API_URL=/api/v1` y `BACKEND_URL=http://localhost:8000`; con el backend en marcha, `npm run dev`.
 
 ### 6.4 Modo lote: `salida.json` (sección 3 del enunciado)
 
