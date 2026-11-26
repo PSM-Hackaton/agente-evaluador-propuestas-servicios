@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.services.agent.security_guard import InjectionScanResult, scan_for_prompt_injection
 from app.services.ingestion.docx_parser import extract_docx
-from app.services.ingestion.image_parser import extract_image
+from app.services.ingestion.image_parser import extract_image, is_chat_screenshot_text
 from app.services.ingestion.pdf_parser import extract_pdf
 from app.services.ingestion.tabular_parser import decode_text_safely, extract_csv_or_tsv, extract_xls
 from app.services.ingestion.xlsx_parser import extract_xlsx
@@ -43,6 +43,12 @@ Incluye literalmente:
 - Envío/flete, instalación, servicios opcionales, impuestos (IVA), recargos por método de pago, condiciones en letra pequeña, garantía, moneda y TOTAL GENERAL declarado.
 No omitas ningún número ni nota marginal."""
 
+CHAT_SCREENSHOT_VISION_PROMPT = """Analiza esta captura de pantalla de conversación/chat empresarial (Microsoft Teams, WhatsApp, Telegram o Slack) y transcribe cronológicamente CADA mensaje:
+- Identifica explícitamente quién habla y a qué hora envía cada mensaje (canal/hilo, remitente, destinatario).
+- Separa saludos o comentarios informales de las especificaciones reales de cada ítem ofertado (estación estudiantes, estación docente, periféricos, UPS/fuente, software, garantía).
+- Extrae cada precio unitario, subtotal, flete, instalación, condición en mensajes posteriores o correcciones/aclaratorias del hilo (incluyendo recargos en cuotas, % de envío o gestión cambiaria) y el TOTAL GENERAL confirmado.
+No inventes valores ni mezcles mensajes de interlocutores distintos."""
+
 
 @dataclass
 class IngestedDocument:
@@ -56,6 +62,7 @@ class IngestedDocument:
     injection_scan: InjectionScanResult = field(default_factory=InjectionScanResult)
     images_b64: list[tuple[str, str]] = field(default_factory=list)
     used_vision_llm: bool = False
+    is_chat_screenshot: bool = False
 
 
 async def ingest_document(
@@ -72,6 +79,7 @@ async def ingest_document(
     visible_text = ""
     ingestion_method = "unknown"
     used_vision_llm = False
+    is_chat = False
 
     if ext == ".pdf":
         pdf_res = extract_pdf(content, render_pages_for_vision=False)
@@ -126,16 +134,18 @@ async def ingest_document(
         img_res = extract_image(content)
         images_b64.append((img_res.image_b64, img_res.mime_type))
         ocr_text = img_res.ocr_text
+        is_chat = is_chat_screenshot_text(ocr_text, filename)
         ingestion_method = f"image_{img_res.ocr_engine}"
 
         if llm_client and llm_client.is_available:
+            prompt = CHAT_SCREENSHOT_VISION_PROMPT if is_chat else VISION_TRANSCRIPTION_PROMPT
             transcribed = await llm_client.extract_from_image(
-                img_res.image_b64, img_res.mime_type, VISION_TRANSCRIPTION_PROMPT
+                img_res.image_b64, img_res.mime_type, prompt
             )
             if transcribed:
                 visible_text = transcribed
                 used_vision_llm = True
-                ingestion_method = f"vision_llm_{llm_client.provider}"
+                ingestion_method = f"vision_llm_{llm_client.provider}" + ("_chat" if is_chat else "")
             else:
                 visible_text = ocr_text
         else:
@@ -163,4 +173,5 @@ async def ingest_document(
         injection_scan=scan,
         images_b64=images_b64,
         used_vision_llm=used_vision_llm,
+        is_chat_screenshot=is_chat,
     )
