@@ -769,3 +769,28 @@ async def test_issue37_no_false_overprice_and_retech_alert_priority(
     detail = (await app_client.get(f"/api/v1/suppliers/{sups[0]['id']}", headers=revisor)).json()
     assert detail["alerts"][0]["reason_code"] == "inyeccion_prompt"
     assert detail["alerts"][0]["severity"] == "critical"
+
+
+# ---------------------------------------------------------------------------
+# Issue #38 (R3-E15): Login brute-force rate limiting
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_issue38_login_rate_limiting_and_audit_log(app_client: AsyncClient) -> None:
+    """Verify 5 failed logins yield 401, 6th yields 429 + Retry-After, and reset restores 200."""
+    from app.api.v1.auth import reset_login_rate_limiter
+
+    reset_login_rate_limiter()
+    for _ in range(5):
+        r = await app_client.post("/api/v1/auth/login", json={"email": "revisor@evaluador.ve", "password": "WrongPassword!"})
+        assert r.status_code == 401
+
+    blocked = await app_client.post("/api/v1/auth/login", json={"email": "revisor@evaluador.ve", "password": "WrongPassword!"})
+    assert blocked.status_code == 429
+    retry_after = int(blocked.headers.get("Retry-After", "0"))
+    assert retry_after >= 1
+
+    reset_login_rate_limiter()
+    revisor = await _login(app_client, "revisor@evaluador.ve", "Revisor2026!")
+    logs = (await app_client.get("/api/v1/audit-logs?action=auth.login_blocked&limit=10", headers=revisor)).json()
+    assert len(logs) >= 1
+    assert "WrongPassword" not in json.dumps(logs)

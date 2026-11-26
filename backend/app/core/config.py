@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
+    login_rate_limit_max_attempts: int = 5
+    login_rate_limit_window_seconds: int = 300
 
     tls_enabled: bool = False
     tls_cert_file: str = "./certs/server.crt"
