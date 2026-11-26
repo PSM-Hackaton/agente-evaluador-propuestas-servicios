@@ -1,0 +1,22 @@
+#!/bin/sh
+# Gancho commit-msg: el mensaje debe ser propio del equipo, en castellano y sin coautorías.
+# Bloquea: mensaje vacío o de menos de 10 caracteres; líneas de coautoría; nombres de herramientas de
+# autoría; marcas de cuentas automáticas.
+set -eu
+NOMBRE_HOOK=commit-msg
+DIR_HOOKS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=scripts/hooks/comun.sh
+. "$DIR_HOOKS/comun.sh"
+
+MENSAJE=$(grep -v '^#' "$1" || true)
+TITULO=$(printf '%s\n' "$MENSAJE" | sed -n '/[^[:space:]]/{p;q;}')
+if [ "${#TITULO}" -lt 10 ]; then
+  hook_error 'el mensaje es demasiado corto: describa en una línea qué cambia (mínimo 10 caracteres)'
+  exit 1
+fi
+if printf '%s\n' "$MENSAJE" | grep -Eiq "$PATRON_HERRAMIENTAS|\[bot\]"; then
+  hook_error 'el mensaje contiene líneas de coautoría o nombres de herramientas de autoría:'
+  printf '%s\n' "$MENSAJE" | grep -Ei "$PATRON_HERRAMIENTAS|\[bot\]" | head -3 | sed 's/^/    /' >&2
+  exit 1
+fi
+exit 0
