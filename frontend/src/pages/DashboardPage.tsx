@@ -5,9 +5,11 @@ import {
   ArrowRight,
   FileText,
   FolderKanban,
+  Lock,
   MapPin,
   Plus,
   Search,
+  ShieldCheck,
 } from 'lucide-react';
 import { api, type EstadoProyecto, type Moneda } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -48,6 +50,11 @@ export function DashboardPage() {
   const { data: proyectos = [], isLoading, error } = useQuery({
     queryKey: ['projects'],
     queryFn: api.projects.list,
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: api.dashboard.stats,
   });
 
   const crearMut = useMutation({
@@ -136,6 +143,34 @@ export function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Postura de Seguridad y Confidencialidad (Sección 2.F) */}
+      {stats && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              Seguridad activa:
+            </span>
+            <Badge tone={stats.storage_encrypted && stats.db_encrypted ? 'green' : 'slate'}>
+              <Lock className="h-3 w-3" />
+              {stats.encryption_at_rest}
+            </Badge>
+            <Badge tone={stats.tls_enabled ? 'green' : 'amber'}>
+              {stats.tls_enabled ? `${stats.tls_min_version} activo` : `${stats.tls_min_version} (dev local)`}
+            </Badge>
+            <Badge tone="indigo">Motor IA: {stats.llm_provider}</Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={stats.prompt_injections_blocked > 0 ? 'amber' : 'slate'}>
+              {stats.prompt_injections_blocked} inyecciones bloqueadas
+            </Badge>
+            <Badge tone={stats.active_supplier_alerts > 0 ? 'red' : 'slate'}>
+              {stats.active_supplier_alerts} alertas activas
+            </Badge>
+          </div>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

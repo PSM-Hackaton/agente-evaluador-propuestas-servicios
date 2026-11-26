@@ -18,7 +18,7 @@ import { can, puedeTransicionar, type Permiso } from '../../lib/roles';
 import { MOTIVO_LABEL, TIPO_LABEL, CONCEPTO_LABEL } from '../../lib/labels';
 import { money, pct } from '../../lib/format';
 import { codigoDesdeArchivo, detectarTipo, esPermitido, proveedorDesdeCodigo } from '../../lib/files';
-import { evaluacionToExcelHtml } from '../../lib/export';
+import { evaluacionToCSV, evaluacionToExcelHtml, evaluacionToMarkdown, slug } from '../../lib/export';
 import { cargarDB, construirResultado, guardarDB, ordenarResultados, reiniciarDB, round2, specDe, uid, type DB, type ProyectoRow } from './db';
 import { DEMO_PASSWORD, calcularItems } from './specs';
 
@@ -302,6 +302,29 @@ export const mockApi: Api = {
     },
   },
 
+  dashboard: {
+    async stats() {
+      await delay(80);
+      usuarioActual();
+      const alertas = db.proveedores.filter((p) => p.alerta).length;
+      const inyecciones = db.evaluaciones.reduce(
+        (sum, ev) => sum + ev.resultados.filter((r) => r.motivos_descarte.includes('inyeccion')).length,
+        0,
+      );
+      return {
+        active_supplier_alerts: alertas,
+        prompt_injections_blocked: inyecciones,
+        encryption_at_rest: 'AES-256-GCM (demo)',
+        db_encrypted: false,
+        storage_encrypted: false,
+        tls_enabled: false,
+        tls_min_version: 'TLS 1.2 / TLS 1.3',
+        audit_log_entries: db.auditoria.length,
+        llm_provider: 'demo',
+      };
+    },
+  },
+
   projects: {
     async list() {
       await delay();
@@ -344,6 +367,7 @@ export const mockApi: Api = {
       await delay(80);
       return db.historial.filter((h) => h.proyecto_id === id).sort((a, b) => a.fecha.localeCompare(b.fecha));
     },
+    documentUrl: () => null,
   },
 
   proposals: {
@@ -396,6 +420,7 @@ export const mockApi: Api = {
       registrar(u.nombre, 'propuesta.eliminar', 'propuesta', id, { codigo: p.codigo });
       persist();
     },
+    downloadUrl: () => null,
   },
 
   evaluations: {
@@ -462,7 +487,42 @@ export const mockApi: Api = {
       await delay(200);
       const ev = db.evaluaciones.find((e) => e.id === id);
       if (!ev) throw new ApiError(404, 'Evaluación no encontrada');
-      if (formato === 'xlsx') return new Blob([evaluacionToExcelHtml(ev)], { type: 'application/vnd.ms-excel' });
+      const proyecto = aProyecto(proyectoRow(ev.proyecto_id));
+      const base = slug(proyecto.nombre) || 'evaluacion';
+      if (formato === 'xlsx') {
+        return {
+          blob: new Blob([evaluacionToExcelHtml(ev)], { type: 'application/vnd.ms-excel' }),
+          filename: `Comparativa_${base}.xls`,
+        };
+      }
+      if (formato === 'csv') {
+        return {
+          blob: new Blob([evaluacionToCSV(ev)], { type: 'text/csv;charset=utf-8' }),
+          filename: `Comparativa_${base}.csv`,
+        };
+      }
+      if (formato === 'markdown') {
+        return {
+          blob: new Blob([evaluacionToMarkdown(ev, proyecto)], { type: 'text/markdown;charset=utf-8' }),
+          filename: `Informe_${base}.md`,
+        };
+      }
+      if (formato === 'salida-json') {
+        const props = db.propuestas.filter((p) => p.proyecto_id === ev.proyecto_id);
+        const payload = {
+          reto: 'propuesta_servicios',
+          repositorio: 'PSM-Hackaton/agente-evaluador-propuestas-servicios',
+          commit: '0000000000000000000000000000000000000000',
+          inicio: ev.inicio,
+          fin: ev.fin ?? ev.inicio,
+          procesados: props.map((p) => ({ archivo: p.archivo_nombre, hora: ev.fin ?? ev.inicio })),
+          ranking: ev.ranking,
+        };
+        return {
+          blob: new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }),
+          filename: 'salida.json',
+        };
+      }
       throw new ApiError(501, 'En modo demo el PDF se genera con la impresión del navegador');
     },
   },
@@ -591,6 +651,12 @@ export const mockApi: Api = {
       registrar(u.nombre, 'chat.consulta', 'proyecto', projectId, { pregunta: contenido.slice(0, 120) });
       persist();
       return resp;
+    },
+    async clear(projectId) {
+      await delay(80);
+      exigir('revision.confirmar');
+      delete db.chat[projectId];
+      persist();
     },
   },
 };

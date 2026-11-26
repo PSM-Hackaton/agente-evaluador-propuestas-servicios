@@ -33,7 +33,7 @@ import {
 } from './adapters';
 import { detectarTipo } from '../lib/files';
 import { ApiError, clearSession, getToken } from './session';
-import type { Api, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
+import type { Api, DashboardStats, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
 
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '');
 
@@ -76,6 +76,20 @@ async function req<T>(path: string, opts: RequestInit = {}, token?: string): Pro
 
 const json = (body: unknown) => JSON.stringify(body);
 
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const star = header.match(/filename\*=UTF-8''([^;\n]+)/i);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].replace(/["']/g, '').trim());
+    } catch {
+      /* ignorar */
+    }
+  }
+  const plain = header.match(/filename="?([^";\n]+)"?/i);
+  return plain?.[1]?.trim() ?? null;
+}
+
 /** Tipo de archivo de cada propuesta (el detalle de evaluación no lo incluye). */
 async function tiposDeProyecto(projectId: string): Promise<Map<string, TipoArchivo>> {
   try {
@@ -99,6 +113,35 @@ export const httpApi: Api = {
       return { token: t.access_token, user: toUsuario(me) };
     },
     me: async () => toUsuario(await req<BUser>('/auth/me')),
+  },
+
+  dashboard: {
+    async stats(): Promise<DashboardStats> {
+      const r = await req<{
+        active_supplier_alerts: number;
+        prompt_injections_blocked: number;
+        security_status: {
+          encryption_at_rest: string;
+          db_sensitive_columns_encrypted: boolean;
+          storage_files_encrypted: boolean;
+          tls_enabled: boolean;
+          tls_min_version: string;
+          audit_log_entries: number;
+          llm_provider: string;
+        };
+      }>('/dashboard/stats');
+      return {
+        active_supplier_alerts: r.active_supplier_alerts,
+        prompt_injections_blocked: r.prompt_injections_blocked,
+        encryption_at_rest: r.security_status.encryption_at_rest,
+        db_encrypted: r.security_status.db_sensitive_columns_encrypted,
+        storage_encrypted: r.security_status.storage_files_encrypted,
+        tls_enabled: r.security_status.tls_enabled,
+        tls_min_version: r.security_status.tls_min_version,
+        audit_log_entries: r.security_status.audit_log_entries,
+        llm_provider: r.security_status.llm_provider,
+      };
+    },
   },
 
   projects: {
@@ -159,6 +202,10 @@ export const httpApi: Api = {
       }
       return out;
     },
+    documentUrl(id) {
+      const token = getToken() ?? '';
+      return `${BASE}/projects/${id}/document/download?token=${encodeURIComponent(token)}`;
+    },
   },
 
   proposals: {
@@ -170,6 +217,10 @@ export const httpApi: Api = {
       return r.map(toPropuesta);
     },
     remove: (id) => req<void>(`/proposals/${id}`, { method: 'DELETE' }),
+    downloadUrl(id) {
+      const token = getToken() ?? '';
+      return `${BASE}/proposals/${id}/download?token=${encodeURIComponent(token)}`;
+    },
   },
 
   evaluations: {
@@ -230,7 +281,10 @@ export const httpApi: Api = {
     },
     async exportFile(id, formato) {
       const res = await raw(`/evaluations/${id}/export/${formato}`);
-      return res.blob();
+      return {
+        blob: await res.blob(),
+        filename: parseContentDispositionFilename(res.headers.get('Content-Disposition')),
+      };
     },
   },
 
@@ -342,5 +396,6 @@ export const httpApi: Api = {
       toMensaje(
         await req<BChat>(`/projects/${projectId}/chat`, { method: 'POST', body: json({ question: contenido }) }),
       ),
+    clear: (projectId) => req<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
   },
 };

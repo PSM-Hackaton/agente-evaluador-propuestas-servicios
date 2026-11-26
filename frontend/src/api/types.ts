@@ -226,7 +226,24 @@ export interface MensajeChat {
   fecha: string;
 }
 
-export type FormatoExport = 'pdf' | 'xlsx';
+export type FormatoExport = 'pdf' | 'markdown' | 'xlsx' | 'csv' | 'salida-json';
+
+export interface ExportResult {
+  blob: Blob;
+  filename: string | null;
+}
+
+export interface DashboardStats {
+  active_supplier_alerts: number;
+  prompt_injections_blocked: number;
+  encryption_at_rest: string;
+  db_encrypted: boolean;
+  storage_encrypted: boolean;
+  tls_enabled: boolean;
+  tls_min_version: string;
+  audit_log_entries: number;
+  llm_provider: string;
+}
 
 /** Contrato que implementan tanto la API real (http.ts) como la simulada (mock/). */
 export interface Api {
@@ -234,17 +251,22 @@ export interface Api {
     login(email: string, password: string): Promise<{ token: string; user: Usuario }>;
     me(): Promise<Usuario>;
   };
+  dashboard: {
+    stats(): Promise<DashboardStats>;
+  };
   projects: {
     list(): Promise<Proyecto[]>;
     get(id: string): Promise<Proyecto>;
     create(data: NuevoProyecto, archivo: File | null): Promise<Proyecto>;
     changeState(id: string, estado: EstadoProyecto, nota?: string): Promise<Proyecto>;
     history(id: string): Promise<HistorialEstado[]>;
+    documentUrl(id: string): string | null;
   };
   proposals: {
     list(projectId: string): Promise<Propuesta[]>;
     upload(projectId: string, files: File[]): Promise<Propuesta[]>;
     remove(id: string): Promise<void>;
+    downloadUrl(id: string): string | null;
   };
   evaluations: {
     start(projectId: string): Promise<Evaluacion>;
@@ -258,7 +280,7 @@ export interface Api {
       onDone: (e: Evaluacion | null) => void,
       onError?: (msg: string) => void,
     ): () => void;
-    exportFile(id: string, formato: FormatoExport): Promise<Blob>;
+    exportFile(id: string, formato: FormatoExport): Promise<ExportResult>;
   };
   reviews: {
     list(evaluacionId: string): Promise<Revision[]>;
@@ -282,5 +304,6 @@ export interface Api {
   chat: {
     history(projectId: string): Promise<MensajeChat[]>;
     send(projectId: string, contenido: string): Promise<MensajeChat>;
+    clear(projectId: string): Promise<void>;
   };
 }

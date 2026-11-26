@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
   FileBarChart2,
   FileText,
   FolderOpen,
@@ -303,12 +304,27 @@ export function ProjectDetailPage() {
                 <MapPin className="h-4 w-4" />
                 {proyecto.ubicacion}
               </span>
-              {proyecto.archivo_proyecto && (
-                <span className="inline-flex items-center gap-1.5">
-                  <FileText className="h-4 w-4" />
-                  {proyecto.archivo_proyecto}
-                </span>
-              )}
+              {proyecto.archivo_proyecto && (() => {
+                const docUrl = api.projects.documentUrl(proyecto.id);
+                return docUrl ? (
+                  <a
+                    href={docUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-indigo-600 hover:underline"
+                    title="Descargar documento cifrado"
+                  >
+                    <FileText className="h-4 w-4" />
+                    {proyecto.archivo_proyecto}
+                    <Download className="h-3.5 w-3.5" />
+                  </a>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <FileText className="h-4 w-4" />
+                    {proyecto.archivo_proyecto}
+                  </span>
+                );
+              })()}
               <span>
                 Presupuesto ref.:{' '}
                 <strong className="text-slate-700">
@@ -532,7 +548,25 @@ export function ProjectDetailPage() {
                               <span className="text-slate-600">{p.proveedor_nombre ?? '—'}</span>
                             )}
                           </td>
-                          <td className="text-xs text-slate-500">{p.archivo_nombre}</td>
+                          <td className="text-xs text-slate-500">
+                            {(() => {
+                              const dl = api.proposals.downloadUrl(p.id);
+                              return dl ? (
+                                <a
+                                  href={dl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
+                                  title="Descargar archivo original descifrado"
+                                >
+                                  <span>{p.archivo_nombre}</span>
+                                  <Download className="h-3 w-3 shrink-0" />
+                                </a>
+                              ) : (
+                                p.archivo_nombre
+                              );
+                            })()}
+                          </td>
                           <td>
                             <Badge tone="indigo">{TIPO_LABEL[p.tipo]}</Badge>
                           </td>
