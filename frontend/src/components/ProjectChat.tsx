@@ -13,6 +13,13 @@ const SUGERENCIAS = [
   '¿Qué costos ocultos se encontraron?',
 ];
 
+/** Las respuestas del backend usan **negritas** de Markdown; se muestran sin los asteriscos. */
+function conNegritas(texto: string) {
+  return texto.split(/(\*\*[^*]+\*\*)/g).map((parte, i) =>
+    parte.startsWith('**') && parte.endsWith('**') ? <strong key={i}>{parte.slice(2, -2)}</strong> : parte,
+  );
+}
+
 export function ProjectChat({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const [texto, setTexto] = useState('');
@@ -67,7 +74,7 @@ export function ProjectChat({ projectId }: { projectId: string }) {
           ))}
         </div>
 
-        <div className="h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+        <div role="log" aria-live="polite" aria-label="Conversación sobre el proyecto" className="h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
           {isLoading ? (
             <Spinner label="Cargando conversación..." className="py-12" />
           ) : mensajes.length === 0 ? (
@@ -96,7 +103,7 @@ export function ProjectChat({ projectId }: { projectId: string }) {
                         : 'border border-slate-200 bg-white text-slate-800',
                     )}
                   >
-                    <p className="whitespace-pre-line">{m.contenido}</p>
+                    <p className="whitespace-pre-line break-words">{conNegritas(m.contenido)}</p>
                     <p
                       className={cn(
                         'mt-1 text-[10px]',
