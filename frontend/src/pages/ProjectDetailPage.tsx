@@ -454,7 +454,7 @@ export function ProjectDetailPage() {
               <p className="text-sm text-slate-700">{proyecto.descripcion}</p>
               {!can(user?.rol, 'evaluacion.ejecutar') ? (
                 <p className="text-xs text-slate-500">
-                  Su rol actual es de consulta; no puede lanzar evaluaciones.
+                  Su rol no tiene permiso para lanzar evaluaciones (corresponde a revisor, aprobador o administrador).
                 </p>
               ) : bloqueadoPorEstado ? (
                 <p className="text-xs text-slate-500">
