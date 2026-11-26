@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import shutil
+import subprocess
 from dataclasses import dataclass
 
 from PIL import Image, ImageEnhance, ImageOps
@@ -65,6 +67,23 @@ def _merge_ocr_passes(primary: str, secondary: str) -> str:
     return "\n".join(lines_out)
 
 
+def _tesseract_in_memory(img: Image.Image, lang: str | None, psm: int, timeout: float = 90.0) -> str:
+    """Run Tesseract through stdin/stdout so no plaintext image or OCR text touches the disk.
+
+    pytesseract writes the image and the recognized text to temporary files in plaintext, which
+    breaks the encryption-at-rest requirement for temporary/OCR artifacts (Sección F).
+    """
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    cmd = [shutil.which("tesseract") or "tesseract", "stdin", "stdout", "--psm", str(psm)]
+    if lang:
+        cmd += ["-l", lang]
+    proc = subprocess.run(cmd, input=buf.getvalue(), capture_output=True, timeout=timeout, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip()[:300] or "tesseract failed")
+    return proc.stdout.decode("utf-8", "replace")
+
+
 def extract_image(content: bytes) -> ImageExtractionResult:
     """Run local dual-pass Tesseract OCR + prepare crisp PNG base64 for Vision LLM."""
     img = Image.open(io.BytesIO(content))
@@ -74,17 +93,15 @@ def extract_image(content: bytes) -> ImageExtractionResult:
     ocr_text = ""
     engine = "none"
     try:
-        import pytesseract
-
         processed = _preprocess_for_ocr(img)
         try:
-            pass_block = pytesseract.image_to_string(processed, lang="spa+eng", config="--psm 6")
-            pass_auto = pytesseract.image_to_string(processed, lang="spa+eng", config="--psm 3")
+            pass_block = _tesseract_in_memory(processed, lang="spa+eng", psm=6)
+            pass_auto = _tesseract_in_memory(processed, lang="spa+eng", psm=3)
             ocr_text = _merge_ocr_passes(pass_block, pass_auto)
             engine = "tesseract:spa+eng"
         except Exception:
-            pass_block = pytesseract.image_to_string(processed, config="--psm 6")
-            pass_auto = pytesseract.image_to_string(processed, config="--psm 3")
+            pass_block = _tesseract_in_memory(processed, lang=None, psm=6)
+            pass_auto = _tesseract_in_memory(processed, lang=None, psm=3)
             ocr_text = _merge_ocr_passes(pass_block, pass_auto)
             engine = "tesseract:default"
     except Exception as exc:

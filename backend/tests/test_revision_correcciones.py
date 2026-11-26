@@ -307,3 +307,23 @@ def test_insecure_secret_settings_detects_placeholders() -> None:
         jwt_secret_key="b3c1f0e9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1",
     ).insecure_secret_settings()
     assert strong == []
+
+
+# ---------------------------------------------------------------------------
+# Sección F: el OCR no deja imágenes ni texto en claro en disco
+# ---------------------------------------------------------------------------
+def test_ocr_runs_without_temporary_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tempfile
+
+    from app.services.ingestion.image_parser import extract_image
+
+    def _forbidden(*_: Any, **__: Any) -> Any:
+        raise AssertionError("El OCR no debe crear archivos temporales en claro")
+
+    monkeypatch.setattr(tempfile, "mkstemp", _forbidden)
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _forbidden)
+    monkeypatch.setattr(tempfile, "mkdtemp", _forbidden)
+    img = (RETO_DIR / "propuestas" / "Propuesta_832_Sistemas_del_Valle_CA.jpg").read_bytes()
+    res = extract_image(img)
+    assert res.ocr_engine.startswith("tesseract")
+    assert "14,150" in res.ocr_text or "14.150" in res.ocr_text
