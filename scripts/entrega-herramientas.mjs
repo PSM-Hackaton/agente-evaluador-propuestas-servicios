@@ -400,6 +400,8 @@ function cmdEnv(copia) {
   let variables = 0;
   const plantillas = listarArchivos(copia).filter((a) => basename(a) === '.env.example');
   for (const obligatoria of PLANTILLAS_OBLIGATORIAS) {
+    // Solo se exige la plantilla de un componente presente (en una etapa intermedia puede faltar el otro).
+    if (!existsSync(join(copia, dirname(obligatoria)))) continue;
     if (!plantillas.includes(obligatoria)) problemas.push(`falta ${obligatoria}`);
   }
   for (const plantilla of plantillas) {
@@ -425,14 +427,16 @@ function cmdEnv(copia) {
 // ------------------------------------------------------------------ etapas (subida progresiva)
 
 const RE_IDENTIDAD = /^(\S(?:.*\S)?)\s*<([^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>$/;
-const RAMAS_TRABAJO = new Set(['diego', 'javier', 'enggel']);
+const RAMAS_TRABAJO = new Set(['diego', 'javier', 'enggel', 'giovani']);
+/** Commits detallados: mínimo de líneas del cuerpo del mensaje de cada etapa. */
+const MINIMO_LINEAS_CUERPO = 2;
 // Marcadores de autor que se sustituyen por la identidad indicada en la línea de órdenes (el correo real de
 // cada persona no está en los commits de GitHub: ver scripts/README-entrega.md, «Autoría»).
 const MARCADORES = { AUTOR_JAVIER: '--autor-javier', AUTOR_ENGGEL: '--autor-enggel' };
 
 /**
  * Lee scripts/etapas-entrega.txt. Formato: líneas "clave valor"; cada "etapa <id>" abre una etapa nueva.
- * Claves: etapa, mensaje, autor, rama, ruta (repetible; admite "!patrón").
+ * Claves: etapa, mensaje, autor, rama, cuerpo (repetible), issue, refs, estado, ruta (repetible; admite "!patrón").
  */
 function leerEtapas(archivo) {
   const etapas = [];
@@ -443,11 +447,12 @@ function leerEtapas(archivo) {
     const m = /^(\S+)\s+(.+)$/.exec(linea);
     if (!m) { errores.push(`${basename(archivo)}:${i + 1}: línea sin valor: "${linea}"`); return; }
     const [, clave, valor] = m;
-    if (clave === 'etapa') { etapas.push({ id: valor, linea: i + 1, rutas: [] }); return; }
+    if (clave === 'etapa') { etapas.push({ id: valor, linea: i + 1, rutas: [], cuerpo: [] }); return; }
     const actual = etapas.at(-1);
     if (!actual) { errores.push(`${basename(archivo)}:${i + 1}: "${clave}" antes de la primera "etapa"`); return; }
     if (clave === 'ruta') actual.rutas.push(valor);
-    else if (['mensaje', 'autor', 'rama'].includes(clave)) {
+    else if (clave === 'cuerpo') actual.cuerpo.push(valor);
+    else if (['mensaje', 'autor', 'rama', 'issue', 'refs', 'estado'].includes(clave)) {
       if (actual[clave] !== undefined) errores.push(`${basename(archivo)}:${i + 1}: "${clave}" repetido en la etapa ${actual.id}`);
       actual[clave] = valor;
     } else errores.push(`${basename(archivo)}:${i + 1}: clave desconocida "${clave}"`);
@@ -481,7 +486,12 @@ function cmdEtapas(copia, archivoEtapas, archivoExclusiones, dirPlan, opciones) 
     const donde = `etapa ${e.id} (línea ${e.linea})`;
     if (ids.has(e.id)) errores.push(`${donde}: identificador repetido`);
     ids.add(e.id);
-    for (const clave of ['mensaje', 'autor', 'rama']) if (!e[clave]) errores.push(`${donde}: falta "${clave}"`);
+    if (e.estado !== undefined && e.estado !== 'espera') errores.push(`${donde}: "estado" solo admite "espera": "${e.estado}"`);
+    e.espera = e.estado === 'espera';
+    // Una etapa en espera no se confirma: puede no tener autor todavía ni archivos (trabajo futuro).
+    for (const clave of e.espera ? ['mensaje', 'rama'] : ['mensaje', 'autor', 'rama']) if (!e[clave]) errores.push(`${donde}: falta "${clave}"`);
+    if (e.cuerpo.length < MINIMO_LINEAS_CUERPO) errores.push(`${donde}: el cuerpo del mensaje tiene ${e.cuerpo.length} línea(s); se exigen al menos ${MINIMO_LINEAS_CUERPO} ("cuerpo ..."): qué incluye y qué requisito cubre`);
+    for (const clave of ['issue', 'refs']) if (e[clave] !== undefined && !/^\d+(?:[ ,]+\d+)*$/.test(e[clave])) errores.push(`${donde}: "${clave}" debe ser uno o varios números de issue: "${e[clave]}"`);
     if (e.rama && !RAMAS_TRABAJO.has(e.rama)) errores.push(`${donde}: rama "${e.rama}" no es una rama de trabajo (${[...RAMAS_TRABAJO].join(', ')})`);
     const marcador = e.autor in MARCADORES ? e.autor : null;
     if (marcador) {
@@ -491,13 +501,14 @@ function cmdEtapas(copia, archivoEtapas, archivoExclusiones, dirPlan, opciones) 
     const id = RE_IDENTIDAD.exec(e.autor ?? '');
     if (e.autor && !(e.autor in MARCADORES) && !id) errores.push(`${donde}: autor sin formato "Nombre <correo>": "${e.autor}"`);
     if (id) { e.nombre = id[1]; e.correo = id[2]; }
-    if (!e.rutas.length) errores.push(`${donde}: no tiene rutas`);
+    if (!e.rutas.length && !e.espera) errores.push(`${donde}: no tiene rutas`);
     e.reglas = e.rutas.map((linea) => {
       const negado = linea.startsWith('!');
       return { linea, negado, re: patronARegex(negado ? linea.slice(1) : linea) };
     });
     for (const r of e.reglas) {
-      if (!archivos.some((a) => r.re.test(a))) errores.push(`${donde}: la ruta "${r.linea}" no coincide con ningún archivo de la copia limpia`);
+      // En una etapa en espera las rutas pueden ser de trabajo que aún no existe.
+      if (!e.espera && !archivos.some((a) => r.re.test(a))) errores.push(`${donde}: la ruta "${r.linea}" no coincide con ningún archivo de la copia limpia`);
     }
     e.archivos = [];
   }
@@ -509,7 +520,7 @@ function cmdEtapas(copia, archivoEtapas, archivoExclusiones, dirPlan, opciones) 
     if (etapa) etapa.archivos.push(archivo); else sinEtapa.push(archivo);
   }
   if (sinEtapa.length) errores.push(`${sinEtapa.length} archivo(s) de la copia limpia sin etapa:\n${sinEtapa.map((a) => `      - ${a}`).join('\n')}`);
-  for (const e of etapas) if (e.reglas.length && !e.archivos.length) errores.push(`etapa ${e.id}: no incorpora ningún archivo (todo lo toman etapas anteriores)`);
+  for (const e of etapas) if (!e.espera && e.reglas.length && !e.archivos.length) errores.push(`etapa ${e.id}: no incorpora ningún archivo (todo lo toman etapas anteriores)`);
 
   if (errores.length) {
     for (const e of errores) console.log(`  ERROR  ${e}`);
@@ -517,16 +528,38 @@ function cmdEtapas(copia, archivoEtapas, archivoExclusiones, dirPlan, opciones) 
   }
 
   const limpiar = (s) => s.replace(/[\t\r\n]+/g, ' ');
-  const tsv = etapas.map((e, i) => [i + 1, e.id, e.rama, e.nombre, e.correo, e.archivos.length, e.mensaje].map((c) => limpiar(String(c))).join('\t'));
+  const activas = etapas.filter((e) => !e.espera);
+  const enEspera = etapas.filter((e) => e.espera);
+  if (!activas.length) { console.log('  ERROR  todas las etapas están en espera'); return 1; }
+  mkdirSync(dirPlan, { recursive: true });
+  const tsv = activas.map((e, i) => [i + 1, e.id, e.rama, e.nombre, e.correo, e.archivos.length, e.mensaje].map((c) => limpiar(String(c))).join('\t'));
   writeFileSync(join(dirPlan, 'plan.tsv'), `${tsv.join('\n')}\n`);
-  etapas.forEach((e, i) => writeFileSync(join(dirPlan, `etapa-${i + 1}.lista`), `${e.archivos.join('\n')}\n`));
+  // Mensaje completo de cada etapa (título, línea en blanco y cuerpo) y sus issues; el script añade las
+  // pruebas ejecutadas y las líneas «Refs #n» / «Closes #n».
+  const numeros = (v) => (v ?? '').split(/[ ,]+/).filter(Boolean);
+  activas.forEach((e, i) => {
+    writeFileSync(join(dirPlan, `etapa-${i + 1}.lista`), `${e.archivos.join('\n')}\n`);
+    writeFileSync(join(dirPlan, `etapa-${i + 1}.mensaje`), `${e.mensaje}\n\n${e.cuerpo.join('\n')}\n`);
+    writeFileSync(join(dirPlan, `etapa-${i + 1}.issues`),
+      [...numeros(e.refs).map((n) => `Refs #${n}`), ...numeros(e.issue).map((n) => `Closes #${n}`)].join('\n') + '\n');
+  });
+  // Etapas en espera: no se confirman; sus archivos (si los hay) quedan fuera de la subida por ahora.
+  writeFileSync(join(dirPlan, 'espera.tsv'), enEspera.map((e) => [e.id, e.rama, e.nombre ? `${e.nombre} <${e.correo}>` : '(sin asignar)',
+    e.archivos.length, e.mensaje].map((c) => limpiar(String(c))).join('\t')).join('\n') + (enEspera.length ? '\n' : ''));
+  writeFileSync(join(dirPlan, 'espera.lista'), enEspera.flatMap((e) => e.archivos).join('\n') + (enEspera.some((e) => e.archivos.length) ? '\n' : ''));
 
   const ancho = Math.max(...etapas.map((e) => e.id.length));
-  etapas.forEach((e, i) => {
-    console.log(`  ${String(i + 1).padStart(2)}. ${e.id.padEnd(ancho)}  ${e.rama.padEnd(6)}  ${String(e.archivos.length).padStart(4)} arch.  ${e.nombre} <${e.correo}>`);
+  activas.forEach((e, i) => {
+    console.log(`  ${String(i + 1).padStart(2)}. ${e.id.padEnd(ancho)}  ${e.rama.padEnd(7)}  ${String(e.archivos.length).padStart(4)} arch.  ${e.nombre} <${e.correo}>`);
     console.log(`      ${e.mensaje}`);
   });
-  console.log(`  Total: ${archivos.length} archivos en ${etapas.length} etapas; ninguno sin etapa, ninguno excluido.`);
+  for (const e of enEspera) {
+    console.log(`  EN ESPERA ${e.id.padEnd(ancho)}  ${e.rama.padEnd(7)}  ${String(e.archivos.length).padStart(4)} arch.  ${e.nombre ? `${e.nombre} <${e.correo}>` : '(autor sin asignar)'}`);
+    console.log(`      ${e.mensaje}`);
+  }
+  const nEspera = enEspera.reduce((t, e) => t + e.archivos.length, 0);
+  console.log(`  Total: ${archivos.length} archivos; ${archivos.length - nEspera} en ${activas.length} etapas a subir`
+    + `${enEspera.length ? ` y ${nEspera} en ${enEspera.length} etapa(s) en espera` : ''}; ninguno sin etapa, ninguno excluido.`);
   return 0;
 }
 

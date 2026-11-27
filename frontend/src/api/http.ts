@@ -6,8 +6,10 @@ import {
   fechaUtc,
   estadoDesdeBackend,
   estadoHaciaBackend,
+  toAlertaProveedor,
   toAuditoria,
   toEvaluacion,
+  toEvaluacionResumen,
   toMensaje,
   toMotivos,
   toPropuesta,
@@ -15,10 +17,12 @@ import {
   toProyecto,
   toRevision,
   toTasa,
+  toTasaHistorial,
   toTraza,
   toUsuario,
   type BAudit,
   type BBcv,
+  type BBcvHistoryItem,
   type BChat,
   type BEvaluation,
   type BParticipation,
@@ -32,12 +36,44 @@ import {
   type BUser,
 } from './adapters';
 import { detectarTipo } from '../lib/files';
-import { ApiError, clearSession, getToken } from './session';
-import type { Api, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
+import { ApiError, clearSession, getRefreshToken, getToken, updateTokens } from './session';
+import type { Api, DashboardStats, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
 
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '');
 
-async function raw(path: string, opts: RequestInit = {}, token: string | null = getToken()): Promise<Response> {
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function tryRefreshSession(): Promise<string | null> {
+  const rt = getRefreshToken();
+  if (!rt) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+        if (!res.ok) return null;
+        const data = (await res.json()) as BToken;
+        updateTokens(data.access_token, data.refresh_token);
+        return data.access_token;
+      } catch {
+        return null;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
+async function raw(
+  path: string,
+  opts: RequestInit = {},
+  token: string | null = getToken(),
+  retried = false,
+): Promise<Response> {
   const headers = new Headers(opts.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (opts.body && !(opts.body instanceof FormData)) headers.set('Content-Type', 'application/json');
@@ -48,7 +84,11 @@ async function raw(path: string, opts: RequestInit = {}, token: string | null = 
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifique que el backend esté en ejecución.');
   }
-  if (res.status === 401 && !path.startsWith('/auth/login')) {
+  if (res.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/refresh')) {
+    if (!retried) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) return raw(path, opts, refreshed, true);
+    }
     clearSession();
     window.location.assign('/login');
   }
@@ -76,6 +116,25 @@ async function req<T>(path: string, opts: RequestInit = {}, token?: string): Pro
 
 const json = (body: unknown) => JSON.stringify(body);
 
+async function streamTicket(): Promise<string> {
+  const { ticket } = await req<{ ticket: string }>('/auth/stream-ticket', { method: 'POST' });
+  return ticket;
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const star = header.match(/filename\*=UTF-8''([^;\n]+)/i);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].replace(/["']/g, '').trim());
+    } catch {
+      /* ignorar */
+    }
+  }
+  const plain = header.match(/filename="?([^";\n]+)"?/i);
+  return plain?.[1]?.trim() ?? null;
+}
+
 /** Tipo de archivo de cada propuesta (el detalle de evaluación no lo incluye). */
 async function tiposDeProyecto(projectId: string): Promise<Map<string, TipoArchivo>> {
   try {
@@ -96,9 +155,45 @@ export const httpApi: Api = {
     async login(email, password) {
       const t = await req<BToken>('/auth/login', { method: 'POST', body: json({ email, password }) });
       const me = await req<BUser>('/auth/me', {}, t.access_token);
-      return { token: t.access_token, user: toUsuario(me) };
+      return { token: t.access_token, refreshToken: t.refresh_token, user: toUsuario(me) };
+    },
+    async refresh(refreshToken) {
+      const t = await req<BToken>('/auth/refresh', {
+        method: 'POST',
+        body: json({ refresh_token: refreshToken }),
+      });
+      return { token: t.access_token, refreshToken: t.refresh_token };
     },
     me: async () => toUsuario(await req<BUser>('/auth/me')),
+  },
+
+  dashboard: {
+    async stats(): Promise<DashboardStats> {
+      const r = await req<{
+        active_supplier_alerts: number;
+        prompt_injections_blocked: number;
+        security_status: {
+          encryption_at_rest: string;
+          db_sensitive_columns_encrypted: boolean;
+          storage_files_encrypted: boolean;
+          tls_enabled: boolean;
+          tls_min_version: string;
+          audit_log_entries: number;
+          llm_provider: string;
+        };
+      }>('/dashboard/stats');
+      return {
+        active_supplier_alerts: r.active_supplier_alerts,
+        prompt_injections_blocked: r.prompt_injections_blocked,
+        encryption_at_rest: r.security_status.encryption_at_rest,
+        db_encrypted: r.security_status.db_sensitive_columns_encrypted,
+        storage_encrypted: r.security_status.storage_files_encrypted,
+        tls_enabled: r.security_status.tls_enabled,
+        tls_min_version: r.security_status.tls_min_version,
+        audit_log_entries: r.security_status.audit_log_entries,
+        llm_provider: r.security_status.llm_provider,
+      };
+    },
   },
 
   projects: {
@@ -120,11 +215,15 @@ export const httpApi: Api = {
       fd.append('file', archivo);
       return toProyecto(await req<BProject>(`/projects/${p.id}/document`, { method: 'POST', body: fd }));
     },
-    changeState: async (id, estado, nota) =>
+    changeState: async (id, estado, nota, propuestaAdjudicadaId) =>
       toProyecto(
         await req<BProject>(`/projects/${id}/status`, {
           method: 'POST',
-          body: json({ target_status: estadoHaciaBackend(estado), notes: nota ?? null }),
+          body: json({
+            target_status: estadoHaciaBackend(estado),
+            adjudicated_proposal_id: propuestaAdjudicadaId ?? null,
+            notes: nota ?? null,
+          }),
         }),
       ),
     async history(id) {
@@ -159,6 +258,10 @@ export const httpApi: Api = {
       }
       return out;
     },
+    async documentUrl(id) {
+      const ticket = await streamTicket();
+      return `${BASE}/projects/${id}/document/download?ticket=${encodeURIComponent(ticket)}`;
+    },
   },
 
   proposals: {
@@ -170,16 +273,26 @@ export const httpApi: Api = {
       return r.map(toPropuesta);
     },
     remove: (id) => req<void>(`/proposals/${id}`, { method: 'DELETE' }),
+    async downloadUrl(id) {
+      const ticket = await streamTicket();
+      return `${BASE}/proposals/${id}/download?ticket=${encodeURIComponent(ticket)}`;
+    },
   },
 
   evaluations: {
-    async start(projectId) {
+    async start(projectId, params) {
       const e = await req<BEvaluation>(`/projects/${projectId}/evaluate`, {
         method: 'POST',
-        body: json({ run_in_background: true, enable_web_search: true }),
+        body: json({
+          run_in_background: true,
+          enable_web_search: params?.enable_web_search ?? true,
+          bcv_rate_override: params?.bcv_rate_override ?? null,
+          iva_rate: params?.iva_rate ?? 0.16,
+        }),
       });
       return toEvaluacion(e, await tiposDeProyecto(projectId));
     },
+    list: async (projectId) => (await req<BEvaluation[]>(`/projects/${projectId}/evaluations`)).map(toEvaluacionResumen),
     async latest(projectId) {
       const p = await req<BProject>(`/projects/${projectId}`);
       if (!p.latest_evaluation_id) return null;
@@ -196,41 +309,55 @@ export const httpApi: Api = {
       return (e.trace_steps ?? []).map((t) => toTraza(id, t));
     },
     stream(id, onEvent, onDone, onError) {
-      // EventSource no permite cabeceras: el token viaja como query param (?token=).
-      const token = getToken() ?? '';
-      const es = new EventSource(`${BASE}/evaluations/${id}/stream?token=${encodeURIComponent(token)}`);
       let terminado = false;
-      es.addEventListener('trace_step', (ev) => {
-        try {
-          onEvent(toTraza(id, JSON.parse((ev as MessageEvent).data) as BTraceStep));
-        } catch {
-          /* evento mal formado */
-        }
-      });
-      const fin = async () => {
-        terminado = true;
-        es.close();
-        try {
-          onDone(await evaluacionDetalle(id));
-        } catch {
-          onDone(null);
-        }
-      };
-      es.addEventListener('completed', fin);
-      es.addEventListener('failed', fin);
-      es.onerror = () => {
-        if (terminado) return;
-        es.close();
-        onError?.('Se perdió la conexión con el agente. Recargue la página para ver el estado actual.');
-      };
+      let es: EventSource | null = null;
+
+      void streamTicket()
+        .then((ticket) => {
+          if (terminado) return;
+          es = new EventSource(`${BASE}/evaluations/${id}/stream?ticket=${encodeURIComponent(ticket)}`);
+          es.addEventListener('trace_step', (ev) => {
+            try {
+              onEvent(toTraza(id, JSON.parse((ev as MessageEvent).data) as BTraceStep));
+            } catch {
+              /* evento mal formado */
+            }
+          });
+          const fin = async () => {
+            terminado = true;
+            es?.close();
+            try {
+              onDone(await evaluacionDetalle(id));
+            } catch {
+              onDone(null);
+            }
+          };
+          es.addEventListener('completed', fin);
+          es.addEventListener('failed', fin);
+          es.onerror = () => {
+            if (terminado) return;
+            terminado = true;
+            es?.close();
+            onError?.('Se perdió la conexión con el agente. Recargue la página para ver el estado actual.');
+          };
+        })
+        .catch(() => {
+          if (terminado) return;
+          terminado = true;
+          onError?.('No se pudo autorizar el flujo de trazabilidad en vivo.');
+        });
+
       return () => {
         terminado = true;
-        es.close();
+        es?.close();
       };
     },
     async exportFile(id, formato) {
       const res = await raw(`/evaluations/${id}/export/${formato}`);
-      return res.blob();
+      return {
+        blob: await res.blob(),
+        filename: parseContentDispositionFilename(res.headers.get('Content-Disposition')),
+      };
     },
   },
 
@@ -239,21 +366,33 @@ export const httpApi: Api = {
       const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
       return (e.human_reviews ?? []).map(toRevision);
     },
-    async add(evaluacionId, accion, comentario) {
-      const body = accionHaciaBackend(accion, comentario);
+    async add(evaluacionId, accion, comentario, opts) {
+      let targetProposalId: string | null = opts?.propuesta_adjudicada_id ?? null;
+      let ev: BEvaluation | null = null;
+      if (accion === 'aprobar' || accion === 'rechazar') {
+        ev = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
+        if (accion === 'aprobar' && !targetProposalId) {
+          targetProposalId = ev.recommended_proposal_id;
+        }
+      }
+      const esOverride = Boolean(
+        accion === 'aprobar' && ev && targetProposalId && targetProposalId !== ev.recommended_proposal_id,
+      );
+      const body = accionHaciaBackend(accion, comentario, {
+        proposal_evaluation_id: opts?.propuesta_evaluacion_id ?? null,
+        override_recommended_proposal_id: esOverride ? targetProposalId : null,
+      });
       const rev = toRevision(
         await req<BReview>(`/evaluations/${evaluacionId}/reviews`, { method: 'POST', body: json(body) }),
       );
       // El backend registra la revisión pero no mueve el proceso: «Aprobar» adjudica la
-      // propuesta recomendada y «Rechazar y devolver» regresa el proyecto a evaluación,
-      // igual que en el modo demostración.
-      if (accion === 'aprobar' || accion === 'rechazar') {
-        const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
-        await req<BProject>(`/projects/${e.project_id}/status`, {
+      // propuesta elegida y «Rechazar y devolver» regresa el proyecto a evaluación.
+      if ((accion === 'aprobar' || accion === 'rechazar') && ev) {
+        await req<BProject>(`/projects/${ev.project_id}/status`, {
           method: 'POST',
           body: json(
             accion === 'aprobar'
-              ? { target_status: 'adjudicado', adjudicated_proposal_id: e.recommended_proposal_id, notes: body.notes }
+              ? { target_status: 'adjudicado', adjudicated_proposal_id: targetProposalId, notes: body.notes }
               : { target_status: 'en_evaluacion', notes: body.notes },
           ),
         });
@@ -268,7 +407,8 @@ export const httpApi: Api = {
       const d = await req<{ supplier: BSupplier; alerts: BSupplierAlert[]; participation_history: BParticipation[] }>(
         `/suppliers/${id}`,
       );
-      const alerta = d.alerts.find((a) => !a.is_resolved) ?? null;
+      const activas = d.alerts.filter((a) => !a.is_resolved);
+      const alerta = activas[0] ?? null;
       // El historial trae evaluation_run_id; se resuelve el proyecto y la fecha de cada evaluación.
       const runs = new Map<string, { proyecto_id: string; fecha: string; nombre: string }>();
       await Promise.all(
@@ -295,12 +435,50 @@ export const httpApi: Api = {
           total_ajustado_usd: h.adjusted_tco_usd,
         };
       });
+      const base = toProveedor(d.supplier, alerta?.summary ?? null);
       const detalle: ProveedorDetalle = {
-        ...toProveedor(d.supplier, alerta?.summary ?? null),
+        ...base,
+        alerta: activas.length > 0,
+        motivo_alerta: alerta?.summary ?? null,
+        alertas: d.alerts.map(toAlertaProveedor),
         participaciones,
       };
       return detalle;
     },
+    create: async (data) =>
+      toProveedor(
+        await req<BSupplier>('/suppliers', {
+          method: 'POST',
+          body: json({
+            name: data.nombre,
+            rif: data.rif || null,
+            location: data.ubicacion || null,
+            representative: data.representante || null,
+            phone: data.telefono || null,
+            email: data.email || null,
+            notes: data.notas || null,
+          }),
+        }),
+      ),
+    update: async (id, data) =>
+      toProveedor(
+        await req<BSupplier>(`/suppliers/${id}`, {
+          method: 'PATCH',
+          body: json({
+            ...(data.nombre !== undefined ? { name: data.nombre } : {}),
+            ...(data.rif !== undefined ? { rif: data.rif || null } : {}),
+            ...(data.ubicacion !== undefined ? { location: data.ubicacion || null } : {}),
+            ...(data.representante !== undefined ? { representative: data.representante || null } : {}),
+            ...(data.telefono !== undefined ? { phone: data.telefono || null } : {}),
+            ...(data.email !== undefined ? { email: data.email || null } : {}),
+            ...(data.notas !== undefined ? { notes: data.notas || null } : {}),
+          }),
+        }),
+      ),
+    resolveAlert: async (alertId) =>
+      toAlertaProveedor(
+        await req<BSupplierAlert>(`/suppliers/alerts/${alertId}/resolve`, { method: 'POST' }),
+      ),
   },
 
   audit: {
@@ -333,7 +511,15 @@ export const httpApi: Api = {
   },
 
   currency: {
-    bcv: async () => toTasa(await req<BBcv>('/finance/bcv-rate')),
+    bcv: async (refresh = false) => toTasa(await req<BBcv>(`/finance/bcv-rate${refresh ? '?refresh=true' : ''}`)),
+    history: async () => (await req<BBcvHistoryItem[]>('/finance/bcv-rate/history')).map(toTasaHistorial),
+    override: async (usdToVes, nota) =>
+      toTasa(
+        await req<BBcv>('/finance/bcv-rate/override', {
+          method: 'POST',
+          body: json({ usd_to_ves: usdToVes, note: nota || null }),
+        }),
+      ),
   },
 
   chat: {
@@ -342,5 +528,6 @@ export const httpApi: Api = {
       toMensaje(
         await req<BChat>(`/projects/${projectId}/chat`, { method: 'POST', body: json({ question: contenido }) }),
       ),
+    clear: (projectId) => req<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
   },
 };

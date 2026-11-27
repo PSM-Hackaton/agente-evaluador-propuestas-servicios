@@ -1,13 +1,7 @@
 import { useState } from 'react';
-import { FileDown, FileSpreadsheet, FileText, Printer } from 'lucide-react';
-import { api, isMock, type Evaluacion, type Proyecto } from '../api';
-import {
-  downloadBlob,
-  downloadText,
-  evaluacionToCSV,
-  evaluacionToMarkdown,
-  slug,
-} from '../lib/export';
+import { FileDown, FileJson, FileSpreadsheet, FileText, Printer } from 'lucide-react';
+import { api, isMock, type Evaluacion, type FormatoExport, type Proyecto } from '../api';
+import { downloadBlob, slug } from '../lib/export';
 import { Button } from './ui';
 
 interface ExportButtonsProps {
@@ -16,35 +10,26 @@ interface ExportButtonsProps {
 }
 
 export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
-  const [busy, setBusy] = useState<'pdf' | 'xlsx' | null>(null);
+  const [busy, setBusy] = useState<FormatoExport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const baseName = slug(proyecto.nombre) || 'evaluacion';
 
-  const handlePDF = async () => {
-    if (isMock) {
+  const descargar = async (formato: FormatoExport, fallbackName: string) => {
+    setError(null);
+    if (formato === 'pdf' && isMock) {
       window.print();
       return;
     }
-    setBusy('pdf');
+    setBusy(formato);
     try {
-      const blob = await api.evaluations.exportFile(evaluacion.id, 'pdf');
-      downloadBlob(blob, `Informe_${baseName}.pdf`);
-    } catch {
-      window.print();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleExcel = async () => {
-    setBusy('xlsx');
-    setError(null);
-    try {
-      const blob = await api.evaluations.exportFile(evaluacion.id, 'xlsx');
-      const ext = isMock ? 'xls' : 'xlsx';
-      downloadBlob(blob, `Comparativa_${baseName}.${ext}`);
+      const { blob, filename } = await api.evaluations.exportFile(evaluacion.id, formato);
+      downloadBlob(blob, filename ?? fallbackName);
     } catch (e) {
-      setError(e instanceof Error ? `No se pudo generar el Excel: ${e.message}` : 'No se pudo generar el Excel');
+      if (formato === 'pdf') {
+        window.print();
+      } else {
+        setError(e instanceof Error ? `No se pudo generar (${formato}): ${e.message}` : `No se pudo generar (${formato})`);
+      }
     } finally {
       setBusy(null);
     }
@@ -52,16 +37,20 @@ export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Button variant="secondary" size="sm" onClick={handlePDF} loading={busy === 'pdf'}>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => descargar('pdf', `Informe_${baseName}.pdf`)}
+        loading={busy === 'pdf'}
+      >
         <Printer className="h-4 w-4" />
         PDF
       </Button>
       <Button
         variant="secondary"
         size="sm"
-        onClick={() =>
-          downloadText(evaluacionToMarkdown(evaluacion, proyecto), `Informe_${baseName}.md`, 'text/markdown')
-        }
+        onClick={() => descargar('markdown', `Informe_${baseName}.md`)}
+        loading={busy === 'markdown'}
       >
         <FileText className="h-4 w-4" />
         Markdown
@@ -69,14 +58,29 @@ export function ExportButtons({ evaluacion, proyecto }: ExportButtonsProps) {
       <Button
         variant="secondary"
         size="sm"
-        onClick={() => downloadText(evaluacionToCSV(evaluacion), `Comparativa_${baseName}.csv`, 'text/csv')}
+        onClick={() => descargar('csv', `Comparativa_${baseName}.csv`)}
+        loading={busy === 'csv'}
       >
         <FileDown className="h-4 w-4" />
         CSV
       </Button>
-      <Button variant="secondary" size="sm" onClick={handleExcel} loading={busy === 'xlsx'}>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => descargar('xlsx', `Comparativa_${baseName}.${isMock ? 'xls' : 'xlsx'}`)}
+        loading={busy === 'xlsx'}
+      >
         <FileSpreadsheet className="h-4 w-4" />
         Excel
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => descargar('salida-json', 'salida.json')}
+        loading={busy === 'salida-json'}
+      >
+        <FileJson className="h-4 w-4" />
+        salida.json
       </Button>
       {error && (
         <p role="alert" className="w-full text-xs text-red-700">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
   FileBarChart2,
   FileText,
   FolderOpen,
@@ -20,7 +21,9 @@ import {
 } from 'lucide-react';
 import {
   api,
+  isMock,
   type EstadoProyecto,
+  type ParametrosEvaluacion,
   type ResultadoPropuesta,
   type TrazaAgente,
 } from '../api';
@@ -62,22 +65,30 @@ export function ProjectDetailPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>('propuestas');
-  const userPickedTab = useRef(false);
-  const pickTab = (t: Tab) => {
-    userPickedTab.current = true;
-    setTab(t);
-  };
+  const [pickedTab, setPickedTab] = useState<{ projectId: string; tab: Tab } | null>(null);
+  const pickTab = (t: Tab) => setPickedTab({ projectId: id, tab: t });
 
-  const [trazas, setTrazas] = useState<TrazaAgente[]>([]);
-  const [streaming, setStreaming] = useState(false);
-  const [streamError, setStreamError] = useState<string | null>(null);
+  const [selectedEvalState, setSelectedEvalState] = useState<{ projectId: string; evalId: string } | null>(null);
+  const selectedEvalId = selectedEvalState?.projectId === id ? selectedEvalState.evalId : null;
+  const setSelectedEvalId = (evalId: string | null) =>
+    setSelectedEvalState(evalId ? { projectId: id, evalId } : null);
+
+  const [traceState, setTraceState] = useState<{
+    evalId: string;
+    list: TrazaAgente[];
+    ended: boolean;
+    error: string | null;
+  } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [transicionModal, setTransicionModal] = useState<Transicion | null>(null);
   const [transicionNota, setTransicionNota] = useState('');
   const [recDetalle, setRecDetalle] = useState<ResultadoPropuesta | null>(null);
   const [verOtrasValidas, setVerOtrasValidas] = useState(false);
+  const [evalModalOpen, setEvalModalOpen] = useState(false);
+  const [paramWebSearch, setParamWebSearch] = useState(true);
+  const [paramIvaPct, setParamIvaPct] = useState('16');
+  const [paramBcvOverride, setParamBcvOverride] = useState('');
 
   const projectQ = useQuery({
     queryKey: ['project', id],
@@ -91,9 +102,15 @@ export function ProjectDetailPage() {
     enabled: !!id,
   });
 
+  const evaluationsListQ = useQuery({
+    queryKey: ['evaluations-list', id],
+    queryFn: () => api.evaluations.list(id),
+    enabled: !!id,
+  });
+
   const evaluationQ = useQuery({
-    queryKey: ['evaluation', id],
-    queryFn: () => api.evaluations.latest(id),
+    queryKey: ['evaluation', id, selectedEvalId ?? 'latest'],
+    queryFn: () => (selectedEvalId ? api.evaluations.get(selectedEvalId) : api.evaluations.latest(id)),
     enabled: !!id,
   });
 
@@ -104,70 +121,84 @@ export function ProjectDetailPage() {
   });
 
   const evaluacion = evaluationQ.data ?? null;
+  const defaultTab: Tab =
+    evaluacion?.estado === 'en_curso'
+      ? 'trazabilidad'
+      : evaluacion?.estado === 'completada'
+        ? 'informe'
+        : 'propuestas';
+  const tab: Tab = pickedTab?.projectId === id ? pickedTab.tab : defaultTab;
 
-  // Selección automática de pestaña inicial al cargar por primera vez
-  useEffect(() => {
-    userPickedTab.current = false;
-    setTrazas([]);
-    setStreamError(null);
-  }, [id]);
-
-  useEffect(() => {
-    if (userPickedTab.current || evaluationQ.isLoading) return;
-    if (evaluacion?.estado === 'en_curso') setTab('trazabilidad');
-    else if (evaluacion?.estado === 'completada') setTab('informe');
-    else setTab('propuestas');
-  }, [evaluacion?.estado, evaluationQ.isLoading]);
+  const evalId = evaluacion?.id ?? null;
+  const evalEstado = evaluacion?.estado ?? null;
+  const trazas = evalId && traceState?.evalId === evalId ? traceState.list : [];
+  const streamError = evalId && traceState?.evalId === evalId ? traceState.error : null;
+  const streaming = Boolean(
+    evalId && evalEstado === 'en_curso' && !(traceState?.evalId === evalId && traceState.ended),
+  );
 
   // Suscripción SSE o carga de trazas persistidas
   useEffect(() => {
-    if (!evaluacion) {
-      setTrazas([]);
-      setStreaming(false);
-      return;
-    }
-    if (evaluacion.estado === 'en_curso') {
-      setTrazas([]);
-      setStreaming(true);
-      setStreamError(null);
+    if (!evalId || !evalEstado) return;
+    if (evalEstado === 'en_curso') {
       const stop = api.evaluations.stream(
-        evaluacion.id,
+        evalId,
         (evento) => {
-          setTrazas((prev) => (prev.some((x) => x.id === evento.id) ? prev : [...prev, evento]));
+          setTraceState((prev) => {
+            const base = prev?.evalId === evalId ? prev.list : [];
+            if (base.some((x) => x.id === evento.id)) return prev;
+            return { evalId, list: [...base, evento], ended: false, error: null };
+          });
         },
         async () => {
-          setStreaming(false);
+          setTraceState((prev) => ({
+            evalId,
+            list: prev?.evalId === evalId ? prev.list : [],
+            ended: true,
+            error: null,
+          }));
           await Promise.all([
             qc.invalidateQueries({ queryKey: ['project', id] }),
             qc.invalidateQueries({ queryKey: ['proposals', id] }),
             qc.invalidateQueries({ queryKey: ['evaluation', id] }),
+            qc.invalidateQueries({ queryKey: ['evaluations-list', id] }),
             qc.invalidateQueries({ queryKey: ['project-history', id] }),
             qc.invalidateQueries({ queryKey: ['suppliers'] }),
             qc.invalidateQueries({ queryKey: ['audit'] }),
           ]);
         },
         (msg) => {
-          setStreaming(false);
-          setStreamError(msg);
+          setTraceState((prev) => ({
+            evalId,
+            list: prev?.evalId === evalId ? prev.list : [],
+            ended: true,
+            error: msg,
+          }));
         },
       );
       return stop;
     }
 
-    setStreaming(false);
     let cancelled = false;
     api.evaluations
-      .trazas(evaluacion.id)
+      .trazas(evalId)
       .then((list) => {
-        if (!cancelled) setTrazas(list);
+        if (!cancelled) setTraceState({ evalId, list, ended: true, error: null });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setStreamError(e instanceof Error ? e.message : 'No se pudo cargar la trazabilidad');
+        if (!cancelled) {
+          setTraceState({
+            evalId,
+            list: [],
+            ended: true,
+            error: e instanceof Error ? e.message : 'No se pudo cargar la trazabilidad',
+          });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [evaluacion?.id, evaluacion?.estado, id, qc]);
+  }, [evalId, evalEstado, id, qc]);
 
   const uploadMut = useMutation({
     mutationFn: (files: File[]) => api.proposals.upload(id, files),
@@ -197,13 +228,16 @@ export function ProjectDetailPage() {
   });
 
   const startEvalMut = useMutation({
-    mutationFn: () => api.evaluations.start(id),
+    mutationFn: (params?: ParametrosEvaluacion) => api.evaluations.start(id, params),
     onSuccess: async (ev) => {
       setActionError(null);
-      qc.setQueryData(['evaluation', id], ev);
+      setEvalModalOpen(false);
+      setSelectedEvalId(null);
+      qc.setQueryData(['evaluation', id, 'latest'], ev);
       pickTab('trazabilidad');
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['project', id] }),
+        qc.invalidateQueries({ queryKey: ['evaluations-list', id] }),
         qc.invalidateQueries({ queryKey: ['project-history', id] }),
         qc.invalidateQueries({ queryKey: ['projects'] }),
         qc.invalidateQueries({ queryKey: ['audit'] }),
@@ -250,6 +284,57 @@ export function ProjectDetailPage() {
   const proyecto = projectQ.data;
   const propuestas = proposalsQ.data ?? [];
   const historial = historyQ.data ?? [];
+  const listaEvaluaciones = evaluationsListQ.data ?? [];
+  const latestRunId = listaEvaluaciones[0]?.id ?? null;
+  const viendoHistorica = !!evaluacion && !!latestRunId && evaluacion.id !== latestRunId;
+
+  const evalSelectorBlock =
+    listaEvaluaciones.length > 0 ? (
+      <div className="space-y-3 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <label htmlFor="eval-run-selector" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Ejecución consultada ({listaEvaluaciones.length})
+            </label>
+            <select
+              id="eval-run-selector"
+              value={selectedEvalId ?? latestRunId ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedEvalId(v && v !== latestRunId ? v : null);
+              }}
+              className="input w-auto max-w-full py-1.5 text-sm"
+            >
+              {listaEvaluaciones.map((run, idx) => {
+                const estadoTxt =
+                  run.estado === 'completada'
+                    ? 'Completada'
+                    : run.estado === 'error'
+                      ? 'Con error'
+                      : 'En curso';
+                const tag = idx === 0 ? 'Más reciente' : `Histórica #${listaEvaluaciones.length - idx}`;
+                return (
+                  <option key={run.id} value={run.id}>
+                    {tag} · {datetime(run.inicio)} · {estadoTxt}
+                    {run.recomendada_codigo ? ` (${run.recomendada_codigo})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          {viendoHistorica && (
+            <Button size="sm" variant="secondary" onClick={() => setSelectedEvalId(null)}>
+              Volver a la más reciente
+            </Button>
+          )}
+        </div>
+        {viendoHistorica && evaluacion && (
+          <Alert tone="info" title="Vista de ejecución histórica">
+            Estás revisando una evaluación anterior ({datetime(evaluacion.inicio)}). Los reportes exportados y la trazabilidad mostrados corresponden a esa corrida específica.
+          </Alert>
+        )}
+      </div>
+    ) : null;
 
   const puedeSubir =
     can(user?.rol, 'propuesta.cargar') &&
@@ -260,6 +345,7 @@ export function ProjectDetailPage() {
   const puedeEvaluar =
     can(user?.rol, 'evaluacion.ejecutar') &&
     propuestas.length >= 3 &&
+    propuestas.length <= 20 &&
     !enCurso &&
     !bloqueadoPorEstado;
 
@@ -271,6 +357,15 @@ export function ProjectDetailPage() {
   const recomendada = ordenada.find((r) => r.propuesta_id === evaluacion?.recomendada_id) ?? null;
   const descartadas = ordenada.filter((r) => !r.valida);
   const otrasValidas = ordenada.filter((r) => r.valida && r.propuesta_id !== recomendada?.propuesta_id);
+
+  const abrirDescarga = async (getUrl: () => Promise<string | null>) => {
+    try {
+      const url = await getUrl();
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'No se pudo autorizar la descarga');
+    }
+  };
 
   const tabs: { key: Tab; label: string; icon: typeof FolderOpen; badge?: string | number }[] = [
     { key: 'propuestas', label: 'Propuestas', icon: FolderOpen, badge: propuestas.length },
@@ -298,17 +393,44 @@ export function ProjectDetailPage() {
               <h1 className="text-2xl font-bold text-slate-900">{proyecto.nombre}</h1>
               <Badge tone={ESTADO_TONE[proyecto.estado]}>{ESTADO_LABEL[proyecto.estado]}</Badge>
             </div>
+            {proyecto.estado === 'ADJUDICADO' && (() => {
+              const propAdj =
+                propuestas.find((p) => p.id === proyecto.propuesta_adjudicada_id) ?? null;
+              const resAdj =
+                resultados.find((r) => r.propuesta_id === proyecto.propuesta_adjudicada_id) ?? null;
+              return (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2 text-xs text-emerald-900">
+                  <span className="font-semibold">Adjudicado a: </span>
+                  {resAdj ? `${resAdj.proveedor} (${resAdj.codigo})` : propAdj ? `${propAdj.proveedor_nombre ?? propAdj.codigo} (${propAdj.codigo})` : 'Propuesta seleccionada por el comité'}
+                  {proyecto.nota_adjudicacion && (
+                    <span className="text-emerald-800"> · {proyecto.nota_adjudicacion}</span>
+                  )}
+                </div>
+              );
+            })()}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="h-4 w-4" />
                 {proyecto.ubicacion}
               </span>
-              {proyecto.archivo_proyecto && (
-                <span className="inline-flex items-center gap-1.5">
-                  <FileText className="h-4 w-4" />
-                  {proyecto.archivo_proyecto}
-                </span>
-              )}
+              {proyecto.archivo_proyecto &&
+                (!isMock ? (
+                  <button
+                    type="button"
+                    onClick={() => void abrirDescarga(() => api.projects.documentUrl(proyecto.id))}
+                    className="inline-flex items-center gap-1.5 text-indigo-600 hover:underline"
+                    title="Descargar documento cifrado"
+                  >
+                    <FileText className="h-4 w-4" />
+                    {proyecto.archivo_proyecto}
+                    <Download className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <FileText className="h-4 w-4" />
+                    {proyecto.archivo_proyecto}
+                  </span>
+                ))}
               <span>
                 Presupuesto ref.:{' '}
                 <strong className="text-slate-700">
@@ -378,7 +500,7 @@ export function ProjectDetailPage() {
 
       {/* Pestañas */}
       <div className="border-b border-slate-200 print:hidden">
-        <nav className="-mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Secciones del proyecto">
+        <div className="-mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Secciones del proyecto">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -426,7 +548,7 @@ export function ProjectDetailPage() {
               </button>
             );
           })}
-        </nav>
+        </div>
       </div>
 
       {actionError && <Alert tone="error">{actionError}</Alert>}
@@ -441,7 +563,7 @@ export function ProjectDetailPage() {
               title="Requerimiento del proyecto y ejecución del agente"
               action={
                 <Button
-                  onClick={() => startEvalMut.mutate()}
+                  onClick={() => setEvalModalOpen(true)}
                   loading={startEvalMut.isPending}
                   disabled={!puedeEvaluar}
                 >
@@ -464,6 +586,10 @@ export function ProjectDetailPage() {
                 <Alert tone="warning">
                   Se requieren al menos 3 propuestas cargadas para iniciar la evaluación (actualmente hay {propuestas.length}).
                 </Alert>
+              ) : propuestas.length > 20 ? (
+                <Alert tone="warning">
+                  El límite máximo permitido es de 20 propuestas por proyecto (actualmente hay {propuestas.length}). Elimina las excedentes antes de evaluar.
+                </Alert>
               ) : null}
             </CardBody>
           </Card>
@@ -472,10 +598,20 @@ export function ProjectDetailPage() {
             <Card>
               <CardHeader
                 title="Carga masiva de propuestas"
-                subtitle="Sube de 3 a 20 o más propuestas en PDF, Excel, imágenes manuscritas o capturas de chat"
+                subtitle="Sube entre 3 y 20 propuestas en PDF, Excel, imágenes manuscritas o capturas de chat"
               />
-              <CardBody>
+              <CardBody className="space-y-3">
+                {propuestas.length >= 20 && (
+                  <div role="alert">
+                    <Alert tone="warning" title="Capacidad máxima alcanzada">
+                      Ya se alcanzó el máximo de 20 propuestas para este proyecto. Elimina alguna si deseas reemplazarla.
+                    </Alert>
+                  </div>
+                )}
                 <FileDropzone
+                  maxFiles={20}
+                  currentCount={propuestas.length}
+                  disabled={propuestas.length >= 20}
                   onUpload={async (files) => {
                     await uploadMut.mutateAsync(files);
                   }}
@@ -532,7 +668,21 @@ export function ProjectDetailPage() {
                               <span className="text-slate-600">{p.proveedor_nombre ?? '—'}</span>
                             )}
                           </td>
-                          <td className="text-xs text-slate-500">{p.archivo_nombre}</td>
+                          <td className="text-xs text-slate-500">
+                            {!isMock ? (
+                              <button
+                                type="button"
+                                onClick={() => void abrirDescarga(() => api.proposals.downloadUrl(p.id))}
+                                className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
+                                title="Descargar archivo original descifrado"
+                              >
+                                <span>{p.archivo_nombre}</span>
+                                <Download className="h-3 w-3 shrink-0" />
+                              </button>
+                            ) : (
+                              p.archivo_nombre
+                            )}
+                          </td>
                           <td>
                             <Badge tone="indigo">{TIPO_LABEL[p.tipo]}</Badge>
                           </td>
@@ -587,6 +737,7 @@ export function ProjectDetailPage() {
       {/* TAB 2: TRAZABILIDAD */}
       {tab === 'trazabilidad' && (
         <div className="space-y-4">
+          {evalSelectorBlock}
           {streamError && <Alert tone="error">{streamError}</Alert>}
           {!evaluacion ? (
             <EmptyState
@@ -623,6 +774,7 @@ export function ProjectDetailPage() {
       {/* TAB 3: INFORME */}
       {tab === 'informe' && (
         <div className="space-y-6">
+          {evalSelectorBlock}
           {!evaluacion ? (
             <EmptyState
               icon={FileBarChart2}
@@ -717,6 +869,7 @@ export function ProjectDetailPage() {
                     resultados={resultados}
                     recomendadaId={evaluacion.recomendada_id}
                     tasaBcv={evaluacion.tasa_bcv_usada}
+                    evaluacionId={evaluacion.id}
                   />
                 </CardBody>
               </Card>
@@ -916,6 +1069,95 @@ export function ProjectDetailPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal parámetros de evaluación */}
+      <Modal
+        open={evalModalOpen}
+        onClose={() => setEvalModalOpen(false)}
+        title="Parámetros de evaluación del agente"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const ivaNum = Number(paramIvaPct.replace(',', '.'));
+            const bcvNum = paramBcvOverride.trim() ? Number(paramBcvOverride.replace(',', '.')) : null;
+            if (!Number.isFinite(ivaNum) || ivaNum < 0 || ivaNum > 50) {
+              setActionError('La alícuota de IVA debe estar entre 0 % y 50 %.');
+              return;
+            }
+            if (bcvNum != null && (!Number.isFinite(bcvNum) || bcvNum <= 0)) {
+              setActionError('La tasa BCV de anulación debe ser mayor a 0.');
+              return;
+            }
+            startEvalMut.mutate({
+              enable_web_search: paramWebSearch,
+              iva_rate: ivaNum / 100,
+              bcv_rate_override: bcvNum,
+            });
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Configura las condiciones financieras y de verificación antes de iniciar el análisis de {propuestas.length} propuestas.
+          </p>
+
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-800">
+            <input
+              id="eval-web-search"
+              type="checkbox"
+              checked={paramWebSearch}
+              onChange={(e) => setParamWebSearch(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            Habilitar contraste de precios en internet (búsqueda web)
+          </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="eval-iva-rate" className="mb-1 block text-xs font-semibold text-slate-700">
+                Alícuota IVA (%)
+              </label>
+              <input
+                id="eval-iva-rate"
+                type="number"
+                step="0.5"
+                min="0"
+                max="50"
+                required
+                className="input"
+                value={paramIvaPct}
+                onChange={(e) => setParamIvaPct(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="eval-bcv-override" className="mb-1 block text-xs font-semibold text-slate-700">
+                Anular tasa BCV (opcional, Bs./USD)
+              </label>
+              <input
+                id="eval-bcv-override"
+                type="number"
+                step="0.01"
+                min="0.01"
+                className="input"
+                value={paramBcvOverride}
+                onChange={(e) => setParamBcvOverride(e.target.value)}
+                placeholder="Usar tasa BCV activa"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button variant="secondary" type="button" onClick={() => setEvalModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={startEvalMut.isPending}>
+              <Play className="h-4 w-4" />
+              Iniciar evaluación
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

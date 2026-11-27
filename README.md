@@ -166,6 +166,7 @@ El estado verificado de cada requisito está en la
 | `VITE_USE_MOCK` | `true`: modo demostración en el navegador, sin backend. `false`: usa la API real. |
 | `VITE_API_URL` | Prefijo de la API para el navegador (`/api/v1`, servido por el proxy de Vite). |
 | `BACKEND_URL` | Destino del proxy de Vite en desarrollo (`http://localhost:8000`). |
+| `VITE_TLS_CERT`, `VITE_TLS_KEY` | Rutas locales opcionales a certificado y clave para servir `npm run dev` por HTTPS (TLS 1.2+). |
 
 ## Paso a paso de instalación / despliegue
 

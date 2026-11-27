@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Mail, MapPin, Phone } from 'lucide-react';
-import { api, type Participacion } from '../api';
-import { date, money } from '../lib/format';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, CheckCircle2, Mail, MapPin, Pencil, Phone, UserCheck } from 'lucide-react';
+import { api, type Participacion, type ProveedorInput } from '../api';
+import { SupplierFormModal } from '../components/SupplierFormModal';
+import { useAuth } from '../context/AuthContext';
+import { date, datetime, money } from '../lib/format';
 import { MOTIVO_LABEL, type Tone } from '../lib/labels';
-import { Alert, Badge, Card, CardBody, CardHeader, Spinner } from '../components/ui';
+import { can } from '../lib/roles';
+import { Alert, Badge, Button, Card, CardBody, CardHeader, Spinner } from '../components/ui';
 
 const RESULTADO_LABEL: Record<Participacion['resultado'], { label: string; tone: Tone }> = {
   pendiente: { label: 'Pendiente', tone: 'slate' },
@@ -13,14 +17,57 @@ const RESULTADO_LABEL: Record<Participacion['resultado'], { label: string; tone:
   adjudicada: { label: 'Adjudicada', tone: 'green' },
 };
 
+const SEVERIDAD_TONE: Record<string, Tone> = {
+  alta: 'red',
+  high: 'red',
+  media: 'amber',
+  medium: 'amber',
+  baja: 'slate',
+  low: 'slate',
+};
+
 export function SupplierDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [editarOpen, setEditarOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: prov, isLoading, error } = useQuery({
     queryKey: ['supplier', id],
     queryFn: () => api.suppliers.get(id),
     enabled: !!id,
   });
+
+  const updateMut = useMutation({
+    mutationFn: (data: Partial<ProveedorInput>) => api.suppliers.update(id, data),
+    onSuccess: async () => {
+      setEditarOpen(false);
+      setActionError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['supplier', id] }),
+        qc.invalidateQueries({ queryKey: ['suppliers'] }),
+        qc.invalidateQueries({ queryKey: ['audit'] }),
+      ]);
+    },
+    onError: (e) => setActionError(e instanceof Error ? e.message : 'No se pudo actualizar la ficha'),
+  });
+
+  const resolveMut = useMutation({
+    mutationFn: (alertId: string) => api.suppliers.resolveAlert(alertId),
+    onSuccess: async () => {
+      setActionError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['supplier', id] }),
+        qc.invalidateQueries({ queryKey: ['suppliers'] }),
+        qc.invalidateQueries({ queryKey: ['dashboard-stats'] }),
+        qc.invalidateQueries({ queryKey: ['audit'] }),
+      ]);
+    },
+    onError: (e) => setActionError(e instanceof Error ? e.message : 'No se pudo marcar la alerta'),
+  });
+
+  const puedeEditar = can(user?.rol, 'proveedor.editar');
 
   if (isLoading) return <Spinner label="Cargando ficha del proveedor..." className="py-20" />;
 
@@ -85,12 +132,82 @@ export function SupplierDetailPage() {
                   {prov.email}
                 </span>
               )}
+              {prov.representante && (
+                <span className="inline-flex items-center gap-1">
+                  <UserCheck className="h-4 w-4 text-slate-400" />
+                  Rep.: {prov.representante}
+                </span>
+              )}
+            </div>
+            {prov.notas && <p className="text-xs text-slate-500">{prov.notas}</p>}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {puedeEditar && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setActionError(null);
+                  setEditarOpen(true);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Editar ficha
+              </Button>
+            )}
+            <div className="rounded-lg bg-slate-50 px-4 py-2 text-right ring-1 ring-slate-200">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Participaciones</p>
+              <p className="text-xl font-bold tabular-nums text-slate-900">{prov.total_participaciones}</p>
             </div>
           </div>
-          <div className="rounded-lg bg-slate-50 px-4 py-2 text-right ring-1 ring-slate-200">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Participaciones</p>
-            <p className="text-xl font-bold tabular-nums text-slate-900">{prov.total_participaciones}</p>
-          </div>
+        </CardBody>
+      </Card>
+
+      {actionError && !editarOpen && <Alert tone="error">{actionError}</Alert>}
+
+      <Card>
+        <CardHeader
+          title={`Alertas de antecedentes (${prov.alertas.length})`}
+          subtitle="Observaciones automáticas detectadas durante las evaluaciones de propuestas"
+        />
+        <CardBody>
+          {prov.alertas.length === 0 ? (
+            <p className="text-sm text-slate-500">Este proveedor no tiene alertas registradas.</p>
+          ) : (
+            <ul className="space-y-3">
+              {prov.alertas.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3"
+                >
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={SEVERIDAD_TONE[a.severidad.toLowerCase()] ?? 'amber'}>
+                        Severidad: {a.severidad}
+                      </Badge>
+                      <Badge tone={a.resuelta ? 'green' : 'red'}>
+                        {a.resuelta ? 'Revisada' : 'Activa'}
+                      </Badge>
+                      <span className="font-mono text-xs text-slate-500">{a.motivo}</span>
+                      <span className="text-xs text-slate-400">{datetime(a.fecha)}</span>
+                    </div>
+                    <p className="text-sm text-slate-800">{a.resumen}</p>
+                  </div>
+                  {puedeEditar && !a.resuelta && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={resolveMut.isPending}
+                      onClick={() => resolveMut.mutate(a.id)}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Marcar como revisada
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </CardBody>
       </Card>
 
@@ -159,6 +276,17 @@ export function SupplierDetailPage() {
           )}
         </CardBody>
       </Card>
+
+      <SupplierFormModal
+        open={editarOpen}
+        onClose={() => setEditarOpen(false)}
+        initial={prov}
+        saving={updateMut.isPending}
+        serverError={actionError}
+        onSubmit={async (data) => {
+          await updateMut.mutateAsync(data);
+        }}
+      />
     </div>
   );
 }

@@ -1,45 +1,66 @@
 # Etapas de la subida progresiva al GitLab del evento (día 1). Las usa scripts/subir-por-etapas.sh.
 #
 # Cada etapa es un commit sobre la copia limpia (la de scripts/preparar-entrega.sh) y AÑADE sus archivos
-# a lo ya subido. El reparto sigue la AUTORÍA REAL de cada parte, tal como la acordó el equipo:
-#   - frontend/ (React + Vite + TypeScript), rama javier de GitHub  -> Javier Rodríguez, rama javier
-#   - backend/  (Python + FastAPI, agente e ingesta), rama enggel  -> Enggel Rodríguez, rama enggel
-#   - estructura inicial, material del reto y documentación de entrega -> Diego Landaeta, rama diego
-# El orden sigue la cronología de GitHub (git log --date=iso): estructura (11:34), backend (13:42-14:27),
-# frontend (14:08) y, al final, la documentación de entrega.
+# a lo ya subido. En el GitLab del evento (propuesta_servicios) los autores son SOLO Javier y Enggel:
+#   - backend/ (Python + FastAPI, agente e ingesta), rama enggel de GitHub -> Enggel Rodriguez, rama enggel;
+#     con él va el material oficial del reto (docs/reto/: enunciado, proyecto y lote de 10 propuestas, que
+#     usa el modo lote) y el .gitignore del proyecto.
+#   - frontend/ (React + Vite + TypeScript), rama javier de GitHub -> Javier Rodriguez, rama javier.
+#   - EN ESPERA (estado espera: no se confirman ni se suben todavía): la documentación de entrega (README
+#     final, matriz, flujo de GitLab, plantilla de MR, CODEOWNERS y ganchos), que no es de Javier ni de
+#     Enggel, y las etapas de Giovani Marcano (pruebas, evidencias y demo), que aún no existen.
+# Orden cronológico real (git log --date=iso de las ramas enggel, javier y staging):
+#   13:42 backend completo (enggel) · 14:08 frontend (javier) · 14:10-14:27 backend: SSE, descargas,
+#   OCR, Word/Excel/CSV, dashboard, WAL y CORS (enggel) · 14:54-15:06 frontend: seguridad npm,
+#   accesibilidad, roles, contrato real y formatos (javier) · 15:00-15:35 correcciones de la revisión del
+#   backend (enggel). Las etapas siguen ese orden por partes del árbol: backend-nucleo y backend-agente
+#   (13:42), frontend (14:08, una sola etapa: App.tsx enlaza todas las páginas y partido no compila) y
+#   backend-api (API, informes y modo lote en su forma de 14:10-15:35). Cada etapa se prueba sobre su
+#   propio árbol (pytest y build del frontend) con --sobre-gitlab.
 #
-# AVISO DE AUTORÍA (ver scripts/README-entrega.md, «Autoría»): en GitHub los 4 commits de la rama enggel
-# figuran firmados por "Diego Landaeta" y el de la rama javier por "Javier <javier@equipo.local>" (correo
-# que no es real). Por eso el autor de esas etapas NO se toma de git: se indica con --autor-enggel y
-# --autor-javier ("Nombre Apellido <correo con el que cada uno entra al GitLab del evento>").
+# AVISO DE AUTORÍA (ver scripts/README-entrega.md, «Autoría»): en GitHub los commits de la rama enggel
+# hasta las 15:43 figuran firmados por "Diego Landaeta" y el de la rama javier por "Javier
+# <javier@equipo.local>" (correo que no es real). Por eso el autor de esas etapas NO se toma de git: se
+# indica con --autor-enggel y --autor-javier (su identidad en el GitLab del evento):
+#   --autor-enggel "Enggel Rodriguez <1017-metagamingprohd@users.noreply.gitlab.nube.gob.ve>"
+#   --autor-javier "Javier Rodriguez <1015-jarmolina2015@users.noreply.gitlab.nube.gob.ve>"
 #
 # Formato: una línea "clave valor"; "etapa <id>" abre una etapa nueva.
 #   etapa    identificador corto (único)
 #   mensaje  mensaje del commit, en castellano
 #   autor    "Nombre Apellido <correo>", o AUTOR_JAVIER / AUTOR_ENGGEL (se sustituyen por --autor-javier /
-#            --autor-enggel, obligatorios)
-#   rama     rama de trabajo de GitLab que recibe el commit: diego, javier o enggel
+#            --autor-enggel, obligatorios: la identidad de GitLab, p. ej. el correo noreply personal)
+#   rama     rama de trabajo de GitLab que recibe el commit: javier o enggel (diego y giovani también existen)
+#   cuerpo   una línea del cuerpo del mensaje (repetible, mínimo 2): qué módulos/archivos incluye y qué
+#            requisito del reto cubre. El script añade «Pruebas ejecutadas: ...» con el resultado real.
+#   issue    issue(s) de GitLab que la etapa cierra («Closes #n»); refs: issue(s) relacionados («Refs #n»)
+#   estado   "espera": la etapa reparte sus archivos pero no se confirma ni se sube (trabajo pendiente o sin
+#            autor asignado); puede no tener autor ni archivos todavía
 #   ruta     archivos que incorpora (repetible). Misma sintaxis que exclusiones-entrega.txt:
 #            sin "/" coincide en cualquier carpeta, por eso los archivos de la raíz llevan "/" delante;
 #            "carpeta/" es todo su contenido; "*" no cruza carpetas; "!patrón" lo quita de ESTA etapa.
 #
 # Reglas de reparto: cada archivo de la copia limpia va a la PRIMERA etapa que lo incluye; ningún
-# archivo puede quedar sin etapa, ninguna etapa puede quedar vacía y una ruta que no coincide con nada
+# archivo puede quedar sin etapa, ninguna etapa (salvo en espera) puede quedar vacía y una ruta que no coincide con nada
 # es un error (así se detectan erratas y archivos renombrados). Lo excluido nunca llega aquí.
-
-etapa    estructura
-mensaje  Estructura del repositorio y material del reto (enunciado, proyecto y 10 propuestas de ejemplo)
-autor    Diego Landaeta <diego.a.programmer@gmail.com>
-rama     diego
-ruta     /.gitignore
-ruta     backend/.gitkeep
-ruta     docs/reto/
 
 etapa    backend-nucleo
 mensaje  Backend: configuración, cifrado AES-256-GCM en reposo, modelos de datos, roles y almacenamiento cifrado
 autor    AUTOR_ENGGEL
 rama     enggel
+cuerpo   Incluye backend/pyproject.toml y backend/README.md, backend/.env.example (sin secretos), la configuración y la seguridad
+cuerpo   (backend/app/core/), la base de datos y sus modelos (backend/app/db/), los esquemas de la API
+cuerpo   (backend/app/schemas/), el almacenamiento cifrado y la auditoría (backend/app/services/storage/ y audit/),
+cuerpo   con sus pruebas (conftest y test_crypto_and_storage). Trae también el material oficial del reto
+cuerpo   (docs/reto/: enunciado, proyecto y lote de 10 propuestas) y el .gitignore del proyecto.
+cuerpo   Cubre el cifrado en reposo y la gestión de roles exigidos por el reto (seguridad de los documentos).
+refs     14
+ruta     /.gitignore
+ruta     backend/.gitkeep
+ruta     docs/reto/
 ruta     backend/pyproject.toml
+# pyproject.toml declara backend/README.md como readme del paquete: sin él no se instala para las pruebas.
+ruta     backend/README.md
 ruta     backend/.env.example
 ruta     backend/app/__init__.py
 ruta     backend/app/core/
@@ -55,6 +76,13 @@ etapa    backend-agente
 mensaje  Backend: ingesta multimodal (PDF, imágenes con OCR o visión, XLSX), auditoría técnica, TCO, tasa BCV y búsqueda de precios
 autor    AUTOR_ENGGEL
 rama     enggel
+cuerpo   Incluye la ingesta de documentos (backend/app/services/ingestion/: PDF con texto oculto, OCR local con
+cuerpo   Tesseract en memoria, visión por API, Word, Excel, CSV y texto), el cliente de modelos de IA
+cuerpo   (services/llm/), el agente auditor (services/agent/: aritmética exacta, alcance, compatibilidad,
+cuerpo   condiciones abusivas e inyección de prompt), el contraste de precios de mercado (services/market/) y
+cuerpo   el costo total real con la tasa BCV (services/finance/), con test_ingestion_and_security.
+cuerpo   Cubre la lectura multimodal, la auditoría de cada propuesta, el TCO y la detección de sobreprecios del reto.
+refs     14
 ruta     backend/app/services/ingestion/
 ruta     backend/app/services/llm/
 ruta     backend/app/services/agent/
@@ -62,10 +90,32 @@ ruta     backend/app/services/market/
 ruta     backend/app/services/finance/
 ruta     backend/tests/test_ingestion_and_security.py
 
+etapa    frontend
+mensaje  Frontend: React + Vite + TypeScript con proyectos, carga de propuestas, trazabilidad en vivo, informe comparativo, revisión, proveedores, auditoría y chat
+autor    AUTOR_JAVIER
+rama     javier
+cuerpo   Incluye el proyecto Vite (frontend/package.json, package-lock.json, tsconfig, Tailwind, PostCSS,
+cuerpo   index.html, public/), el cliente de la API y del SSE (src/api/), la sesión y los roles (src/context/,
+cuerpo   ProtectedRoute), los diseños y componentes base, las páginas (panel, proyecto, proveedores, usuarios,
+cuerpo   auditoría e inicio de sesión) y los componentes de negocio (carga de propuestas, trazabilidad en vivo,
+cuerpo   informe comparativo, revisión y adjudicación, chat), con frontend/README.md y frontend/.env.example.
+cuerpo   Va en una sola etapa porque llegó completo en el commit de 14:08 y App.tsx enlaza todas las páginas:
+cuerpo   partido no compila. Está en su forma tras las correcciones de 14:54 a 15:06 (dependencias sin
+cuerpo   vulnerabilidades, accesibilidad, permisos por rol y contrato real del backend).
+cuerpo   Cubre la interfaz web del reto: del documento del proyecto al dictamen y su revisión humana.
+issue    15
+ruta     frontend/
+
 etapa    backend-api
 mensaje  Backend: API REST y SSE, informes PDF/Markdown/Excel/CSV, modo lote salida.json, TLS y pruebas de extremo a extremo
 autor    AUTOR_ENGGEL
 rama     enggel
+cuerpo   Incluye la API REST y la trazabilidad en vivo por SSE (backend/app/api/, main.py, run.py), los informes
+cuerpo   PDF, Markdown, Excel y CSV (services/reports/), el modo lote que genera salida.json (backend/app/cli/),
+cuerpo   la terminación TLS 1.2+ (backend/nginx/, backend/scripts/) y el resto de pruebas
+cuerpo   (extremo a extremo y regresiones de la revisión técnica), en su forma tras las correcciones de 15:35.
+cuerpo   Cubre el informe comparativo, la entrega del lote oficial en salida.json y el cifrado en tránsito.
+issue    14
 ruta     backend/app/
 ruta     backend/nginx/
 ruta     backend/scripts/
@@ -74,42 +124,45 @@ ruta     backend/README.md
 # Cualquier otro archivo nuevo de backend/ (p. ej. migraciones) entra aquí.
 ruta     backend/
 
-etapa    frontend-base
-mensaje  Frontend: proyecto React + Vite + TypeScript, cliente de la API, sesión, roles y componentes base
-autor    AUTOR_JAVIER
-rama     javier
-ruta     frontend/package.json
-ruta     frontend/package-lock.json
-ruta     frontend/index.html
-ruta     frontend/postcss.config.js
-ruta     frontend/tailwind.config.js
-ruta     frontend/tsconfig.json
-ruta     frontend/vite.config.ts
-ruta     frontend/.env.example
-ruta     frontend/public/
-ruta     frontend/src/main.tsx
-ruta     frontend/src/App.tsx
-ruta     frontend/src/index.css
-ruta     frontend/src/api/
-ruta     frontend/src/lib/
-ruta     frontend/src/context/
-ruta     frontend/src/layouts/
-ruta     frontend/src/components/ui/
-ruta     frontend/src/components/ProtectedRoute.tsx
-
-etapa    frontend-modulos
-mensaje  Frontend: proyectos, carga de propuestas, trazabilidad en vivo, informe comparativo, revisión, proveedores, auditoría y chat
-autor    AUTOR_JAVIER
-rama     javier
-ruta     frontend/
-
 etapa    documentacion
-mensaje  Documentación de entrega: README con los apartados de la plantilla del evento, matriz de cumplimiento, flujo de GitLab, plantilla de Merge Request y ganchos de git
-autor    Diego Landaeta <diego.a.programmer@gmail.com>
-rama     diego
+estado   espera
+mensaje  Documentación de entrega: README con la plantilla del evento, matriz de cumplimiento, flujo de GitLab, plantilla de Merge Request y ganchos de git
+rama     enggel
+cuerpo   En espera: no es trabajo de Javier ni de Enggel. Mientras tanto queda en desarrollo el README del
+cuerpo   organizador. Falta decidir quién la sube (y con qué autoría) antes del Merge Request final.
 ruta     /README.md
 ruta     docs/cumplimiento/
 ruta     docs/entrega/
 ruta     .gitlab/
+ruta     .github/
 ruta     scripts/hooks/
 ruta     /scripts/instalar-hooks.sh
+
+etapa    pruebas-lote
+estado   espera
+mensaje  Pruebas del backend y validación del lote oficial
+autor    Giovani Marcano <1014-gregoriogonzales2011@users.noreply.gitlab.nube.gob.ve>
+rama     giovani
+cuerpo   En espera (issue #13 de GitLab): pruebas del backend y validación del lote oficial de 10 propuestas
+cuerpo   con salida.json; se añadirá cuando exista en GitHub y esté aprobada.
+issue    13
+ruta     docs/evidencias/pruebas-*
+
+etapa    evidencias
+estado   espera
+mensaje  Evidencias de pruebas y calidad
+autor    Giovani Marcano <1014-gregoriogonzales2011@users.noreply.gitlab.nube.gob.ve>
+rama     giovani
+cuerpo   En espera: evidencias de pruebas, cobertura y calidad del sistema; se añadirán cuando existan en
+cuerpo   GitHub y estén aprobadas.
+ruta     docs/evidencias/
+
+etapa    demo
+estado   espera
+mensaje  Demo de punta a punta con las 10 propuestas sobre staging
+autor    Giovani Marcano <1014-gregoriogonzales2011@users.noreply.gitlab.nube.gob.ve>
+rama     giovani
+cuerpo   En espera (issue #12 de GitLab): guion y registro de la demostración de punta a punta con el lote de
+cuerpo   10 propuestas; se añadirá cuando exista en GitHub y esté aprobada.
+issue    12
+ruta     docs/demo/

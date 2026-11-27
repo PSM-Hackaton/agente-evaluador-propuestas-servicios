@@ -9,6 +9,8 @@ import { Alert, Badge, Button } from './ui';
 interface FileDropzoneProps {
   accept?: string;
   multiple?: boolean;
+  maxFiles?: number;
+  currentCount?: number;
   onUpload: (files: File[]) => Promise<void> | void;
   disabled?: boolean;
   uploading?: boolean;
@@ -18,6 +20,8 @@ interface FileDropzoneProps {
 export function FileDropzone({
   accept = ACCEPT_PROPUESTAS,
   multiple = true,
+  maxFiles = 20,
+  currentCount = 0,
   onUpload,
   disabled = false,
   uploading = false,
@@ -27,6 +31,7 @@ export function FileDropzone({
   const [dragging, setDragging] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
   const [rejected, setRejected] = useState<string[]>([]);
+  const [limitWarning, setLimitWarning] = useState<string | null>(null);
 
   const addFiles = (incoming: FileList | File[]) => {
     const arr = Array.from(incoming);
@@ -39,12 +44,28 @@ export function FileDropzone({
     }
     setRejected(invalid);
     if (!valid.length) return;
-    setQueue((prev) => {
-      if (!multiple) return [valid[0]];
-      const map = new Map(prev.map((x) => [x.name, x]));
-      valid.forEach((f) => map.set(f.name, f));
-      return Array.from(map.values());
-    });
+    if (!multiple) {
+      setLimitWarning(null);
+      setQueue([valid[0]]);
+      return;
+    }
+
+    const disponibles = Math.max(0, maxFiles - currentCount);
+    const map = new Map(queue.map((x) => [x.name, x]));
+    valid.forEach((f) => map.set(f.name, f));
+    const merged = Array.from(map.values());
+
+    if (merged.length > disponibles) {
+      setLimitWarning(
+        disponibles === 0
+          ? `Se alcanzó el máximo permitido de ${maxFiles} propuestas en el proyecto.`
+          : `El límite es de ${maxFiles} propuestas por proyecto (ya hay ${currentCount} cargadas). Solo se admitieron ${disponibles} archivo(s) en la cola.`,
+      );
+      setQueue(merged.slice(0, disponibles));
+    } else {
+      setLimitWarning(null);
+      setQueue(merged);
+    }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -59,6 +80,7 @@ export function FileDropzone({
     await onUpload(queue);
     setQueue([]);
     setRejected([]);
+    setLimitWarning(null);
     if (inputRef.current) inputRef.current.value = '';
   };
 
@@ -110,9 +132,17 @@ export function FileDropzone({
           Arrastra aquí las propuestas o haz clic para seleccionar archivos
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          Formatos admitidos: PDF (digital o escaneado), hojas de cálculo (.xlsx, .xls, .csv), imágenes o manuscritos (.jpg, .png, .webp, .tiff), capturas de chat y documentos (.docx, .txt). De 3 a 20 o más archivos.
+          Formatos admitidos: PDF (digital o escaneado), hojas de cálculo (.xlsx, .xls, .csv), imágenes o manuscritos (.jpg, .png, .webp, .tiff), capturas de chat y documentos (.docx, .txt). De 3 a {maxFiles} archivos por proyecto.
         </p>
       </div>
+
+      {limitWarning && (
+        <div role="alert">
+          <Alert tone="warning" title="Límite de propuestas alcanzado">
+            {limitWarning}
+          </Alert>
+        </div>
+      )}
 
       {rejected.length > 0 && (
         <Alert tone="warning" title="Archivos omitidos por formato no admitido">
@@ -127,7 +157,15 @@ export function FileDropzone({
               {queue.length} {queue.length === 1 ? 'archivo listo' : 'archivos listos'} para cargar
             </span>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setQueue([])} disabled={uploading}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setQueue([]);
+                  setLimitWarning(null);
+                }}
+                disabled={uploading}
+              >
                 Limpiar
               </Button>
               <Button size="sm" onClick={handleUpload} loading={uploading} disabled={disabled}>

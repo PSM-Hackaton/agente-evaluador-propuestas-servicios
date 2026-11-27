@@ -1,18 +1,40 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Building2, MapPin, Phone, Search } from 'lucide-react';
-import { api } from '../api';
-import { Alert, Badge, Card, CardBody, EmptyState, Spinner } from '../components/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Building2, MapPin, Phone, Plus, Search } from 'lucide-react';
+import { api, type ProveedorInput } from '../api';
+import { SupplierFormModal } from '../components/SupplierFormModal';
+import { useAuth } from '../context/AuthContext';
+import { can } from '../lib/roles';
+import { Alert, Badge, Button, Card, CardBody, EmptyState, Spinner } from '../components/ui';
 
 export function SuppliersPage() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
   const [busqueda, setBusqueda] = useState('');
   const [soloAlertas, setSoloAlertas] = useState(false);
+  const [crearOpen, setCrearOpen] = useState(false);
+  const [crearError, setCrearError] = useState<string | null>(null);
 
   const { data: proveedores = [], isLoading, error } = useQuery({
     queryKey: ['suppliers'],
     queryFn: api.suppliers.list,
   });
+
+  const createMut = useMutation({
+    mutationFn: (data: ProveedorInput) => api.suppliers.create(data),
+    onSuccess: async () => {
+      setCrearOpen(false);
+      setCrearError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['suppliers'] }),
+        qc.invalidateQueries({ queryKey: ['audit'] }),
+      ]);
+    },
+    onError: (e) => setCrearError(e instanceof Error ? e.message : 'No se pudo registrar el proveedor'),
+  });
+
+  const puedeCrear = can(user?.rol, 'proveedor.crear');
 
   const conAlertas = proveedores.filter((p) => p.alerta).length;
   const q = busqueda.trim().toLowerCase();
@@ -36,9 +58,21 @@ export function SuppliersPage() {
             Fichas registradas, participaciones previas y alertas automáticas de evaluación
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge tone="slate">{proveedores.length} registrados</Badge>
           {conAlertas > 0 && <Badge tone="red">{conAlertas} con alertas</Badge>}
+          {puedeCrear && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setCrearError(null);
+                setCrearOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Nuevo proveedor
+            </Button>
+          )}
         </div>
       </div>
 
@@ -149,6 +183,16 @@ export function SuppliersPage() {
           </CardBody>
         </Card>
       )}
+
+      <SupplierFormModal
+        open={crearOpen}
+        onClose={() => setCrearOpen(false)}
+        saving={createMut.isPending}
+        serverError={crearError}
+        onSubmit={async (data) => {
+          await createMut.mutateAsync(data);
+        }}
+      />
     </div>
   );
 }
