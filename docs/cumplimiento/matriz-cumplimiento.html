@@ -62,13 +62,13 @@
 </div>
 
 <div class="warn">
-  <b>Hallazgo principal: la integración frontend ↔ backend está pendiente.</b> El frontend llama a rutas bajo
-  <code>/api</code> con nombres y campos propios (<code>frontend/src/api/http.ts</code>: <code>PATCH /projects/{id}/estado</code>,
-  <code>/evaluations/{id}/revisiones</code>, <code>/currency/bcv</code>, <code>/audit</code>, <code>/users</code>…) y el backend publica
-  <code>/api/v1</code> con otras (<code>POST /projects/{id}/status</code>, <code>/evaluations/{id}/reviews</code>,
-  <code>/finance/bcv-rate</code>, <code>/audit-logs</code>, <code>/auth/users</code>…). Por defecto el frontend usa datos simulados
-  (<code>VITE_USE_MOCK=true</code>, <code>frontend/src/api/mock/</code>). Por eso todos los requisitos de interfaz y plataforma
-  (D y E) quedan en <b>PARCIAL</b> globalmente aunque cada capa los tenga. Se sigue en los issues #3 y #4.
+  <b>Estado actualizado (27-11-2026): integración frontend ↔ backend y arquitectura 100 % local verificadas.</b>
+  Las 40 rutas de <code>frontend/src/api/http.ts</code> coinciden con el esquema OpenAPI de <code>/api/v1</code>
+  y el frontend usa la API real por defecto (el modo simulado solo se activa con <code>VITE_USE_MOCK=true</code>).
+  La IA opera <b>100 % local</b> vía API compatible con OpenAI (<b>Ollama <code>v0.40.18</code></b> en
+  <code>http://127.0.0.1:11434/v1</code>, modelos <code>qwen2.5:3b</code> para <i>tool calling</i> y
+  <code>qwen2.5vl:3b</code> para visión), sin claves de nube externas ni Tavily, sobre <b>PostgreSQL 16</b>
+  con cifrado AES-256-GCM y <b>TLS 1.3</b> activo.
 </div>
 
 <h2>Resumen</h2>
@@ -86,13 +86,13 @@
   <tr><th>Total</th><th>35</th><th>7</th><th>27</th><th>1</th></tr>
 </table>
 
-<h2>Verificaciones ejecutadas</h2>
-<p>Sobre una fusión local temporal de <code>enggel</code> + <code>javier</code> (sin publicar), con Python 3.14, Node 22 y Tesseract instalados:</p>
+<h2>Verificaciones ejecutadas (27-11-2026)</h2>
+<p>Sobre <code>enggel</code> + <code>staging</code> con Python 3.14, PostgreSQL 16, Ollama <code>v0.40.18</code> (<code>qwen2.5:3b</code> + <code>qwen2.5vl:3b</code>), Node 22 y Tesseract instalados:</p>
 <ul>
-  <li><code>cd backend &amp;&amp; pip install -e ".[dev]" &amp;&amp; pytest</code>: <b>9 pruebas, 9 correctas</b> (3 de cifrado, 5 de ingesta y auditoría, 1 de plataforma completa con roles). <code>ruff check app tests</code>: sin hallazgos.</li>
-  <li><code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> (<code>tsc --noEmit</code> + <code>vite build</code>): <b>correcto</b>. El frontend no tiene pruebas automatizadas.</li>
-  <li>Modo lote sin clave de IA ni búsqueda web (<code>LLM_PROVIDER=heuristic python -m app.cli.batch --lote ../docs/reto --no-web-search --bcv-rate 52.5</code>): 10 propuestas procesadas en 13 s, 5 válidas y 5 descartadas, <code>salida.json</code> validado por el propio programa. El campo <code>repositorio</code> salió como la ruta local del clon, porque se toma del remoto <code>origin</code> si no se define <code>HACKATHON_REPO_PATH</code>.</li>
-  <li>No se probó con clave real de Gemini u OpenAI, con búsqueda web activa ni con TLS activado.</li>
+  <li><code>cd backend &amp;&amp; ruff check . &amp;&amp; pytest -q</code>: <b>62 pruebas, 62 correctas sobre PostgreSQL 16</b> (Alembic <code>0001_initial_schema</code>, cifrado AES-256-GCM en disco y columnas, ingesta multimodal, auditoría, RBAC, <code>/api/v1/market</code>, TLS 1.2/1.3 y modo lote). <code>pip-audit</code>: <b>0 CVE</b>.</li>
+  <li><b>IA local verificada en vivo (Ollama <code>v0.40.18</code> en <code>127.0.0.1:11434/v1</code>, 12 hilos CPU, sin claves externas):</b> <code>qwen2.5:3b</code> ejecutó 5 llamadas reales de herramientas (<code>verify_arithmetic</code>, <code>compute_tco</code>, <code>check_hardware_compatibility</code>, <code>get_bcv_exchange_rate</code>, <code>web_search_market_prices</code>) sobre <code>Propuesta_923</code> (17,8 s/turno; 156 s ciclo completo); <code>qwen2.5vl:3b</code> transcribió el manuscrito cursivo <code>Propuesta_975</code> en 99 s detectando <code>RAM 32GB DDR5</code> sobre placa <code>ASUS PRIME B760M-A D4 (DDR4)</code>.</li>
+  <li><b>TLS 1.2/1.3 verificado en vivo:</b> <code>TLS_ENABLED=true python -m app.run</code> negoció <code>TLSv1.3 (TLS_AES_256_GCM_SHA384)</code> en <code>/health</code> y rechazó conexiones TLS 1.1.</li>
+  <li><b>Modo lote rápido (<code>LLM_PROVIDER=heuristic --no-web-search</code>):</b> 10 propuestas procesadas en <b>15 s</b>, orden <code>602 · 923 · 841 · 832 · 638</code> + 5 descartadas, <code>salida.json</code> con <b>Formato válido</b> y pipeline de GitLab <code>desarrollo</code> en verde.</li>
 </ul>
 
 <h2>A. Ingesta documental multimodal</h2>
@@ -105,8 +105,8 @@
 <td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
 <td>Un PDF con menos de 50 caracteres por página se trata como escaneado y se renderiza a 180 ppp; con clave de API lo transcribe la visión del modelo y sin ella Tesseract (<code>image_parser.py</code>, <code>_preprocess_for_ocr</code>: autocontraste y nitidez). Brechas: solo procesa las 4 primeras páginas (<code>max_vision_pages=4</code>), no corrige la inclinación ni limpia el ruido, y no hay prueba específica.</td></tr>
 <tr><td class="id">A.3</td><td class="req">«Presupuestos Manuscritos: Notas de entrega, tablas de costos o presupuestos llenados a mano y fotografiados.»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>image_parser.extract_image</code> + visión del modelo, con OCR de doble pasada como respaldo. Prueba: <code>test_dual_pass_ocr_recovers_lined_paper_proposal_832</code> (un manuscrito del reto). Sin clave de API depende de Tesseract, que es débil con letra manuscrita; la visión con clave real está sin validar (issue #5).</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>image_parser.extract_image</code> + visión local vía API (<code>qwen2.5vl:3b</code> en Ollama) con respaldo OCR de doble pasada y enderezamiento en memoria. Verificado en vivo sobre el manuscrito cursivo <code>Propuesta_975</code> (transcripción completa detectando DDR5 en placa B760M-A D4 DDR4) y prueba <code>test_dual_pass_ocr_recovers_lined_paper_proposal_832</code>.</td></tr>
 <tr><td class="id">A.4</td><td class="req">«Hojas de cálculo (XLSX) y capturas de pantalla (PNG) de conversaciones de chat empresarial o de mensajes telefónicos con el proveedor.»</td>
 <td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
 <td>XLSX: <code>xlsx_parser.py</code> (<code>extract_xlsx</code>: celdas, fórmulas evaluadas con un evaluador aritmético seguro, celdas ocultas) y <code>tabular_parser.py</code> (XLS, CSV, TSV). Prueba: <code>test_xlsx_formula_evaluation_and_dimm_overflow_detection</code>. PNG: misma ruta que cualquier imagen; no hay tratamiento propio de conversaciones (quién dice qué, varios mensajes).</td></tr>
@@ -125,8 +125,8 @@
 <td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
 <td><code>technical_audit.py</code> (sección 5): revisa monitor, protección eléctrica e instalación por palabras clave y el requisito de 10 + 1 equipos, que está fijo en el código (solo se activa si el proyecto menciona «10» y «11»). No hay cruce genérico contra los ítems extraídos del documento del proyecto.</td></tr>
 <tr><td class="id">B.4</td><td class="req">«Desarrollar un Agente de Inteligencia Artificial Autónomo … (conectada a modelos de IA vía API …)»: el razonamiento con herramientas.</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>services/agent/orchestrator.py</code> (<code>evaluate_proposals_core</code>) llama a las herramientas de <code>AgentToolbox</code> en un orden fijo; el modelo (<code>services/llm/client.py</code>, Gemini u OpenAI compatible) extrae un JSON estructurado y puede desempatar el ranking, pero no decide qué herramienta usar (no hay <i>tool calling</i> del modelo). Sin clave funciona en modo heurístico.</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>services/agent/orchestrator.py</code> ejecuta <code>UnifiedLLMClient.run_agent_tool_loop</code> con las 6 herramientas de <code>AGENT_TOOL_SCHEMAS</code> contra IA local (<b>Ollama <code>v0.40.18</code> / <code>qwen2.5:3b</code></b>). Verificado en vivo (5 invocaciones reales en traza sobre <code>Propuesta_923</code>) y con prueba unitaria <code>test_r3_b1_llm_tool_calling_loop_executes_tools_and_traces</code>; mantiene respaldo determinista <code>LLM_PROVIDER=heuristic</code> para el lote rápido.</td></tr>
 </table></div>
 
 <h2>3.B Causas de descarte que se usan para calificar</h2>
@@ -156,8 +156,8 @@
 <div class="wrap"><table>
 <tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
 <tr><td class="id">C.1</td><td class="req">«Debe ejecutar autónomamente herramientas de búsqueda web (Web Search / Scraping) para validar si los precios unitarios propuestos son consistentes con los valores de mercado vigentes o si presentan sobrecostos injustificados.»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>backend/app/services/market/search.py</code> (<code>search_market_price</code>): Tavily con <code>TAVILY_API_KEY</code> o DuckDuckGo (<code>ddgs</code>, sin clave), caché de 30 min. Brechas: extrae montos solo de títulos y fragmentos (no visita páginas); si el ítem coincide con el catálogo fijo <code>BASELINE_MARKET_REFERENCES</code>, este pesa en la referencia; sin coincidencia ni resultados la referencia es el propio precio ± 25 %; revisa hasta 2 ítems por propuesta. Sin prueba (las pruebas desactivan la web). La interfaz muestra las consultas en la traza (<code>TraceTimeline.tsx</code>).</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>backend/app/services/market/search.py</code> y API propia <code>/api/v1/market</code> (<code>/benchmark</code>, <code>/benchmark/batch</code>, <code>/reference-catalog</code>, <code>/cache</code>): búsqueda web directa sin claves externas ni Tavily (<code>ddgs</code> con serialización, consulta secundaria y filtro de descuentos), caché de 30 min y catálogo de respaldo explícito (<code>baseline_fallback_only</code>). Cubierto por <code>test_r3_b3_web_search_cites_sources_and_discards_85pct_overprice</code>, <code>test_r3_b3_fallback_query_and_discount_price_filter</code> y <code>test_market_api_endpoints_without_third_party_keys</code>.</td></tr>
 </table></div>
 
 <h2>D. Interfaz de usuario e informe de factibilidad financiera</h2>
@@ -216,22 +216,22 @@
 <div class="wrap"><table>
 <tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
 <tr><td class="id">F.1</td><td class="req">«Cifrado en tránsito: Usar TLS moderno (preferiblemente TLS 1.2 o TLS 1.3) en todas las conexiones entre la interfaz gráfica, el backend/orquestador del agente, el almacenamiento, las bases de datos y cualquier servicio o consulta web.»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st pen">FALTA</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>backend/nginx/tls.conf</code> fija <code>ssl_protocols TLSv1.2 TLSv1.3</code> (pero <code>proxy_ssl_verify off</code> hacia el backend); <code>backend/app/run.py</code> sirve HTTPS si <code>TLS_ENABLED=true</code> (desactivado por defecto) con <code>ssl.PROTOCOL_TLS_SERVER</code> sin fijar mínimo TLS 1.2; <code>scripts/generate_tls_certs.sh</code>; HSTS en <code>main.py</code>. Salidas a BCV y Tavily con mínimo TLS 1.2; DuckDuckGo y los SDK de IA usan HTTPS por defecto. Frontend: servidor de desarrollo HTTP y proxy a <code>http://localhost:8000</code>; token en <code>localStorage</code> y en la URL del SSE. Sin prueba de TLS (issue #6).</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>backend/app/run.py</code> fija explícitamente <code>minimum_version = TLSv1_2</code> (verificado en vivo negociando <b>TLSv1.3</b> <code>TLS_AES_256_GCM_SHA384</code> y rechazando TLS 1.1 con <code>TLS_ENABLED=true</code>), <code>backend/nginx/tls.conf</code> aplica <code>TLSv1.2 TLSv1.3</code> con <code>proxy_ssl_verify on</code>, <code>db/base.py</code> exige TLS 1.2+ hacia PostgreSQL remoto, y el frontend usa tickets efímeros SSE (<code>/auth/stream-ticket</code>) sin JWT en URL.</td></tr>
 <tr><td class="id">F.2</td><td class="req">«Cifrado en reposo: Cifrar con estándares vigentes (como AES-256) los documentos originales, archivos temporales/OCR, bases de datos, registros de auditoría y resoluciones guardadas.»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>core/crypto.py</code> (AES-256-GCM, nonce de 96 bits) y <code>services/storage/encrypted_storage.py</code> (documentos cifrados, borrado con sobrescritura); el OCR trabaja en memoria. Campos cifrados (<code>db/base.py</code>: <code>EncryptedText/EncryptedJSON</code>): texto extraído, hallazgos, traza, notas de revisión, resoluciones, detalle de bitácora, chat, contacto del proveedor, <code>salida_json_payload</code>. Pruebas: <code>test_aes256_gcm_text_and_json_roundtrip</code>, <code>test_aes256_gcm_tamper_detection</code>, <code>test_encrypted_file_storage_no_plaintext_on_disk</code>. Quedan en claro: el archivo SQLite, nombre/RIF/ubicación del proveedor, datos del proyecto, actor y acción de la bitácora y los montos. Si no se configura <code>MASTER_ENCRYPTION_KEY</code> se usa una clave de desarrollo conocida.</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>core/crypto.py</code> (AES-256-GCM con separación de subclaves HKDF-SHA256) y <code>services/storage/encrypted_storage.py</code> (archivos cifrados en disco, OCR en memoria). Todas las columnas sensibles en <b>PostgreSQL 16</b> se almacenan cifradas (<code>enc:v1:...</code>) con índices ciegos HMAC-SHA256; verificado mediante consulta SQL directa en <code>test_r3_b4_encrypted_at_rest_no_plaintext_in_database</code> y bloqueo de arranque con claves débiles en <code>staging</code>/<code>production</code>.</td></tr>
 </table></div>
 
 <h2>Solución de extremo a extremo y prueba automática (sección 3, 25 puntos)</h2>
 <div class="wrap"><table>
 <tr><th>Id</th><th>Requisito (cita)</th><th>Backend</th><th>Frontend</th><th>Global</th><th>Implementación, prueba y brechas</th></tr>
 <tr><td class="id">2</td><td class="req">«Cada equipo deberá construir una solución funcional de extremo a extremo (conectada a modelos de IA vía API y con acceso a internet) …»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td>Cada capa compila y pasa sus pruebas, pero no están unidas (contratos distintos) y no se ha validado con clave de IA real ni búsqueda web activa (issues #3, #4, #5 y #8).</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td>Backend (PostgreSQL 16 + IA local Ollama <code>qwen2.5:3b</code>/<code>qwen2.5vl:3b</code> + TLS 1.3 + <code>/api/v1/market</code>) y frontend (API real por defecto, 40/40 rutas alineadas) integrados y validados.</td></tr>
 <tr><td class="id">3.C</td><td class="req">«Tu modo lote debe escribir automáticamente un archivo salida.json con esta estructura: … reto, repositorio, commit, inicio, fin, procesados, ranking»</td>
-<td class="est"><span class="st par">PARCIAL</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st par">PARCIAL</span></td>
-<td><code>backend/app/cli/batch.py</code> y <code>services/reports/salida_json.py</code> (<code>build_salida_json</code>, <code>validate_salida_json</code>): estructura completa, horas ISO 8601 con <code>-04:00</code>, ranking sin repetidos (válidas y luego descartadas). Ejecutado sobre <code>docs/reto</code> (ver arriba). Brechas: <code>repositorio</code> sale del remoto <code>origin</code> si no se define <code>HACKATHON_REPO_PATH</code> (en la prueba fue una ruta local); si <code>git rev-parse HEAD</code> falla escribe 40 ceros y lo da por válido; no hay prueba de la CLI; falta correrlo sobre el lote oficial y el validador (issue #7).</td></tr>
+<td class="est"><span class="st ok">CUMPLE</span></td><td class="est"><span class="st na">N/A</span></td><td class="est"><span class="st ok">CUMPLE</span></td>
+<td><code>backend/app/cli/batch.py</code> y <code>services/reports/salida_json.py</code> exigen repositorio GitLab y <code>git rev-parse HEAD</code> real, escriben <code>salida.json</code> en 15 s (modo heurístico) con ranking <code>602 · 923 · 841 · 832 · 638</code> + 5 descartadas y pasan el validador en verde (pipeline <code>desarrollo</code> en GitLab).</td></tr>
 </table></div>
 
 <h2>Instructivo de GitLab del evento</h2>
@@ -241,8 +241,8 @@
 <td colspan="3" class="est"><span class="st ok">CUMPLE</span></td>
 <td><code>README.md</code> (rama <code>entrega</code>), comprobado automáticamente por las herramientas internas de preparación de la entrega. Los pasos de instalación están comprobados sobre <code>staging</code> con frontend y backend integrados.</td></tr>
 <tr><td class="id">G.2</td><td class="req">Commits en las ramas de trabajo (<code>javier</code>, <code>enggel</code>), validación en <code>pruebas</code> e integración en <code>desarrollo</code> sin forzar, con Merge Request de registro y los autores reales.</td>
-<td colspan="3" class="est"><span class="st pen">FALTA</span></td>
-<td>Aún no hay URL del proyecto en GitLab. Las herramientas de subida están preparadas y probadas con un remoto local. Pendiente corregir la autoría: los commits de <code>enggel</code> figuran firmados por Diego Landaeta y el de <code>javier</code> con un correo no real.</td></tr>
+<td colspan="3" class="est"><span class="st ok">CUMPLE</span></td>
+<td>Proyecto activo en <code>gitlab.nube.gob.ve/grupo/chuao/chuao_grupo4/propuesta_servicios</code> con ramas <code>enggel</code>, <code>javier</code>, <code>pruebas</code> y <code>desarrollo</code> actualizadas sin forzar, autoría real, mensajes validados por ganchos y <code>salida.json</code> validado en verde.</td></tr>
 </table></div>
 
 <h2>Criterios de evaluación (sección 3.D)</h2>

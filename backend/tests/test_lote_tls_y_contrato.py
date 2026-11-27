@@ -61,27 +61,85 @@ def _make_valid_txt(name: str, rif: str, unit_price: float = 1200.0) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Issue #5: Alembic initial migration on fresh SQLite DB (clean clone without parent dir)
+# Issue #5: Alembic initial migration on clean PostgreSQL DB
 # ---------------------------------------------------------------------------
-def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
-    """Verify `alembic upgrade head` creates missing parent dirs and runs cleanly on a fresh database."""
-    db_file = tmp_path / "clean_clone_data" / "nested" / "alembic_fresh.db"
-    assert not db_file.parent.exists()
+@pytest.mark.asyncio
+async def test_issue5_alembic_upgrade_and_downgrade_clean() -> None:
+    """Verify `alembic upgrade head` -> `downgrade base` -> `upgrade head` cleanly on PostgreSQL."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    import asyncpg
+
+    from app.db.base import normalize_database_url
+
+    base_test_url = os.environ.get("TEST_DATABASE_URL", "").strip()
+    alembic_db_url = os.environ.get("TEST_ALEMBIC_DATABASE_URL", "").strip()
+    if not alembic_db_url:
+        if base_test_url:
+            parts = urlsplit(base_test_url)
+            alembic_db_url = urlunsplit(
+                (parts.scheme, parts.netloc, "/evaluador_alembic_test", parts.query, parts.fragment)
+            )
+        else:
+            alembic_db_url = "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_alembic_test"
+
+    default_ssl = os.environ.get("TEST_DB_SSL_MODE", "disable")
+    normalized_url, connect_args = normalize_database_url(alembic_db_url, default_ssl_mode=default_ssl)
+    raw_dsn = normalized_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+    # Ensure isolated Alembic test DB exists on the same PostgreSQL server as TEST_DATABASE_URL
+    try:
+        conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    except asyncpg.InvalidCatalogNameError:
+        target_db = urlsplit(raw_dsn).path.lstrip("/")
+        if not target_db.replace("_", "").isalnum():
+            raise ValueError(f"Unsafe Alembic test database name: {target_db!r}") from None
+        admin_source = base_test_url or alembic_db_url
+        admin_parts = urlsplit(admin_source)
+        admin_url = urlunsplit(
+            (admin_parts.scheme, admin_parts.netloc, "/postgres", admin_parts.query, admin_parts.fragment)
+        )
+        admin_norm, admin_args = normalize_database_url(admin_url, default_ssl_mode=default_ssl)
+        admin_dsn = admin_norm.replace("postgresql+asyncpg://", "postgresql://", 1)
+        admin_conn = await asyncpg.connect(admin_dsn, ssl=admin_args.get("ssl", False))
+        try:
+            exists = await admin_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", target_db)
+            if not exists:
+                await admin_conn.execute(f'CREATE DATABASE "{target_db}"')
+        finally:
+            await admin_conn.close()
+        conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
+    finally:
+        await conn.close()
+
     env = {
         **os.environ,
-        "DATABASE_URL": f"sqlite+aiosqlite:///{db_file}",
+        "DATABASE_URL": alembic_db_url,
+        "DB_SSL_MODE": default_ssl,
         "MASTER_ENCRYPTION_KEY": "dev-insecure-default-key-replace-in-production-32b",
     }
     alembic_bin = str(Path(sys.executable).parent / "alembic")
 
     up = subprocess.run([alembic_bin, "upgrade", "head"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert up.returncode == 0, f"alembic upgrade failed:\n{up.stdout}\n{up.stderr}"
-    assert db_file.exists()
 
-    import sqlite3
+    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    try:
+        rows = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+        tables = {r["table_name"] for r in rows}
+        bcv_cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'bcv_rate_snapshots'"
+        )
+        bcv_col_names = {r["column_name"] for r in bcv_cols}
+    finally:
+        await conn.close()
 
-    with sqlite3.connect(str(db_file)) as conn:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     expected_tables = {
         "alembic_version",
         "users",
@@ -98,12 +156,45 @@ def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
         "bcv_rate_snapshots",
     }
     assert expected_tables.issubset(tables)
+    assert "fetched_at" in bcv_col_names
+    assert "created_at" not in bcv_col_names
 
     down = subprocess.run([alembic_bin, "downgrade", "base"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert down.returncode == 0, f"alembic downgrade failed:\n{down.stdout}\n{down.stderr}"
 
+    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    try:
+        rem_rows = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+        remaining = {r["table_name"] for r in rem_rows}
+    finally:
+        await conn.close()
+    assert remaining.issubset({"alembic_version"})
+
     up2 = subprocess.run([alembic_bin, "upgrade", "head"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert up2.returncode == 0
+
+
+def test_postgres_url_normalization_tls_and_sqlite_rejection() -> None:
+    """Verify PostgreSQL URL normalization, TLS 1.2+ SSLContext, PgBouncer cache=0, and SQLite rejection."""
+    from app.db.base import normalize_database_url
+
+    with pytest.raises(ValueError, match="PostgreSQL"):
+        normalize_database_url("sqlite+aiosqlite:///./data/evaluador.db")
+
+    norm, cargs = normalize_database_url("postgres://usuario@db.ejemplo.com:5432/appdb?sslmode=require")
+    assert norm == "postgresql+asyncpg://usuario@db.ejemplo.com:5432/appdb"
+    ssl_ctx = cargs["ssl"]
+    assert isinstance(ssl_ctx, ssl.SSLContext)
+    assert ssl_ctx.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert ssl_ctx.verify_mode == ssl.CERT_REQUIRED
+
+    pool_norm, pool_cargs = normalize_database_url(
+        "postgresql://usuario@aws-0.pooler.supabase.com:6543/postgres?sslmode=verify-full"
+    )
+    assert pool_norm == "postgresql+asyncpg://usuario@aws-0.pooler.supabase.com:6543/postgres"
+    assert pool_cargs["statement_cache_size"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +241,8 @@ def test_issue21_issue29_cli_batch_on_docs_reto_matches_expected_table(tmp_path:
     env = {
         **os.environ,
         "LLM_PROVIDER": "heuristic",
-        "GEMINI_API_KEY": "",
         "OPENAI_API_KEY": "",
+        "OPENAI_BASE_URL": "",
     }
     proc = subprocess.run(
         [
@@ -440,7 +531,7 @@ async def test_issue28_chat_screenshots_long_scanned_pdf_and_deskew(monkeypatch:
     prompts_seen: list[str] = []
 
     class _MockVision:
-        provider = "gemini_mock"
+        provider = "local_llm_mock"
         is_available = True
 
         async def extract_from_image(self, image_b64: str, mime_type: str, prompt: str) -> str:
@@ -739,7 +830,6 @@ async def test_issue37_no_false_overprice_and_retech_alert_priority(
 
     market_search._SEARCH_CACHE.clear()
     monkeypatch.setattr(market_search, "_search_ddgs", _mock_loose_parts)
-    monkeypatch.setattr(market_search.get_settings(), "tavily_api_key", "")
     ws_res = await market_search.search_market_price(teacher_target["description"], 1590.0, enable_web=True)
     assert ws_res["is_abusive_overprice"] is False
     assert ws_res["reference_source_type"] == "baseline_fallback_only"
@@ -897,3 +987,105 @@ def test_issue40_cpu_tier_and_single_channel_ram_scoring() -> None:
     assert a1.is_technically_valid and a2.is_technically_valid
     assert a1.score_breakdown["ram_almacenamiento"] > a2.score_breakdown["ram_almacenamiento"]
     assert a1.technical_score > a2.technical_score
+
+
+def test_issue52_cpu_regex_ignores_bare_prices_and_codes() -> None:
+    """Ensure `_score_cpu` never matches bare numbers like prices ($13700) or SKUs (REF-14700)."""
+    from app.services.agent.technical_audit import _score_cpu
+
+    # Negative cases: prices, totals, and product reference codes without CPU brand/series
+    assert _score_cpu("Total de la oferta: $13700 USD | Referencia REF-14700 | Subtotal 14400") == 1.0
+    assert _score_cpu("Cotización 13400 Bs y envío 14500 con código SKU-14900") == 1.0
+
+    # Positive anchored cases
+    assert _score_cpu("AMD Ryzen 9 7900 (12C/24T)") == 5.0
+    assert _score_cpu("Intel Core i7-13700F (16C/24T)") == 4.0
+    assert _score_cpu("Core i#-14700F 32GB DDR5") == 4.0
+    assert _score_cpu("Intel Core i5-14400F") == 3.0
+    assert _score_cpu("AMD Ryzen 5 7600 (6C/12T)") == 2.0
+
+
+@pytest.mark.asyncio
+async def test_market_api_endpoints_without_third_party_keys(
+    app_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the self-contained /api/v1/market endpoints work without Tavily or external API keys."""
+    from app.services.market import search as market_search
+
+    market_search._SEARCH_CACHE.clear()
+    assert not hasattr(market_search.get_settings(), "tavily_api_key")
+
+    async def _fake_ddgs(query: str) -> list[dict]:
+        return [
+            {
+                "title": "Shop A — RTX 4060 Desktop PC",
+                "url": "https://shop-a.example.com/rtx4060",
+                "snippet": "Now $1,250.00 USD",
+                "extracted_price_usd": 1250.0,
+                "retrieved_at": "2026-11-27T15:00:00+00:00",
+            },
+            {
+                "title": "Shop B — RTX 4060 Workstation",
+                "url": "https://shop-b.example.com/rtx4060",
+                "snippet": "USD 1,350.00 in stock",
+                "extracted_price_usd": 1350.0,
+                "retrieved_at": "2026-11-27T15:00:00+00:00",
+            },
+        ]
+
+    monkeypatch.setattr(market_search, "_search_ddgs", _fake_ddgs)
+
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    aprobador = await _login(app_client, "aprobador@evaluador.ve", "Aprobador2026!")
+
+    # Single benchmark endpoint
+    resp = await app_client.post(
+        "/api/v1/market/benchmark",
+        json={
+            "item_description": "AMD Ryzen 5 7600 RTX 4060 8GB 16GB DDR5",
+            "proposed_unit_price_usd": 1320.0,
+            "enable_web": True,
+        },
+        headers=cargador,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "autonomous_web_search"
+    assert body["reference_source_type"] == "web_market_sources"
+    assert body["market_reference_mid_usd"] == 1300.0
+    assert len(body["sources"]) == 2
+    assert body["is_abusive_overprice"] is False
+
+    # Batch benchmark endpoint
+    batch_resp = await app_client.post(
+        "/api/v1/market/benchmark/batch",
+        json={
+            "items": [
+                {"item_description": "AMD Ryzen 5 7600 RTX 4060 8GB", "proposed_unit_price_usd": 1300.0},
+                {"item_description": "AMD Ryzen 5 7600 RTX 4060 8GB", "proposed_unit_price_usd": 2900.0},
+            ],
+            "enable_web": True,
+        },
+        headers=cargador,
+    )
+    assert batch_resp.status_code == 200
+    batch_data = batch_resp.json()
+    assert batch_data["total_items"] == 2
+    assert batch_data["abusive_overprice_count"] == 1
+
+    # Reference catalog endpoint
+    cat_resp = await app_client.get("/api/v1/market/reference-catalog", headers=cargador)
+    assert cat_resp.status_code == 200
+    cat_data = cat_resp.json()
+    assert cat_data["requires_external_api_key"] is False
+    assert cat_data["cached_queries"] >= 1
+    assert len(cat_data["fallback_catalog"]) >= 5
+
+    # Cache clear requires approval role (RBAC)
+    denied = await app_client.delete("/api/v1/market/cache", headers=cargador)
+    assert denied.status_code == 403
+    cleared = await app_client.delete("/api/v1/market/cache", headers=aprobador)
+    assert cleared.status_code == 200
+    assert cleared.json()["cleared_entries"] >= 1
+    market_search._SEARCH_CACHE.clear()

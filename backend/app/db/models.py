@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -119,9 +120,11 @@ class SupplierAlert(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), index=True)
-    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     evaluation_id: Mapped[str | None] = mapped_column(
-        ForeignKey("evaluation_runs.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("evaluation_runs.id", ondelete="SET NULL"), nullable=True, index=True
     )
     severity: Mapped[str] = mapped_column(String(32), nullable=False, default="warning")
     reason_code: Mapped[str] = mapped_column(EncryptedText, nullable=False)
@@ -303,6 +306,7 @@ class AgentTraceStep(Base):
     """Step-by-step traceability of the autonomous agent's actions (Section 2.D.3)."""
 
     __tablename__ = "agent_trace_steps"
+    __table_args__ = (Index("ix_agent_trace_steps_run_step", "evaluation_run_id", "step_number"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     evaluation_run_id: Mapped[str] = mapped_column(
@@ -332,7 +336,7 @@ class HumanReview(Base):
     proposal_evaluation_id: Mapped[str | None] = mapped_column(
         ForeignKey("proposal_evaluations.id", ondelete="SET NULL"), nullable=True
     )
-    reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewer_name: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     reviewer_role: Mapped[str] = mapped_column(String(32), nullable=False)
 

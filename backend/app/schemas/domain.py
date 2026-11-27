@@ -246,3 +246,14 @@ class BatchRunRequest(BaseModel):
     output_path: str | None = None
     enable_web_search: bool = True
     bcv_rate_override: float | None = None
+
+
+class MarketBenchmarkRequest(BaseModel):
+    item_description: str = Field(min_length=3, max_length=300)
+    proposed_unit_price_usd: float = Field(ge=0.0, le=1_000_000.0)
+    enable_web: bool = True
+
+
+class MarketBenchmarkBatchRequest(BaseModel):
+    items: list[MarketBenchmarkRequest] = Field(min_length=1, max_length=20)
+    enable_web: bool = True

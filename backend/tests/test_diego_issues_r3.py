@@ -31,7 +31,7 @@ async def test_r3_b1_llm_tool_calling_loop_executes_tools_and_traces(monkeypatch
     """Verify the LLM invokes verify_arithmetic and web_search_market_prices via run_agent_tool_loop."""
 
     class _ToolCallingLLM:
-        provider = "gemini_tool_simulado"
+        provider = "local_tool_simulado"
         is_available = True
 
         async def extract_from_image(self, *_: Any, **__: Any) -> str | None:
@@ -347,8 +347,60 @@ async def test_r3_b3_web_search_cites_sources_and_discards_85pct_overprice(
     assert len(xlsx_bytes) > 500
 
 
+@pytest.mark.asyncio
+async def test_r3_b3_fallback_query_and_discount_price_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When primary query returns unpriced snippets, fallback hardware query merges priced sources and ignores discounts."""
+    market_search._SEARCH_CACHE.clear()
+    assert market_search._extract_prices_from_text("Save $35 on monitor, now USD 249.99") == [249.99]
+
+    calls: list[str] = []
+
+    async def _fake_ddgs(query: str) -> list[dict[str, Any]]:
+        calls.append(query)
+        if len(calls) == 1:
+            return [
+                {
+                    "title": "Review RTX 4070 Workstation",
+                    "url": "https://review.example.com/4070",
+                    "snippet": "Great performance for 3D rendering",
+                    "extracted_price_usd": None,
+                    "retrieved_at": "2026-11-27T14:55:00+00:00",
+                }
+            ]
+        return [
+            {
+                "title": "Shop 1 — RTX 4070 Desktop PC",
+                "url": "https://shop1.example.com/rtx4070",
+                "snippet": "Now $1,899.00",
+                "extracted_price_usd": 1899.0,
+                "retrieved_at": "2026-11-27T14:55:00+00:00",
+            },
+            {
+                "title": "Shop 2 — RTX 4070 Workstation",
+                "url": "https://shop2.example.com/rtx4070",
+                "snippet": "USD 2,099.00 in stock",
+                "extracted_price_usd": 2099.0,
+                "retrieved_at": "2026-11-27T14:55:00+00:00",
+            },
+        ]
+
+    monkeypatch.setattr(market_search, "_search_ddgs", _fake_ddgs)
+    res = await market_search.search_market_price(
+        "Intel Core i7-13700F RTX 4070 12GB 32GB DDR5",
+        1980.0,
+        enable_web=True,
+    )
+    assert len(calls) == 2
+    assert res["reference_source_type"] == "web_market_sources"
+    assert res["market_reference_mid_usd"] == 1999.0
+    assert res["sources"][0]["extracted_price_usd"] is not None
+    assert res["sources"][1]["extracted_price_usd"] is not None
+
+
 # ---------------------------------------------------------------------------
-# R3-B4 (Issue #12): Full DB Encryption at Rest (Zero Plaintext in SQLite File)
+# R3-B4 (Issue #12): Full DB Encryption at Rest (Zero Plaintext in PostgreSQL)
 # ---------------------------------------------------------------------------
 def test_hkdf_subkeys_and_key_rotation() -> None:
     old_master = b"A" * 32
@@ -366,11 +418,10 @@ def test_hkdf_subkeys_and_key_rotation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_r3_b4_sqlite_file_contains_zero_plaintext_supplier_names_rifs_or_amounts(
+async def test_r3_b4_postgres_tables_contain_zero_plaintext_supplier_names_rifs_or_amounts(
     app_client: AsyncClient,
-    test_tmp_dir: Path,
 ) -> None:
-    """Verify raw SQLite bytes leak zero supplier names, RIFs, emails, or numeric amounts."""
+    """Verify raw PostgreSQL table values leak zero supplier names, RIFs, emails, or numeric amounts."""
     # Login & evaluate a real proposal containing Krypton Ingeniería + J-41223344-9 + $23,020
     login_c = await app_client.post("/api/v1/auth/login", json={"email": "cargador@evaluador.ve", "password": "Cargador2026!"})
     hdr_c = {"Authorization": f"Bearer {login_c.json()['access_token']}"}
@@ -404,34 +455,80 @@ async def test_r3_b4_sqlite_file_contains_zero_plaintext_supplier_names_rifs_or_
     )
     assert ev.status_code == 201
 
-    # Inspect raw bytes of the SQLite DB file + WAL file if present
-    db_file = test_tmp_dir / "test.db"
-    raw_bytes = db_file.read_bytes()
-    wal_file = test_tmp_dir / "test.db-wal"
-    if wal_file.exists():
-        raw_bytes += wal_file.read_bytes()
-    raw_lower = raw_bytes.lower()
+    # Query raw PostgreSQL columns directly (bypassing SQLAlchemy TypeDecorators)
+    from sqlalchemy import text
 
-    for sensitive in (
-        b"krypton",
-        b"j-41223344",
-        b"23020.0",
-        b"23,020",
-        b"cargador@evaluador.ve",
-        b"auditoria cifrado r3-b4",
-        b"propuesta_602_krypton",
-    ):
-        assert sensitive not in raw_lower, f"Plaintext leak detected in SQLite DB: {sensitive!r}"
+    from app.db.base import get_engine
 
-    import sqlite3
-
-    with sqlite3.connect(str(db_file)) as conn:
-        rows = conn.execute(
-            "SELECT supplier_name, supplier_rif, declared_total_usd, adjusted_tco_usd FROM proposal_evaluations"
+    engine = get_engine()
+    raw_chunks: list[str] = []
+    async with engine.connect() as conn:
+        pe_rows = (
+            await conn.execute(
+                text(
+                    "SELECT proposal_identifier, supplier_name, supplier_rif, "
+                    "declared_total_usd, adjusted_tco_usd, technical_score "
+                    "FROM proposal_evaluations"
+                )
+            )
         ).fetchall()
-    assert len(rows) >= 3
-    for s_name, s_rif, decl_usd, tco_usd in rows:
-        for val in (s_name, decl_usd, tco_usd):
-            assert isinstance(val, str) and val.startswith("enc:v1:"), f"Unencrypted DB column: {val!r}"
-        if s_rif is not None:
-            assert isinstance(s_rif, str) and s_rif.startswith("enc:v1:")
+        assert len(pe_rows) >= 3
+        for row in pe_rows:
+            for col_idx in (0, 1, 3, 4, 5):
+                val = row[col_idx]
+                assert isinstance(val, str) and val.startswith("enc:v1:"), f"Unencrypted DB column: {val!r}"
+                raw_chunks.append(val)
+            if row[2] is not None:
+                assert isinstance(row[2], str) and row[2].startswith("enc:v1:")
+                raw_chunks.append(row[2])
+
+        for query in (
+            "SELECT email, full_name FROM users",
+            "SELECT name, rif FROM suppliers",
+            "SELECT name, execution_location, reference_budget FROM projects",
+            "SELECT proposal_identifier, original_filename FROM proposals",
+            "SELECT actor_email, action FROM audit_logs",
+        ):
+            rows = (await conn.execute(text(query))).fetchall()
+            for r in rows:
+                for val in r:
+                    if val is not None:
+                        assert isinstance(val, str) and val.startswith("enc:v1:"), f"Unencrypted DB column: {val!r}"
+                        raw_chunks.append(val)
+
+    raw_lower = "\n".join(raw_chunks).lower()
+    for sensitive in (
+        "krypton",
+        "j-41223344",
+        "23020.0",
+        "23,020",
+        "cargador@evaluador.ve",
+        "auditoria cifrado r3-b4",
+        "propuesta_602_krypton",
+    ):
+        assert sensitive not in raw_lower, f"Plaintext leak detected in PostgreSQL: {sensitive!r}"
+
+
+def test_local_llm_provider_resolution_without_cloud_keys() -> None:
+    """Ensure local OpenAI-compatible servers (Ollama/llama.cpp) resolve cleanly without external cloud keys."""
+    from app.core.config import Settings
+
+    s_local = Settings(
+        llm_provider="openai",
+        openai_base_url="http://127.0.0.1:11434/v1",
+        openai_api_key="local",
+        openai_model="qwen2.5:3b",
+        openai_vision_model="qwen2.5vl:3b",
+    )
+    assert s_local.resolved_llm_provider() == "openai"
+    assert s_local.is_local_llm is True
+    assert s_local.llm_timeout_seconds >= 60.0
+    assert not hasattr(s_local, "gemini_api_key")
+
+    s_heur = Settings(
+        llm_provider="auto",
+        openai_base_url="",
+        openai_api_key="",
+    )
+    assert s_heur.resolved_llm_provider() == "heuristic"
+    assert s_heur.is_local_llm is False
