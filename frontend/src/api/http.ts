@@ -39,7 +39,77 @@ import { detectarTipo } from '../lib/files';
 import { ApiError, clearSession, getRefreshToken, getToken, updateTokens } from './session';
 import type { Api, DashboardStats, HistorialEstado, Participacion, ProveedorDetalle, TipoArchivo } from './types';
 
-const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '');
+function hasControlChars(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+export function parseApiBase(rawBase?: string, originFallback?: string): URL {
+  const raw = rawBase ?? ((import.meta.env.VITE_API_URL as string | undefined) || '/api/v1');
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith('//') || trimmed.includes('\\') || hasControlChars(trimmed)) {
+    throw new ApiError(500, 'Configuración de VITE_API_URL inválida.');
+  }
+  const fallback =
+    originFallback ??
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost');
+  let url: URL;
+  try {
+    url = new URL(trimmed, fallback);
+  } catch {
+    throw new ApiError(500, 'Configuración de VITE_API_URL inválida.');
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
+    throw new ApiError(500, 'Configuración de VITE_API_URL inválida.');
+  }
+  if (!url.pathname.endsWith('/')) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url;
+}
+
+const API_BASE: URL = parseApiBase();
+
+export function buildApiUrl(path: string, base: URL = API_BASE): URL {
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\') || hasControlChars(path)) {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  const stripped = path.slice(1);
+  if (stripped.startsWith('/') || SCHEME_PREFIX_RE.test(stripped)) {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  const rawPath = stripped.split(/[?#]/, 1)[0];
+  if (rawPath.split('/').some((seg) => seg === '.' || seg === '..' || /^(%2e)+$/i.test(seg))) {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  const normalizedBase = base.pathname.endsWith('/') ? base : new URL(`${base.pathname}/`, base.origin);
+  if (normalizedBase.protocol !== 'http:' && normalizedBase.protocol !== 'https:') {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  let url: URL;
+  try {
+    url = new URL(stripped, normalizedBase);
+  } catch {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  const baseNoSlash =
+    normalizedBase.pathname.length > 1 && normalizedBase.pathname.endsWith('/')
+      ? normalizedBase.pathname.slice(0, -1)
+      : normalizedBase.pathname;
+  if (
+    url.origin !== normalizedBase.origin ||
+    url.protocol !== normalizedBase.protocol ||
+    (url.pathname !== baseNoSlash && !url.pathname.startsWith(normalizedBase.pathname))
+  ) {
+    throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+  }
+  return url;
+}
 
 let refreshInFlight: Promise<string | null> | null = null;
 
@@ -49,7 +119,7 @@ async function tryRefreshSession(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch(`${BASE}/auth/refresh`, {
+        const res = await fetch(buildApiUrl('/auth/refresh'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: rt }),
@@ -78,9 +148,11 @@ async function raw(
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (opts.body && !(opts.body instanceof FormData)) headers.set('Content-Type', 'application/json');
 
+  const url = buildApiUrl(path);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...opts, headers });
+    // nosemgrep: nodejs_scan.javascript-ssrf-rule-node_ssrf -- código de navegador (no servidor Node); buildApiUrl solo admite rutas relativas al API_BASE del mismo origen y rechaza esquemas, '//', '\\', '..' y caracteres de control
+    res = await fetch(url, { ...opts, headers });
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifique que el backend esté en ejecución.');
   }
@@ -138,7 +210,7 @@ function parseContentDispositionFilename(header: string | null): string | null {
 /** Tipo de archivo de cada propuesta (el detalle de evaluación no lo incluye). */
 async function tiposDeProyecto(projectId: string): Promise<Map<string, TipoArchivo>> {
   try {
-    const props = await req<BProposal[]>(`/projects/${projectId}/proposals`);
+    const props = await req<BProposal[]>(`/projects/${encodeURIComponent(projectId)}/proposals`);
     return new Map(props.map((p) => [p.id, detectarTipo(p.original_filename)]));
   } catch {
     return new Map();
@@ -146,7 +218,7 @@ async function tiposDeProyecto(projectId: string): Promise<Map<string, TipoArchi
 }
 
 async function evaluacionDetalle(id: string) {
-  const e = await req<BEvaluation>(`/evaluations/${id}`);
+  const e = await req<BEvaluation>(`/evaluations/${encodeURIComponent(id)}`);
   return toEvaluacion(e, await tiposDeProyecto(e.project_id));
 }
 
@@ -198,7 +270,7 @@ export const httpApi: Api = {
 
   projects: {
     list: async () => (await req<BProject[]>('/projects')).map(toProyecto),
-    get: async (id) => toProyecto(await req<BProject>(`/projects/${id}`)),
+    get: async (id) => toProyecto(await req<BProject>(`/projects/${encodeURIComponent(id)}`)),
     async create(data, archivo) {
       const p = await req<BProject>('/projects', {
         method: 'POST',
@@ -213,11 +285,13 @@ export const httpApi: Api = {
       if (!archivo) return toProyecto(p);
       const fd = new FormData();
       fd.append('file', archivo);
-      return toProyecto(await req<BProject>(`/projects/${p.id}/document`, { method: 'POST', body: fd }));
+      return toProyecto(
+        await req<BProject>(`/projects/${encodeURIComponent(p.id)}/document`, { method: 'POST', body: fd }),
+      );
     },
     changeState: async (id, estado, nota, propuestaAdjudicadaId) =>
       toProyecto(
-        await req<BProject>(`/projects/${id}/status`, {
+        await req<BProject>(`/projects/${encodeURIComponent(id)}/status`, {
           method: 'POST',
           body: json({
             target_status: estadoHaciaBackend(estado),
@@ -260,28 +334,36 @@ export const httpApi: Api = {
     },
     async documentUrl(id) {
       const ticket = await streamTicket();
-      return `${BASE}/projects/${id}/document/download?ticket=${encodeURIComponent(ticket)}`;
+      return buildApiUrl(
+        `/projects/${encodeURIComponent(id)}/document/download?ticket=${encodeURIComponent(ticket)}`,
+      ).toString();
     },
   },
 
   proposals: {
-    list: async (projectId) => (await req<BProposal[]>(`/projects/${projectId}/proposals`)).map(toPropuesta),
+    list: async (projectId) =>
+      (await req<BProposal[]>(`/projects/${encodeURIComponent(projectId)}/proposals`)).map(toPropuesta),
     async upload(projectId, files) {
       const fd = new FormData();
       files.forEach((f) => fd.append('files', f));
-      const r = await req<BProposal[]>(`/projects/${projectId}/proposals`, { method: 'POST', body: fd });
+      const r = await req<BProposal[]>(`/projects/${encodeURIComponent(projectId)}/proposals`, {
+        method: 'POST',
+        body: fd,
+      });
       return r.map(toPropuesta);
     },
-    remove: (id) => req<void>(`/proposals/${id}`, { method: 'DELETE' }),
+    remove: (id) => req<void>(`/proposals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     async downloadUrl(id) {
       const ticket = await streamTicket();
-      return `${BASE}/proposals/${id}/download?ticket=${encodeURIComponent(ticket)}`;
+      return buildApiUrl(
+        `/proposals/${encodeURIComponent(id)}/download?ticket=${encodeURIComponent(ticket)}`,
+      ).toString();
     },
   },
 
   evaluations: {
     async start(projectId, params) {
-      const e = await req<BEvaluation>(`/projects/${projectId}/evaluate`, {
+      const e = await req<BEvaluation>(`/projects/${encodeURIComponent(projectId)}/evaluate`, {
         method: 'POST',
         body: json({
           run_in_background: true,
@@ -292,9 +374,10 @@ export const httpApi: Api = {
       });
       return toEvaluacion(e, await tiposDeProyecto(projectId));
     },
-    list: async (projectId) => (await req<BEvaluation[]>(`/projects/${projectId}/evaluations`)).map(toEvaluacionResumen),
+    list: async (projectId) =>
+      (await req<BEvaluation[]>(`/projects/${encodeURIComponent(projectId)}/evaluations`)).map(toEvaluacionResumen),
     async latest(projectId) {
-      const p = await req<BProject>(`/projects/${projectId}`);
+      const p = await req<BProject>(`/projects/${encodeURIComponent(projectId)}`);
       if (!p.latest_evaluation_id) return null;
       try {
         return await evaluacionDetalle(p.latest_evaluation_id);
@@ -305,7 +388,7 @@ export const httpApi: Api = {
     },
     get: (id) => evaluacionDetalle(id),
     async trazas(id) {
-      const e = await req<BEvaluation>(`/evaluations/${id}`);
+      const e = await req<BEvaluation>(`/evaluations/${encodeURIComponent(id)}`);
       return (e.trace_steps ?? []).map((t) => toTraza(id, t));
     },
     stream(id, onEvent, onDone, onError) {
@@ -315,7 +398,11 @@ export const httpApi: Api = {
       void streamTicket()
         .then((ticket) => {
           if (terminado) return;
-          es = new EventSource(`${BASE}/evaluations/${id}/stream?ticket=${encodeURIComponent(ticket)}`);
+          es = new EventSource(
+            buildApiUrl(
+              `/evaluations/${encodeURIComponent(id)}/stream?ticket=${encodeURIComponent(ticket)}`,
+            ).toString(),
+          );
           es.addEventListener('trace_step', (ev) => {
             try {
               onEvent(toTraza(id, JSON.parse((ev as MessageEvent).data) as BTraceStep));
@@ -353,7 +440,7 @@ export const httpApi: Api = {
       };
     },
     async exportFile(id, formato) {
-      const res = await raw(`/evaluations/${id}/export/${formato}`);
+      const res = await raw(`/evaluations/${encodeURIComponent(id)}/export/${encodeURIComponent(formato)}`);
       return {
         blob: await res.blob(),
         filename: parseContentDispositionFilename(res.headers.get('Content-Disposition')),
@@ -363,14 +450,14 @@ export const httpApi: Api = {
 
   reviews: {
     async list(evaluacionId) {
-      const e = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
+      const e = await req<BEvaluation>(`/evaluations/${encodeURIComponent(evaluacionId)}`);
       return (e.human_reviews ?? []).map(toRevision);
     },
     async add(evaluacionId, accion, comentario, opts) {
       let targetProposalId: string | null = opts?.propuesta_adjudicada_id ?? null;
       let ev: BEvaluation | null = null;
       if (accion === 'aprobar' || accion === 'rechazar') {
-        ev = await req<BEvaluation>(`/evaluations/${evaluacionId}`);
+        ev = await req<BEvaluation>(`/evaluations/${encodeURIComponent(evaluacionId)}`);
         if (accion === 'aprobar' && !targetProposalId) {
           targetProposalId = ev.recommended_proposal_id;
         }
@@ -383,12 +470,15 @@ export const httpApi: Api = {
         override_recommended_proposal_id: esOverride ? targetProposalId : null,
       });
       const rev = toRevision(
-        await req<BReview>(`/evaluations/${evaluacionId}/reviews`, { method: 'POST', body: json(body) }),
+        await req<BReview>(`/evaluations/${encodeURIComponent(evaluacionId)}/reviews`, {
+          method: 'POST',
+          body: json(body),
+        }),
       );
       // El backend registra la revisión pero no mueve el proceso: «Aprobar» adjudica la
       // propuesta elegida y «Rechazar y devolver» regresa el proyecto a evaluación.
       if ((accion === 'aprobar' || accion === 'rechazar') && ev) {
-        await req<BProject>(`/projects/${ev.project_id}/status`, {
+        await req<BProject>(`/projects/${encodeURIComponent(ev.project_id)}/status`, {
           method: 'POST',
           body: json(
             accion === 'aprobar'
@@ -405,7 +495,7 @@ export const httpApi: Api = {
     list: async () => (await req<BSupplier[]>('/suppliers')).map((s) => toProveedor(s)),
     async get(id) {
       const d = await req<{ supplier: BSupplier; alerts: BSupplierAlert[]; participation_history: BParticipation[] }>(
-        `/suppliers/${id}`,
+        `/suppliers/${encodeURIComponent(id)}`,
       );
       const activas = d.alerts.filter((a) => !a.is_resolved);
       const alerta = activas[0] ?? null;
@@ -414,8 +504,8 @@ export const httpApi: Api = {
       await Promise.all(
         [...new Set(d.participation_history.map((h) => h.evaluation_run_id))].map(async (runId) => {
           try {
-            const e = await req<BEvaluation>(`/evaluations/${runId}`);
-            const p = await req<BProject>(`/projects/${e.project_id}`);
+            const e = await req<BEvaluation>(`/evaluations/${encodeURIComponent(runId)}`);
+            const p = await req<BProject>(`/projects/${encodeURIComponent(e.project_id)}`);
             runs.set(runId, { proyecto_id: p.id, fecha: fechaUtc(e.started_at), nombre: p.name });
           } catch {
             /* evaluación no accesible */
@@ -462,7 +552,7 @@ export const httpApi: Api = {
       ),
     update: async (id, data) =>
       toProveedor(
-        await req<BSupplier>(`/suppliers/${id}`, {
+        await req<BSupplier>(`/suppliers/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           body: json({
             ...(data.nombre !== undefined ? { name: data.nombre } : {}),
@@ -477,7 +567,7 @@ export const httpApi: Api = {
       ),
     resolveAlert: async (alertId) =>
       toAlertaProveedor(
-        await req<BSupplierAlert>(`/suppliers/alerts/${alertId}/resolve`, { method: 'POST' }),
+        await req<BSupplierAlert>(`/suppliers/alerts/${encodeURIComponent(alertId)}/resolve`, { method: 'POST' }),
       ),
   },
 
@@ -502,7 +592,7 @@ export const httpApi: Api = {
         rol = actual ? toUsuario(actual).rol : undefined;
       }
       return toUsuario(
-        await req<BUser>(`/auth/users/${id}`, {
+        await req<BUser>(`/auth/users/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           body: json({ role: rol, is_active: data.activo ?? null }),
         }),
@@ -523,11 +613,15 @@ export const httpApi: Api = {
   },
 
   chat: {
-    history: async (projectId) => (await req<BChat[]>(`/projects/${projectId}/chat`)).map(toMensaje),
+    history: async (projectId) =>
+      (await req<BChat[]>(`/projects/${encodeURIComponent(projectId)}/chat`)).map(toMensaje),
     send: async (projectId, contenido) =>
       toMensaje(
-        await req<BChat>(`/projects/${projectId}/chat`, { method: 'POST', body: json({ question: contenido }) }),
+        await req<BChat>(`/projects/${encodeURIComponent(projectId)}/chat`, {
+          method: 'POST',
+          body: json({ question: contenido }),
+        }),
       ),
-    clear: (projectId) => req<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
+    clear: (projectId) => req<void>(`/projects/${encodeURIComponent(projectId)}/chat`, { method: 'DELETE' }),
   },
 };
