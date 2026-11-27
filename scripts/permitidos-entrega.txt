@@ -1,0 +1,3 @@
+# Hallazgos aceptados a conciencia en la verificación de la entrega (--permitidos).
+# Formato: categoría (marcas|rutas|secretos) y ruta del archivo en la entrega. Este archivo no se publica.
+# Hoy no hay ningún hallazgo aceptado.

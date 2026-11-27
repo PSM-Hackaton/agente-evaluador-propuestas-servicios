@@ -1,0 +1,377 @@
+"""Autonomous Web Search & Market Price Benchmarking (Section 2.C — Issue #11 R3-B3)."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+import threading
+import time
+from datetime import UTC, datetime
+from statistics import median
+from typing import Any
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+_PRICE_RE = re.compile(
+    r"(?<!save\s)(?<!off\s)(?:\$|US\$|USD\s*)\s*([0-9]{2,5}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+    re.I,
+)
+_DDGS_LOCK = threading.Lock()
+
+# In-memory TTL cache for web searches (query -> (timestamp, sources, provider))
+_SEARCH_CACHE: dict[str, tuple[float, list[dict[str, Any]], str]] = {}
+_CACHE_TTL_SECONDS = 1800.0
+
+# Last-resort baseline reference ranges (USD) used ONLY when web search is disabled or yields 0 priced sources
+BASELINE_MARKET_REFERENCES: list[tuple[str, tuple[float, float], str]] = [
+    ("rtx 4070 super", (1800.0, 2900.0), "Workstation gama alta RTX 4070 Super completa + periféricos"),
+    ("rtx 4070", (1600.0, 2650.0), "Workstation gama alta RTX 4070 completa + periféricos"),
+    ("rtx 4060 ti", (1350.0, 2250.0), "Workstation media-alta RTX 4060 Ti completa + periféricos"),
+    ("rtx 4060", (1050.0, 1850.0), "PC media-alta RTX 4060 completa + monitor + protección"),
+    ("rtx 3060", (950.0, 1750.0), "PC media-alta RTX 3060 12GB completa + monitor + UPS"),
+    ("rx 7600", (950.0, 1750.0), "PC media-alta RX 7600 completa + monitor + protección"),
+    ("xeon e5", (350.0, 650.0), "Kit Xeon E5-2680/2690 v4 (arquitectura 2016 reciclada) mercado secundario"),
+]
+
+_SENSITIVE_PATTERNS = (
+    re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),  # emails
+    re.compile(r"\b[JVEGP]-?\d{6,9}-?\d\b", re.I),  # RIF / ID
+    re.compile(r"\+?\d[\d\s().-]{8,}\d"),  # phones & accounts
+    re.compile(r"\b(?:RIF|Rep\.?|Representante|Cliente|Destino|Fecha|Validez|REF|COT)[^|\n]*", re.I),
+)
+
+
+def _strip_sensitive_data(text: str) -> str:
+    """Remove supplier/client identifiers before sending a query to an external search engine (Section F)."""
+    clean = text
+    for pat in _SENSITIVE_PATTERNS:
+        clean = pat.sub(" ", clean)
+    return re.sub(r"\s+", " ", clean).strip()
+
+
+def _build_focused_query(item_description: str) -> str:
+    """Extract clean hardware/component/service terms for precision web pricing queries."""
+    tokens: list[str] = []
+    for pat in (
+        r"(?:amd\s+)?ryzen\s*[579]\s*\d{4}x?|intel\s+core\s+i[3579]-\d{4,5}[a-z]*|xeon\s+e5-\d{4}\s*v\d",
+        r"(?:rtx|gtx)\s*\d{4}(?:\s*(?:ti|super))?(?:\s*\d+gb)?|rx\s*\d{4}(?:\s*\d+gb)?",
+        r"\b(?:16|32|64)\s*gb\s*(?:ddr[45])?",
+    ):
+        m = re.search(pat, item_description, re.I)
+        if m:
+            tokens.append(m.group(0).strip())
+    if tokens:
+        return f"{' '.join(tokens)} desktop PC price USD"
+
+    # Standalone peripherals / UPS / monitors / components
+    for pat, suffix in (
+        (r"(?:asus\s+proart|lg\s+ultragear|aoc|samsung)[^\n|,]{0,45}?\d{2}\"?[^\n|,]{0,20}", "monitor price USD"),
+        (r"(?:cyberpower|apc|forza|tripp\s*lite)[^\n|,]{0,45}?\d{3,4}\s*va", "UPS price USD"),
+        (r"(?:monitor|ups|regulador)[^\n|,]{0,45}", "price USD"),
+    ):
+        m = re.search(pat, item_description, re.I)
+        if m:
+            clean_tok = _strip_sensitive_data(m.group(0))
+            return f"{clean_tok[:70]} {suffix}".strip()
+
+    clean = _strip_sensitive_data(item_description)
+    return f"{clean[:80]} price USD"
+
+
+def _build_fallback_query(item_description: str, primary_query: str) -> str | None:
+    """Build a shorter hardware-focused fallback query when the primary query yields < 2 priced web sources."""
+    gpu_m = re.search(r"(?:rtx|gtx)\s*\d{4}(?:\s*(?:ti|super))?|rx\s*\d{4}", item_description, re.I)
+    if gpu_m:
+        cand = f"{gpu_m.group(0).strip()} desktop PC price"
+        if cand.lower() != primary_query.lower():
+            return cand
+    for pat, suffix in (
+        (r"(?:asus\s+proart|lg\s+ultragear|aoc|samsung|viewsonic|dell)\s+[a-z0-9\-]{3,20}", "monitor price"),
+        (r"(?:cyberpower|apc|forza|tripp\s*lite)\s+[a-z0-9\-\s]{3,24}\d{3,4}\s*va", "UPS price"),
+    ):
+        m = re.search(pat, item_description, re.I)
+        if m:
+            norm_tok = re.sub(r"\s+", " ", m.group(0)).strip()
+            cand = f"{norm_tok} {suffix}"
+            if cand.lower() != primary_query.lower():
+                return cand
+    return None
+
+
+def _extract_prices_from_text(text: str) -> list[float]:
+    prices: list[float] = []
+    for m in _PRICE_RE.findall(text):
+        try:
+            val = float(m.replace(",", ""))
+            if 20.0 <= val <= 20000.0:
+                prices.append(round(val, 2))
+        except ValueError:
+            continue
+    return prices
+
+
+async def _search_ddgs(query: str) -> list[dict[str, Any]]:
+    now_iso = datetime.now(UTC).replace(microsecond=0).isoformat()
+
+    def _run() -> list[dict[str, Any]]:
+        from ddgs import DDGS
+
+        with _DDGS_LOCK:
+            last_exc: Exception | None = None
+            for attempt in range(2):
+                try:
+                    with DDGS() as ddgs:
+                        results = list(ddgs.text(query, max_results=6))
+                    out: list[dict[str, Any]] = []
+                    for r in results:
+                        title = str(r.get("title", ""))
+                        snippet = str(r.get("body", ""))[:300]
+                        prices = _extract_prices_from_text(f"{title} {snippet}")
+                        out.append(
+                            {
+                                "title": title,
+                                "url": str(r.get("href", "")),
+                                "snippet": snippet,
+                                "extracted_price_usd": median(prices) if prices else None,
+                                "retrieved_at": now_iso,
+                            }
+                        )
+                    out.sort(key=lambda item: item["extracted_price_usd"] is None)
+                    return out
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt == 0:
+                        time.sleep(0.4)
+            if last_exc is not None:
+                raise last_exc
+            return []
+
+    return await asyncio.wait_for(asyncio.to_thread(_run), timeout=25.0)
+
+
+def _is_service_or_logistics_item(item_spec: str) -> bool:
+    """Return True when an item represents pure logistics/service rather than benchmarkable hardware."""
+    low = (item_spec or "").lower()
+    service_kw = any(k in low for k in ("envío", "envio", "logística", "logistica", "flete", "instalación", "instalacion", "transporte", "garantía", "garantia", "licencia"))
+    hw_kw = any(k in low for k in ("ryzen", "core i", "xeon", "rtx", "gtx", "radeon", "rx ", "monitor", "ups", "regulador", "estación", "estacion", "computadora"))
+    return service_kw and not hw_kw
+
+
+def _baseline_reference(item_spec: str) -> tuple[float, float, str] | None:
+    low = item_spec.lower()
+    for keyword, (lo, hi), label in BASELINE_MARKET_REFERENCES:
+        if keyword in low:
+            return lo, hi, label
+    return None
+
+
+def extract_market_searchable_items(
+    raw_text: str,
+    line_items: list[dict[str, Any]],
+    spec_context_fn: Any = None,
+    max_items: int = 4,
+) -> list[dict[str, Any]]:
+    """Select primary workstations plus priced hardware peripherals for market benchmarking."""
+    candidates: list[dict[str, Any]] = []
+    seen_queries: set[str] = set()
+
+    prioritized = [
+        it
+        for it in line_items
+        if it.get("category") in ("estaciones_estudiantes", "estacion_docente")
+        and float(it.get("unit_price") or 0) > 0
+    ]
+    secondary = [
+        it
+        for it in line_items
+        if it.get("category") not in ("estaciones_estudiantes", "estacion_docente", "envio", "instalacion", "opcional", "software")
+        and float(it.get("unit_price") or 0) > 40
+    ]
+
+    for item in [*prioritized, *secondary]:
+        unit_p = float(item.get("unit_price") or 0)
+        cat = str(item.get("category") or "item")
+        desc = str(item.get("description") or "")
+        if _is_service_or_logistics_item(desc):
+            continue
+        if cat in ("estaciones_estudiantes", "estacion_docente") and len(desc) < 35 and spec_context_fn is not None:
+            try:
+                ctx = spec_context_fn(raw_text, unit_p, cat)
+            except TypeError:
+                ctx = spec_context_fn(raw_text, unit_p)
+            if ctx:
+                desc = f"{desc} {ctx}".strip()
+        q = _build_focused_query(desc).lower()
+        if q in seen_queries:
+            continue
+        seen_queries.add(q)
+        candidates.append({"description": desc, "unit_price": unit_p, "category": cat})
+        if len(candidates) >= max_items:
+            break
+
+    # If peripherals/UPS were bundled into "$0.00 Incluido", still run informational component checks
+    if len(candidates) < max_items and raw_text:
+        for pat in (
+            r"(?:monitor\s*[:\-]?\s*(?:asus|lg|samsung|aoc|dell|hp|benq|viewsonic|acer|msi|gigabyte)[^\n|]{3,65})",
+            r"(?:(?:cyberpower|apc|forza|tripp\s*lite|eaton|cdp)[^\n|]{3,65})",
+        ):
+            if len(candidates) >= max_items:
+                break
+            m = re.search(pat, raw_text, re.I)
+            if m:
+                desc = m.group(0).strip()
+                q = _build_focused_query(desc).lower()
+                if q not in seen_queries:
+                    seen_queries.add(q)
+                    candidates.append({"description": desc, "unit_price": 0.0, "category": "componente_referencia"})
+
+    return candidates
+
+
+async def search_market_price(
+    item_description: str,
+    proposed_unit_price_usd: float,
+    enable_web: bool | None = None,
+) -> dict[str, Any]:
+    """Web-first market price benchmarking; uses static baseline strictly as last-resort fallback."""
+    settings = get_settings()
+    do_web = settings.web_search_enabled if enable_web is None else enable_web
+
+    query = _build_focused_query(item_description)
+    if _is_service_or_logistics_item(item_description):
+        ref_mid = round(proposed_unit_price_usd, 2) if proposed_unit_price_usd > 0 else 0.0
+        return {
+            "item": item_description[:140],
+            "query": query,
+            "provider": "baseline_catalog",
+            "reference_source_type": "sin_referencia",
+            "proposed_unit_price_usd": round(proposed_unit_price_usd, 2),
+            "market_reference_low_usd": round(ref_mid * 0.75, 2),
+            "market_reference_mid_usd": ref_mid,
+            "market_reference_high_usd": round(ref_mid * 1.25, 2),
+            "reference_label": "Partida de logística o servicio (sin referencia web de hardware)",
+            "variance_pct": 0.0,
+            "status": "sin_referencia",
+            "is_abusive_overprice": False,
+            "sources": [],
+        }
+
+    sources: list[dict[str, Any]] = []
+    web_prices: list[float] = []
+    search_provider = "baseline_catalog"
+
+    if do_web:
+        cache_key = query.lower()
+        cached = _SEARCH_CACHE.get(cache_key)
+        now = time.monotonic()
+        if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
+            sources, search_provider = cached[1], f"{cached[2]}_cached"
+        else:
+            try:
+                sources = await _search_ddgs(query)
+                search_provider = "autonomous_web_search"
+            except Exception as exc:
+                logger.debug("Web search fallback triggered for '%s': %s", query, exc)
+                search_provider = "baseline_catalog_fallback"
+
+            priced_count = sum(
+                1 for s in sources if isinstance(s.get("extracted_price_usd"), (int, float)) and s["extracted_price_usd"] > 0
+            )
+            if priced_count < 2:
+                fallback_q = _build_fallback_query(item_description, query)
+                if fallback_q:
+                    try:
+                        extra = await _search_ddgs(fallback_q)
+                        seen_urls = {str(s.get("url", "")) for s in sources if s.get("url")}
+                        for item in extra:
+                            u = str(item.get("url", ""))
+                            if not u or u not in seen_urls:
+                                sources.append(item)
+                                if u:
+                                    seen_urls.add(u)
+                        if extra and search_provider == "baseline_catalog_fallback":
+                            search_provider = "autonomous_web_search"
+                    except Exception as exc:
+                        logger.debug("Secondary web search fallback failed for '%s': %s", fallback_q, exc)
+
+            sources.sort(key=lambda item: item.get("extracted_price_usd") is None)
+            if sources:
+                _SEARCH_CACHE[cache_key] = (now, sources, search_provider)
+
+        for src in sources:
+            p = src.get("extracted_price_usd")
+            if isinstance(p, (int, float)) and p > 0:
+                web_prices.append(float(p))
+
+    # Discard mismatched single-component web prices when benchmarking full workstations
+    baseline = _baseline_reference(item_description)
+    if web_prices and baseline:
+        b_lo, b_hi, _ = baseline
+        min_pc_floor = 450.0 if ("desktop pc" in query.lower() and b_lo >= 950.0) else b_lo * 0.45
+        plausible_web = [p for p in web_prices if max(min_pc_floor, b_lo * 0.45) <= p <= b_hi * 3.0]
+        web_prices = plausible_web
+
+    # Web-first pricing: web sources take precedence over fixed baseline
+    if web_prices:
+        ref_mid = round(median(web_prices), 2)
+        ref_low = round(min(web_prices), 2)
+        ref_high = round(max(web_prices), 2)
+        reference_source_type = "web_market_sources"
+        ref_label = f"Promedio/mediana de {len(web_prices)} fuente(s) web consultadas ({search_provider})"
+    elif baseline:
+        ref_low, ref_high, b_label = baseline
+        ref_mid = round((ref_low + ref_high) / 2.0, 2)
+        reference_source_type = "baseline_fallback_only"
+        ref_label = f"[Respaldo catálogo local — sin precios web] {b_label}"
+    else:
+        ref_mid = proposed_unit_price_usd if proposed_unit_price_usd > 0 else 0.0
+        ref_low = round(ref_mid * 0.75, 2)
+        ref_high = round(ref_mid * 1.25, 2)
+        reference_source_type = "sin_referencia"
+        ref_label = "Sin referencia de mercado verificable (no se identificó el producto ni hubo precios web)"
+
+    variance_pct = 0.0
+    if ref_mid > 0 and proposed_unit_price_usd > 0:
+        variance_pct = round(((proposed_unit_price_usd - ref_mid) / ref_mid) * 100.0, 1)
+
+    status = "acorde_al_mercado"
+    is_abusive_overprice = False
+    if reference_source_type == "sin_referencia" or proposed_unit_price_usd <= 0:
+        status = "sin_referencia"
+    elif variance_pct >= 85.0 or (ref_high > 0 and proposed_unit_price_usd > ref_high * 1.65 and variance_pct >= 50.0):
+        status = "sobrecosto_abusivo"
+        is_abusive_overprice = True
+    elif variance_pct >= 35.0 or (ref_high > 0 and proposed_unit_price_usd > ref_high * 1.20):
+        status = "precio_elevado"
+    elif ref_low > 0 and proposed_unit_price_usd < ref_low * 0.65:
+        status = "sospechosamente_bajo"
+
+    cited_sources = [
+        {
+            "title": s.get("title", ""),
+            "url": s.get("url", ""),
+            "extracted_price_usd": s.get("extracted_price_usd"),
+            "retrieved_at": s.get("retrieved_at", ""),
+            "snippet": s.get("snippet", "")[:180],
+        }
+        for s in sources[:4]
+    ]
+
+    return {
+        "item": item_description[:140],
+        "query": query,
+        "provider": search_provider,
+        "reference_source_type": reference_source_type,
+        "proposed_unit_price_usd": round(proposed_unit_price_usd, 2),
+        "market_reference_low_usd": ref_low,
+        "market_reference_mid_usd": ref_mid,
+        "market_reference_high_usd": ref_high,
+        "reference_label": ref_label,
+        "variance_pct": variance_pct,
+        "status": status,
+        "is_abusive_overprice": is_abusive_overprice,
+        "sources": cited_sources,
+    }

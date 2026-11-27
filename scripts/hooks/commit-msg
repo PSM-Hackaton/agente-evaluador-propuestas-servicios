@@ -1,0 +1,57 @@
+#!/bin/sh
+# Gancho commit-msg: el mensaje debe ser propio del equipo, en castellano, detallado y sin coautorías.
+# Exige:
+#   - Título de al menos 10 caracteres con el formato "tipo(ámbito): descripción" (ámbito opcional), con
+#     tipo feat, fix, docs, test, chore, refactor, perf, style, build, ci o revert.
+#   - Una línea en blanco tras el título y un cuerpo con al menos 2 líneas descriptivas (qué se cambió, por qué,
+#     cómo se verificó y riesgos). Cada línea cuenta si tiene al menos 15 caracteres.
+# Bloquea además líneas de coautoría, nombres de herramientas de autoría y marcas de cuentas automáticas.
+# Se aceptan sin cuerpo los mensajes que genera git: "Merge …", "Revert …", "fixup! …", "squash! …" y "amend! …".
+set -eu
+NOMBRE_HOOK=commit-msg
+DIR_HOOKS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=scripts/hooks/comun.sh
+. "$DIR_HOOKS/comun.sh"
+
+MENSAJE=$(sed -e '/^# ------------------------ >8 ------------------------$/,$d' -e '/^#/d' "$1")
+if printf '%s\n' "$MENSAJE" | grep -Eiq "$PATRON_HERRAMIENTAS|\[bot\]"; then
+  hook_error 'el mensaje contiene líneas de coautoría o nombres de herramientas de autoría:'
+  printf '%s\n' "$MENSAJE" | grep -Ei "$PATRON_HERRAMIENTAS|\[bot\]" | head -3 | sed 's/^/    /' >&2
+  exit 1
+fi
+
+TITULO=$(printf '%s\n' "$MENSAJE" | sed -n '/[^[:space:]]/{p;q;}')
+case "$TITULO" in
+  'Merge '*|'Revert '*|'fixup! '*|'squash! '*|'amend! '*) exit 0 ;;
+esac
+
+EJEMPLO='    feat(lote): repositorio de GitLab y commit real en salida.json (#21)
+
+    Qué: backend/app/services/reports/salida_json.py normaliza la ruta grupo/proyecto.
+    Por qué: enunciado 3.C (repositorio y commit con git rev-parse HEAD).
+    Verificación: pytest y ruff en verde; el modo lote valida salida.json.
+    Riesgos: sin HACKATHON_REPO_PATH ni remoto origin el lote termina con error.'
+
+if [ "${#TITULO}" -lt 10 ]; then
+  hook_error 'el título es demasiado corto: describa en una línea qué cambia (mínimo 10 caracteres)'
+  exit 1
+fi
+if ! printf '%s\n' "$TITULO" | grep -Eq '^(feat|fix|docs|test|chore|refactor|perf|style|build|ci|revert)(\([^()]+\))?!?: .{5,}'; then
+  hook_error "el título debe seguir el formato «tipo(ámbito): descripción concreta (#issue)». Ejemplo:"
+  printf '%s\n' "$EJEMPLO" >&2
+  exit 1
+fi
+
+# Cuerpo: lo que sigue a la primera línea en blanco después del título.
+CUERPO=$(printf '%s\n' "$MENSAJE" | awk 'BEGIN{t=0;b=0} { if(!t){ if($0 ~ /[^[:space:]]/) t=1; next } if(!b){ if($0 ~ /^[[:space:]]*$/){ b=1; next } else { print "__SIN_BLANCO__"; exit } } print }')
+if [ "$CUERPO" = "__SIN_BLANCO__" ]; then
+  hook_error 'deje una línea en blanco entre el título y el cuerpo del mensaje'
+  exit 1
+fi
+LINEAS=$(printf '%s\n' "$CUERPO" | awk 'length($0) >= 15 && $0 ~ /[[:alpha:]]/' | wc -l | tr -d ' ')
+if [ "$LINEAS" -lt 2 ]; then
+  hook_error "el mensaje necesita un cuerpo con al menos 2 líneas descriptivas (hay $LINEAS): qué se cambió, por qué, cómo se verificó y riesgos. Ejemplo:"
+  printf '%s\n' "$EJEMPLO" >&2
+  exit 1
+fi
+exit 0

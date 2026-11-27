@@ -1,0 +1,10 @@
+# Falsos positivos históricos de pruebas unitarias (Issue #46, R3-D2).
+# Las cadenas de ejemplo en backend/tests/test_revision_correcciones.py:306-307
+# fueron reemplazadas en HEAD por generación dinámica con secrets.token_bytes/token_hex.
+# Se ignoran únicamente las huellas históricas para no reescribir la historia en ramas compartidas.
+57e75fca82daa9d24a788617213f0f9cb67083bf:backend/tests/test_revision_correcciones.py:generic-api-key:306
+57e75fca82daa9d24a788617213f0f9cb67083bf:backend/tests/test_revision_correcciones.py:generic-api-key:307
+9410011ed7e5d26438a4fe4df7a0a62186adc462:backend/tests/test_revision_correcciones.py:generic-api-key:306
+9410011ed7e5d26438a4fe4df7a0a62186adc462:backend/tests/test_revision_correcciones.py:generic-api-key:307
+e3cb7da267254110c908909e83a4a6c622621c6b:backend/tests/test_revision_correcciones.py:generic-api-key:306
+e3cb7da267254110c908909e83a4a6c622621c6b:backend/tests/test_revision_correcciones.py:generic-api-key:307
