@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guion de demostración · Agente Evaluador de Propuestas de Servicios</title>
+<style>
+  @page { size: A4; margin: 15mm 14mm; }
+  body { font-family: "Noto Sans", "DejaVu Sans", Arial, sans-serif; color: #1B2440; font-size: 10.5pt; line-height: 1.42; margin: 0; }
+  .franja { height: 6px; background: linear-gradient(90deg, #FFCC00 0 33.3%, #00247D 33.3% 66.6%, #CF142B 66.6%); margin-bottom: 12px; }
+  h1 { font-size: 19pt; color: #0A1A4F; margin: 0 0 3px; }
+  .sub { color: #4A5578; margin: 0 0 12px; }
+  h2 { font-size: 13pt; color: #00247D; border-bottom: 2px solid #D8DEEE; padding-bottom: 3px; margin: 16px 0 7px; }
+  table { width: 100%; border-collapse: collapse; margin: 5px 0 9px; font-size: 9.4pt; }
+  th, td { border: 1px solid #C9D2E6; padding: 4px 6px; vertical-align: top; text-align: left; }
+  th { background: #EEF2FB; color: #0A1A4F; }
+  td.t { white-space: nowrap; font-weight: 600; color: #00247D; width: 66px; }
+  td.p { white-space: nowrap; font-weight: 700; color: #0A1A4F; width: 56px; }
+  code, pre { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; }
+  pre { background: #0E1B3D; color: #E8EDFA; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; margin: 5px 0; }
+  .nota { background: #FFF8DD; border-left: 4px solid #E0B400; padding: 6px 9px; margin: 7px 0; font-size: 9.4pt; }
+  ul { margin: 3px 0 7px 18px; padding: 0; } li { margin: 1.5px 0; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+<div class="franja"></div>
+<h1>Guion de demostración (8–10 minutos)</h1>
+<p class="sub">Agente Evaluador de Propuestas de Servicios · Reto Grupal · Hackatón Venezuela INNOVA 2026 · <b>Grupo 4 · Sede Chuao</b></p>
+<p style="margin:4px 0 10px;font-size:9.5pt;color:#4A5578"><b>Grupo 4 · Sede Chuao:</b> Juan Laya (C.I. 31.902.000) · Diego Landaeta (C.I. 30.613.562) · Javier Rodríguez (C.I. 30.722.161) · Giovani Marcano (C.I. 31.920.153) · Enggel Rodríguez (C.I. 32.821.429)</p>
+<p><b>Repositorio:</b> <code>https://gitlab.nube.gob.ve/grupo/chuao/chuao_grupo4/propuesta_servicios</code> · Instalación y guía por rol: <code>README.md</code> (Pasos 1 a 7). El guion sigue el orden del baremo (sección 3.D del enunciado): primero los 25 puntos de la evaluación automática y luego los 75 de la plataforma.</p>
+
+<h2>0. Preparación (15 minutos antes)</h2>
+<ul>
+  <li>Plataforma en <code>https://172.20.15.46:9443</code> (Nginx + TLS 1.3; red del evento). Ventana 1: <code>admin</code>; ventana privada: <code>revisor</code> y luego <code>aprobador</code> (contraseñas del README, Paso 7).</li>
+  <li>Proyecto de ensayo «Dotación del laboratorio de computación» ya evaluado (plan B) y un proyecto vacío para la demo en vivo.</li>
+  <li>Carpeta <code>docs/reto/</code> abierta con <code>proyecto.pdf</code> y las 10 propuestas; una terminal con letra grande en <code>backend/</code>.</li>
+  <li>IA soberana en servidores propios: en fase inicial opera con motor algorítmico predictivo determinista (OCR local y reglas auditables, sin requerir histórico masivo) e inferencia on-premise (<code>qwen3.5:4b</code>) alojada en nuestros servidores; <code>/health</code> muestra el estado activo.</li>
+</ul>
+
+<h2>1. Guion</h2>
+<table>
+  <tr><th>Tiempo</th><th>Diap.</th><th>Qué se muestra</th><th>Qué se dice</th></tr>
+  <tr><td class="t">0:00–0:40</td><td class="p">1–3</td><td>Portada, cómo se califica y arquitectura.</td><td>El reto y el baremo: 25 puntos automáticos y 75 de plataforma. Arquitectura: interfaz, motor algorítmico predictivo en fase inicial + IA alojada en nuestros propios servidores para empresas e instituciones, PostgreSQL cifrado.</td></tr>
+  <tr><td class="t">0:40–1:40</td><td class="p">4</td><td>Terminal: mostrar <code>salida.json</code> del lote oficial y ejecutar modo lote sobre <code>docs/reto</code>.</td><td>Evaluación automática: lote oficial 17:05 con 4 válidas en orden (376 Soluciones Tecnológicas Mérida recomendada, 628, 195, 761) y 6 descartadas en 27 s; publicado en <code>terminado</code>.</td></tr>
+  <tr><td class="t">1:40–2:30</td><td class="p">5</td><td>Proyecto vacío → subir <code>proyecto.pdf</code> → pestaña Propuestas → arrastrar las 10.</td><td>2.A: PDF, escaneo, manuscrito, XLSX y capturas de chat; cada archivo se cifra al guardarse.</td></tr>
+  <tr><td class="t">2:30–3:40</td><td class="p">6</td><td>«Evaluar Propuestas de Servicios» → pestaña Trazabilidad.</td><td>2.B y 2.C: costo total real, aritmética con herramienta, alcance, compatibilidad, búsqueda web de precios y alerta por instrucciones ocultas.</td></tr>
+  <tr><td class="t">3:40–4:30</td><td class="p">7</td><td>Pestaña Informe: recomendada, tabla y dictamen.</td><td>2.D: recomendada fundamentada, declarado frente a costo real y causa de cada descarte.</td></tr>
+  <tr><td class="t">4:30–5:00</td><td class="p">8</td><td>Barra de estados y pestaña Historial; selector de ejecuciones.</td><td>E.1: varios procesos guardados y estados de recepción a cierre.</td></tr>
+  <tr><td class="t">5:00–6:00</td><td class="p">9</td><td>Ventana del revisor: nota y confirmación. Aprobador: adjudicación. Admin: Usuarios y «Generar invitación».</td><td>E.2: roles diferenciados, revisión humana con usuario y fecha; nadie se registra sin invitación.</td></tr>
+  <tr><td class="t">6:00–6:30</td><td class="p">10–11</td><td>Auditoría; Proveedores con alertas.</td><td>Trazabilidad completa y E.3: antecedentes que alertan en la siguiente licitación.</td></tr>
+  <tr><td class="t">6:30–7:10</td><td class="p">12</td><td>Botón «Desglose» de una propuesta; tabla en Bs.</td><td>E.4: tasa BCV oficial del día (o la del comité, solo ese día), IVA y desglose paso a paso.</td></tr>
+  <tr><td class="t">7:10–7:50</td><td class="p">13</td><td>Exportar PDF y Excel; chat: «¿Por qué se descartó la 131?».</td><td>E.5: informe para firmar, tabla para revisar y consulta basada solo en los documentos.</td></tr>
+  <tr><td class="t">7:50–8:40</td><td class="p">14–16</td><td><code>/health</code> (TLS, AES-256-GCM, base de datos); cifras de pruebas y medición.</td><td>F: cifrado en tránsito y en reposo, roles, IA sin fugas. Calidad: 78 + 42 pruebas, API 28/28 y 14/14. Innovación.</td></tr>
+  <tr><td class="t">8:40–9:00</td><td class="p">17</td><td>Cierre.</td><td>«El agente propone, el comité decide, y todo queda registrado».</td></tr>
+</table>
+
+<h2>2. Cómo cumplimos cada criterio</h2>
+<table>
+  <tr><th>Criterio o requisito del enunciado</th><th>Cómo lo cumplimos</th><th>Evidencia que se muestra</th></tr>
+  <tr><td><b>Evaluación automática (25)</b>: filtro, orden y primera</td><td>Modo lote del mismo agente; siete causas de descarte del enunciado; orden por técnica, protección eléctrica, garantía y costo real</td><td><code>salida.json</code> oficial en la rama <code>terminado</code> (376 · 628 · 195 · 761) y lote de práctica (602 · 923 · 841 · 832 · 638)</td></tr>
+  <tr><td>2.A Ingesta multimodal</td><td>Texto nativo de PDF, OCR local y visión para escaneos y manuscritos, fórmulas de XLSX y capturas PNG</td><td>Pestaña Propuestas con el formato detectado</td></tr>
+  <tr><td>2.B Letra pequeña, aritmética y alcance</td><td>Herramientas de cálculo del agente: costo total real, cantidad × precio, suma de subtotales, ítems del proyecto, compatibilidad</td><td>Trazabilidad: «Verificación aritmética», «Letra pequeña / logística», «Compatibilidad técnica»</td></tr>
+  <tr><td>2.C Precios en internet</td><td>Búsqueda web autónoma del precio de mercado por partida</td><td>Trazabilidad: «Contraste de mercado» con porcentaje frente a la referencia</td></tr>
+  <tr><td>2.D Interfaz e informe</td><td>Carga del proyecto y de 3 a 20 propuestas, botón de evaluación con traza en vivo e informe con recomendada, tabla y dictamen</td><td>Pestañas Trazabilidad e Informe</td></tr>
+  <tr><td>E.1 Historial y estados</td><td>Proyectos y ejecuciones persistentes; recepción → evaluación → revisión del comité → adjudicado → cerrado</td><td>Barra de estados, Historial y selector de ejecuciones</td></tr>
+  <tr><td>E.2 Roles y revisión humana</td><td>Administrador, carga, revisor, aprobador y auditor; notas y confirmación del revisor; adjudicación del aprobador; registro solo con invitación</td><td>Ventanas por rol, Usuarios e invitaciones, Auditoría</td></tr>
+  <tr><td>E.3 Proveedores</td><td>Ficha (nombre, RIF, ubicación, contacto), participaciones y alertas automáticas por descartes previos</td><td>Directorio de proveedores</td></tr>
+  <tr><td>E.4 Normalización financiera</td><td>Tasa BCV oficial en vivo o tasa del comité válida solo ese día, IVA y exenciones, USD y Bs, desglose paso a paso</td><td>Cabecera con la tasa, botón «Desglose», tabla en Bs</td></tr>
+  <tr><td>E.5 Reportes y consulta</td><td>PDF, Excel, CSV, Markdown y <code>salida.json</code>; chat basado solo en los documentos cargados</td><td>Exportaciones y pestaña Chat</td></tr>
+  <tr><td>F. Seguridad de la información</td><td>TLS 1.2/1.3 en todas las conexiones; AES-256-GCM en documentos, texto extraído, evaluaciones, trazas, chat y auditoría</td><td><code>/health</code>; revisión automática de seguridad del GitLab del evento con 0 hallazgos</td></tr>
+  <tr><td>Claridad de la interfaz</td><td>Identidad institucional, modo oscuro, pasos y estados visibles, acceso por usuario o correo, vista móvil</td><td>Recorrido de todas las pantallas sin errores de consola</td></tr>
+  <tr><td>Funcionamiento real</td><td>Backend 78/78 sobre PostgreSQL 16, frontend 42/42, API 28/28 y registro con invitaciones 14/14</td><td><code>docs/verificacion-final-2026-11-27.md</code></td></tr>
+</table>
+
+<h2>3. Plan B</h2>
+<ul>
+  <li><b>IA local lenta o no disponible:</b> backend con <code>LLM_PROVIDER=heuristic</code> (OCR local y reglas): mismo ranking del lote en unos 15 s.</li>
+  <li><b>Sin internet para precios:</b> desmarcar la búsqueda web; el informe indica que usa la referencia local.</li>
+  <li><b>Fallo en la carga en vivo:</b> abrir el proyecto de ensayo ya evaluado y seguir desde el informe.</li>
+  <li><b>Fallo de la interfaz:</b> mostrar el PDF y el Excel exportados y el <code>salida.json</code>.</li>
+</ul>
+
+<h2>4. Preguntas probables del jurado</h2>
+<table>
+  <tr><th>Pregunta</th><th>Respuesta corta</th></tr>
+  <tr><td>¿Dónde corre la IA?</td><td>Alojada en nuestros propios servidores (on-premise) para uso exclusivo de instituciones y empresas. En fase inicial opera con motor algorítmico predictivo determinista (sin requerir histórico masivo) e inferencia local (<code>qwen3.5:4b</code>); cero bytes salen a la nube ni a APIs comerciales.</td></tr>
+  <tr><td>¿Cómo detectan la manipulación?</td><td>Buscan texto dirigido a la IA (oculto, diminuto o en comentarios); se sanea y es causa de descarte, nunca una instrucción.</td></tr>
+  <tr><td>¿Cómo calculan el costo real?</td><td>Monto declarado + fletes + recargos + impuestos, verificado con herramientas y convertido con la tasa BCV del día.</td></tr>
+  <tr><td>¿Y si el agente se equivoca?</td><td>El revisor anota y el comité puede adjudicar otra propuesta con justificación; todo queda en la auditoría.</td></tr>
+</table>
+</body>
+</html>

@@ -123,7 +123,7 @@ Los ganchos **bloquean**:
 | `commit-msg` | títulos de menos de 10 caracteres o sin el formato `tipo(ámbito): descripción`; mensajes sin cuerpo (al menos 2 líneas descriptivas tras una línea en blanco); líneas de coautoría y nombres de herramientas de autoría |
 | `pre-push` | commits con autor no válido o mensajes no permitidos; fallos de `pytest` en el backend o de `npm run build` en el frontend (con `PREPUSH_SOLO=backend` o `frontend` se limita a una parte) |
 
-Los proveedores de IA que usa la aplicación (Gemini, OpenAI) **no** se bloquean: son parte del producto.
+La solución es 100 % soberana: **no utiliza ninguna API comercial de IA** (ni envía documentos a la nube); opera en servidores propios (*on-premise*) con motor algorítmico predictivo e inferencia local.
 `--no-verify` salta los ganchos; solo se acepta en casos justificados y explicados en el Merge Request. El
 `pre-push` prueba el directorio de trabajo: conviene tenerlo limpio (`git status`) antes de subir.
 

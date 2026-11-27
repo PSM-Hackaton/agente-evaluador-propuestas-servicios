@@ -58,11 +58,10 @@ El mismo orden figura en `salida.json` (raíz del repositorio), generado por el 
 - PostgreSQL 16 local; `DATABASE_URL` sin contraseña en la URL (la clave, si existe, en `PGPASSWORD`).
 - Backend `python -m app.run` con `TLS_ENABLED=true` y certificados de `scripts/generate_tls_certs.sh`;
   claves propias para `MASTER_ENCRYPTION_KEY` y `JWT_SECRET_KEY`.
-- Agente en `LLM_PROVIDER=heuristic` con OCR local (Tesseract) en esta máquina de pruebas. En la máquina de la
-  demostración se usa la IA local por API compatible con OpenAI (Ollama, `qwen2.5:3b` y `qwen2.5vl:3b`).
+- Agente en `LLM_PROVIDER=heuristic` (motor algorítmico predictivo determinista + OCR local Tesseract) en esta máquina de pruebas. En el servidor de demostración *on-premise* opera con inferencia soberana alojada en servidores propios (`qwen3.5:4b`), sin APIs comerciales externas.
 - Frontend `npm run dev` con `BACKEND_URL=https://localhost:8000` (API real por defecto).
 
 ## 5. Cómo repetir esta verificación
 
-Seguir el `README.md` (Pasos 1 a 5) sobre un clon limpio. El orden de la tabla 3 y el formato de `salida.json`
+Seguir el `README.md` (Pasos 1 a 7) sobre un clon limpio. El orden de la tabla 3 y el formato de `salida.json`
 deben coincidir; un orden distinto indica un cambio en las reglas del agente.
