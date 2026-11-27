@@ -108,7 +108,8 @@ El estado verificado de cada requisito está en la
 
 - **Integración en curso**: el frontend y el backend se integran en `staging` mediante los Pull Request #26
   (frontend, adaptado al contrato `/api/v1`) y #18 (backend); la prueba de extremo a extremo está pendiente. Por
-  defecto el frontend funciona en **modo demostración** (`VITE_USE_MOCK=true`), con datos simulados en el navegador.
+  defecto el frontend consume la API real (`VITE_USE_MOCK=false`); el modo demostración con datos simulados solo se
+  activa con `VITE_USE_MOCK=true`.
 - **Sin clave de API** el agente funciona en modo heurístico (reglas y OCR local), que lee peor los manuscritos y
   escaneos. Las reglas de auditoría técnica están afinadas para el caso del laboratorio de computación del reto.
 - La búsqueda de precios lee los títulos y fragmentos de los resultados (no navega por las páginas) y se apoya
@@ -218,8 +219,7 @@ npm run dev          # http://localhost:5173
 npm run build        # verificación de TypeScript y compilación de producción en dist/
 ```
 
-Con `VITE_USE_MOCK=true` (valor por defecto) la interfaz funciona sola, con datos de demostración.
-Para usar el backend real: en `frontend/.env`, `VITE_USE_MOCK=false`,
+Por defecto (`VITE_USE_MOCK=false`) la interfaz usa el backend real: en `frontend/.env`, `VITE_USE_MOCK=false`,
 `VITE_API_URL=/api/v1` y `BACKEND_URL=http://localhost:8000`; con el backend en marcha, `npm run dev`.
 
 ### Paso 4. Modo lote: `salida.json` (sección 3 del enunciado)
