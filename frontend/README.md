@@ -4,6 +4,8 @@ Aplicación web SPA construida con **React + Vite + TypeScript + TailwindCSS**, 
 
 ## Puesta en marcha
 
+Requiere **Node.js >= 22.12.0** (fijado en `frontend/package.json` → `engines` y `frontend/.nvmrc`) y `npm`.
+
 ```bash
 cd frontend
 npm install
