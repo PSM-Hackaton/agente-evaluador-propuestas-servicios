@@ -74,6 +74,7 @@ export function parseApiBase(rawBase?: string, originFallback?: string): URL {
 }
 
 const API_BASE: URL = parseApiBase();
+const ALLOWED_API_ORIGINS: readonly string[] = [API_BASE.origin];
 
 export function buildApiUrl(path: string, base: URL = API_BASE): URL {
   if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\') || hasControlChars(path)) {
@@ -151,8 +152,14 @@ async function raw(
   const url = buildApiUrl(path);
   let res: Response;
   try {
-    res = await fetch(url, { ...opts, headers });
-  } catch {
+    if (ALLOWED_API_ORIGINS.includes(url.origin)) {
+      // nosemgrep: nodejs_scan.javascript-ssrf-rule-node_ssrf, rules_lgpl_javascript_ssrf_rule-node-ssrf -- URL construida por buildApiUrl, mismo origen, sin esquema ni //
+      res = await fetch(url, { ...opts, headers });
+    } else {
+      throw new ApiError(400, 'Ruta de API inválida o fuera del origen permitido.');
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifique que el backend esté en ejecución.');
   }
   if (res.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/refresh')) {
