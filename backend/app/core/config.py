@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     default_iva_rate: float = 0.16
     abusive_surcharge_pct_threshold: float = 50.0
 
+    # Registro público: sin invitación crea cuentas con rol 'cargador', que puede leer todos los proyectos.
+    # Desactivado por defecto: en producción las cuentas se crean por invitación del administrador.
+    public_signup_enabled: bool = False
+
     # Hackathon / Batch metadata
     hackathon_repo_path: str = ""
     timezone_offset: str = "-04:00"
