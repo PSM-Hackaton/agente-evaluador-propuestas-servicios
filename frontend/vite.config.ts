@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // En modo real, /api se redirige al backend FastAPI
         '/api': {
-          target: env.BACKEND_URL || 'http://localhost:8000',
+          target: env.BACKEND_URL || 'https://localhost:8000',
           changeOrigin: true,
           secure: false,
         },

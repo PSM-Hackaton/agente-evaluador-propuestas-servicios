@@ -6,6 +6,7 @@ import { DEMO_PASSWORD } from '../api/mock/specs';
 import { useAuth } from '../context/AuthContext';
 import { ROL_LABEL } from '../lib/labels';
 import { Alert, Badge, Button, Card, CardBody } from '../components/ui';
+import { InstitutionalHeader } from '../components/InstitutionalHeader';
 
 const CUENTAS_DEMO: { email: string; nombre: string; rol: Rol }[] = [
   { email: 'admin@demo.ve', nombre: 'Ana Administradora', rol: 'admin' },
@@ -49,12 +50,15 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-100 px-4 py-10">
-      <div className="w-full max-w-md space-y-6">
+    <div className="min-h-screen bg-slate-50">
+      <a href="#contenido" className="saltar-contenido">Saltar al contenido principal</a>
+      <InstitutionalHeader />
+      <main id="contenido" className="mx-auto flex min-h-[calc(100vh-49px)] w-full max-w-[420px] flex-col justify-center px-4 py-10">
+        <div className="w-full space-y-6">
         <div className="text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md">
             <Bot className="h-7 w-7" />
-          </div>
+            </div>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
             Agente Evaluador de Propuestas
           </h1>
@@ -144,6 +148,7 @@ export function LoginPage() {
           </Card>
         )}
       </div>
+      </main>
     </div>
   );
 }

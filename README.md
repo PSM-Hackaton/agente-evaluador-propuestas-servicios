@@ -231,7 +231,7 @@ npm run dev          # usa la API real /api/v1 por defecto (modo simulado solo c
 npm run build        # verificación de TypeScript y compilación de producción en dist/
 ```
 
-### Paso 4. Modo lote: `salida.json` (sección 3 del enunciado)
+### Paso 5. Modo lote: `salida.json` (sección 3 del enunciado)
 
 ```sh
 cd backend
@@ -244,7 +244,7 @@ HACKATHON_REPO_PATH="<ruta-del-repositorio-en-GitLab>" \
 Opciones: `--no-web-search` (sin búsqueda web) y `--bcv-rate <tasa>` (tasa fija). El programa valida el archivo
 antes de terminar. Con los datos de ejemplo: `--lote ../docs/reto`.
 
-### Paso 5. Despliegue con TLS 1.2/1.3
+### Paso 6. Despliegue con TLS 1.2/1.3
 
 ```sh
 cd backend
@@ -255,7 +255,52 @@ TLS_ENABLED=true python -m app.run             # HTTPS directo en Uvicorn
 En producción, servir el frontend compilado (`frontend/dist/`) y el backend detrás de Nginx con la plantilla
 `backend/nginx/tls.conf` (`ssl_protocols TLSv1.2 TLSv1.3`), y ajustar `CORS_ORIGINS` al dominio público.
 
-### Paso 6. Contribuir
+### Paso 7. Guía rápida de uso: recorrido paso a paso
+
+Con el backend (Paso 3) y el frontend (Paso 4) en marcha, abra **`http://localhost:5173`**. Al arrancar por
+primera vez, el backend crea un usuario de demostración por rol (correos y contraseñas en
+`backend/app/db/seed.py`; solo para entornos locales, cámbielas fuera de una demostración):
+
+| Rol | Correo | Qué puede hacer |
+| :--- | :--- | :--- |
+| Administrador | `admin@evaluador.ve` | Todo, incluidos usuarios y auditoría |
+| Carga documental | `cargador@evaluador.ve` | Crear proyectos y subir documentos |
+| Revisor técnico | `revisor@evaluador.ve` | Evaluar y registrar revisiones humanas |
+| Comité aprobador | `aprobador@evaluador.ve` | Aprobar o adjudicar otra propuesta |
+| Auditor | `auditor@evaluador.ve` | Solo lectura y bitácora de auditoría |
+
+**1. Crear el proyecto.** Entre como administrador → **Nuevo proyecto** → nombre (p. ej. «Laboratorio de
+computación»), moneda de referencia y presupuesto → guardar. Dentro del proyecto, suba el documento de
+requerimientos (`docs/reto/proyecto.pdf`).
+
+**2. Cargar las propuestas.** Pestaña **Propuestas** → arrastre los archivos o «Seleccionar archivos de
+propuestas» (de 3 a 20; con el lote de ejemplo, las 10 de `docs/reto/propuestas/`: PDF, escaneos, fotos, PNG de
+chat y Excel). Cada archivo se cifra al guardarse.
+
+**3. Evaluar.** Revise los **Parámetros de evaluación del agente** (búsqueda web de precios, tasa BCV oficial o
+manual e IVA) y pulse **Evaluar Propuestas de Servicios**. La pestaña **Trazabilidad** muestra en vivo cada paso
+del agente: lectura multimodal, cálculo del costo total real, letra pequeña, aritmética, contraste de precios de
+mercado y verificación del alcance.
+
+**4. Leer el informe.** Pestaña **Informe**: propuesta recomendada, **tabla comparativa** (costo total real en USD
+y Bs., puntaje técnico y económico) y el **dictamen de descarte** de cada propuesta rechazada con su causa. Con el
+lote de ejemplo: válidas `602 · 923 · 841 · 832 · 638`; descartadas 131 (inyección de instrucciones), 331
+(costos abusivos), 734 (incompatibilidad técnica), 898 (equipos reciclados) y 975 (alcance incompleto).
+Exportación en PDF, Markdown, CSV, Excel y JSON.
+
+**5. Revisión humana y adjudicación.** Entre como **revisor** y registre su revisión con notas por propuesta; como
+**aprobador**, confirme la recomendada o use la **adjudicación alternativa** con su justificación. Todo queda
+en el **Historial de estados del proceso**.
+
+**6. Resto de módulos.**
+- **Historial:** ejecuciones anteriores del proyecto, consultables en su vista histórica.
+- **Proveedores:** directorio editable con RIF, antecedentes y alertas que influyen en la evaluación.
+- **Chat:** preguntas en lenguaje natural sobre los documentos y la evaluación.
+- **Auditoría:** bitácora de acciones de los usuarios (rol auditor o administrador).
+
+**7. Modo lote para la evaluación automática.** Paso 5: genera `salida.json` en la raíz con el ranking del lote.
+
+### Paso 8. Contribuir
 
 Antes del primer commit en un clon nuevo, activar los ganchos de git del proyecto (bloquean secretos, archivos
 `.env`, archivos de más de 5 MB y mensajes no válidos, y ejecutan las pruebas antes de cada push):
