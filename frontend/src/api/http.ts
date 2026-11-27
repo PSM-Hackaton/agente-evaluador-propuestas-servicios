@@ -289,6 +289,13 @@ export const httpApi: Api = {
         await req<BProject>(`/projects/${encodeURIComponent(p.id)}/document`, { method: 'POST', body: fd }),
       );
     },
+    async uploadDocument(id, archivo) {
+      const fd = new FormData();
+      fd.append('file', archivo);
+      return toProyecto(
+        await req<BProject>(`/projects/${encodeURIComponent(id)}/document`, { method: 'POST', body: fd }),
+      );
+    },
     changeState: async (id, estado, nota, propuestaAdjudicadaId) =>
       toProyecto(
         await req<BProject>(`/projects/${encodeURIComponent(id)}/status`, {
