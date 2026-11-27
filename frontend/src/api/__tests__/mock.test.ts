@@ -109,6 +109,32 @@ describe('mock API y utilidades de seguridad', () => {
     expect(mathRandomSpy).not.toHaveBeenCalled();
   });
 
+  it('mockApi.projects.uploadDocument() añade el documento a un proyecto creado sin él y permite reemplazarlo', async () => {
+    vi.useFakeTimers();
+
+    const loginPromise = mockApi.auth.login('admin@demo.ve', DEMO_PASSWORD);
+    await vi.runAllTimersAsync();
+    const { token, user, refreshToken } = await loginPromise;
+    saveSession(token, user, refreshToken);
+
+    const createPromise = mockApi.projects.create(
+      { nombre: 'Proyecto sin documento', descripcion: '', ubicacion: 'Caracas', presupuesto_ref: null, moneda_ref: 'USD' },
+      null,
+    );
+    await vi.runAllTimersAsync();
+    const proyecto = await createPromise;
+    expect(proyecto.archivo_proyecto).toBeNull();
+
+    const subida = mockApi.projects.uploadDocument(proyecto.id, new File(['pdf'], 'proyecto.pdf', { type: 'application/pdf' }));
+    await vi.runAllTimersAsync();
+    expect((await subida).archivo_proyecto).toBe('proyecto.pdf');
+
+    const reemplazo = mockApi.projects.uploadDocument(proyecto.id, new File(['md'], 'terminos-v2.md', { type: 'text/markdown' }));
+    await vi.runAllTimersAsync();
+    expect((await reemplazo).archivo_proyecto).toBe('terminos-v2.md');
+    vi.useRealTimers();
+  });
+
   it('mockApi.suppliers.get() marca como adjudicada la propuesta alternativa de reviews.add y como valida la recomendada original', async () => {
     vi.useFakeTimers();
 

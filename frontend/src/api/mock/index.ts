@@ -301,7 +301,7 @@ function responderChat(projectId: string, pregunta: string): string {
     const v = res.filter((r) => r.valida).sort((a, b) => a.total_ajustado_usd - b.total_ajustado_usd)[0];
     return v ? `Entre las válidas, la de menor costo real es ${v.codigo} (${v.proveedor}) con ${money(v.total_ajustado_usd)}. El ranking no se basa solo en precio: pondera calidad técnica y cumplimiento.` : 'No hay propuestas válidas.';
   }
-  return 'Puedo responder sobre las propuestas cargadas y el resultado de la evaluación. Por ejemplo: "¿Por qué se descartó la 841?", "¿Qué proveedor ofrece mejor garantía?", "¿Qué costos ocultos se encontraron?" o "¿Cuál es la propuesta recomendada?".';
+  return 'Puedo responder sobre las propuestas cargadas y el resultado de la evaluación. Por ejemplo: "¿Qué propuestas se descartaron y por qué?", "¿Qué proveedor ofrece mejor garantía?", "¿Qué costos ocultos se encontraron?" o "¿Cuál es la propuesta recomendada?".';
 }
 
 // ── Implementación del contrato Api ─────────────────────────────────────────
@@ -379,6 +379,15 @@ export const mockApi: Api = {
       db.proyectos.push(row);
       db.historial.push({ id: uid(), proyecto_id: row.id, estado_anterior: null, estado_nuevo: 'EN_RECEPCION', usuario: u.nombre, fecha: now(), nota: 'Proyecto creado' });
       registrar(u.nombre, 'proyecto.crear', 'proyecto', row.id, { nombre: row.nombre });
+      persist();
+      return aProyecto(row);
+    },
+    async uploadDocument(id, archivo) {
+      await delay(200);
+      const u = exigir('proyecto.crear');
+      const row = proyectoRow(id);
+      row.archivo_proyecto = archivo.name;
+      registrar(u.nombre, 'proyecto.documento', 'proyecto', row.id, { archivo: archivo.name });
       persist();
       return aProyecto(row);
     },
