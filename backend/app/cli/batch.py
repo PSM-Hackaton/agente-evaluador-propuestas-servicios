@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -15,6 +16,119 @@ from app.services.llm.client import UnifiedLLMClient
 from app.services.reports.salida_json import SalidaJsonMetadataError, validate_salida_json
 
 SUPPORTED_EXTS = SUPPORTED_DOCUMENT_EXTENSIONS
+
+
+def _r2(valor: object) -> float:
+    try:
+        return round(float(valor or 0.0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _texto(r) -> str:
+    doc = getattr(r, "ingested_doc", None)
+    return (getattr(doc, "visible_text", "") or "") if doc else ""
+
+
+def _rif(r, lote_dir: Path) -> str | None:
+    if r.supplier_rif:
+        return r.supplier_rif
+    texto = _texto(r)
+    archivo = lote_dir / "propuestas" / r.original_filename
+    if not texto and archivo.suffix.lower() == ".pdf" and archivo.is_file():
+        from app.services.ingestion.pdf_parser import extract_pdf
+
+        pdf = extract_pdf(archivo.read_bytes())
+        texto = pdf.visible_text or pdf.full_raw_text
+    m = re.search(r"\b([JVEGP])\s*-\s*(\d{6,9})\s*-\s*(\d)\b", texto, re.I)
+    return f"{m.group(1).upper()}-{m.group(2)}-{m.group(3)}" if m else None
+
+
+_RUIDO_NOMBRE = re.compile(r"#|workspace|discord|slack|telegram|whatsapp|cotizaci[oó]n|propuesta", re.I)
+
+
+def _nombre(r) -> str:
+    """Nombre del proveedor; si el leído trae ruido (canal de chat, encabezado), se usa el del archivo."""
+    del_archivo = re.sub(r"^Propuesta_\d+_", "", r.proposal_identifier).replace("__", " & ").replace("_", " ")
+    nombre = re.sub(r"\s+", " ", (r.supplier_name or "")).strip()
+    if nombre and not _RUIDO_NOMBRE.search(nombre):
+        return nombre
+    return del_archivo
+
+
+def _aritmetica(r) -> dict:
+    declarado = float(r.declared_total_usd or 0.0)
+    cobertura = float(r.computed_subtotal_usd or 0.0) / declarado if declarado > 0 else 0.0
+    if r.arithmetic_valid:
+        return {"verificada": True, "correcta": True, "diferencia_usd": 0.0}
+    if any(d.get("code") == "error_aritmetico" for d in (r.discard_reasons or [])):
+        return {"verificada": True, "correcta": False, "diferencia_usd": _r2(r.arithmetic_discrepancy_usd)}
+    return {
+        "verificada": False,
+        "correcta": None,
+        "nota": f"Partidas leídas parcialmente ({cobertura:.0%} del total declarado): no se declara error aritmético.",
+    }
+
+
+def _detalle_completo(output, lote_dir: Path) -> dict:
+    """Resumen del lote y ficha de cada propuesta (proveedor, montos, costo real, puntajes y dictamen)."""
+    fichas = []
+    for r in sorted(output.results, key=lambda x: x.rank_position):
+        fichas.append(
+            {
+                "puesto": r.rank_position,
+                "propuesta": r.proposal_identifier,
+                "archivo": r.original_filename,
+                "procesado": r.processed_at_iso,
+                "estado": "valida" if r.is_valid else "descartada",
+                "proveedor": {
+                    "nombre": _nombre(r),
+                    "rif": _rif(r, lote_dir),
+                    "representante": r.supplier_representative,
+                    "telefono": r.supplier_phone,
+                    "correo": r.supplier_email,
+                    "ubicacion": r.supplier_location,
+                },
+                "montos": {
+                    "moneda_declarada": r.declared_currency,
+                    "total_declarado": _r2(r.declared_total_original),
+                    "total_declarado_usd": _r2(r.declared_total_usd),
+                    "subtotal_calculado_usd": _r2(r.computed_subtotal_usd),
+                    "envio_usd": _r2(r.shipping_cost_usd),
+                    "instalacion_usd": _r2(r.installation_cost_usd),
+                    "recargos_ocultos_usd": _r2(r.hidden_surcharges_usd),
+                    "iva_usd": _r2(r.taxes_iva_usd),
+                    "costo_total_real_usd": _r2(r.adjusted_tco_usd),
+                    "costo_total_real_ves": _r2(r.adjusted_tco_ves),
+                },
+                "aritmetica": _aritmetica(r),
+                "puntajes": {
+                    "tecnico": _r2(r.technical_score),
+                    "economico": _r2(r.economic_score),
+                    "global": _r2(r.overall_score),
+                },
+                "motivos_descarte": [
+                    {"codigo": d.get("code"), "detalle": d.get("detail")} for d in (r.discard_reasons or [])
+                ],
+                "instrucciones_ocultas_detectadas": bool(r.prompt_injection_detected),
+                "hallazgos_tecnicos": list(r.technical_findings or []),
+                "letra_pequena": list(r.fine_print_findings or []),
+                "dictamen": r.discard_verdict_text if not r.is_valid else r.recommendation_rationale,
+            }
+        )
+    validas = [f for f in fichas if f["estado"] == "valida"]
+    return {
+        "lote": {
+            "carpeta": lote_dir.name,
+            "propuestas_recibidas": len(fichas),
+            "validas": len(validas),
+            "descartadas": len(fichas) - len(validas),
+            "recomendada": output.recommended_identifier,
+            "tasa_bcv": {"bs_por_usd": _r2(output.bcv_rate), "fuente": output.bcv_source},
+            "motor": output.llm_provider,
+        },
+        "detalle": fichas,
+    }
 
 
 async def _run_cli(args: argparse.Namespace) -> int:
@@ -70,6 +184,11 @@ async def _run_cli(args: argparse.Namespace) -> int:
     except SalidaJsonMetadataError as exc:
         print(f"ERROR de metadatos salida.json: {exc}", file=sys.stderr)
         return 1
+
+    # Detalle completo de cada propuesta. Los campos sobrantes los permite el formato oficial y la calificación
+    # automática los ignora: los 7 campos calificados (reto, repositorio, commit, inicio, fin, procesados y
+    # ranking) no cambian.
+    output.salida_json.update(_detalle_completo(output, lote_dir))
 
     ok, errors = validate_salida_json(
         output.salida_json,

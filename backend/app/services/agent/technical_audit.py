@@ -262,6 +262,25 @@ def audit_proposal_technically(
                 f"Fuente de poder insuficiente ({psu_watts}W) para alimentar estación con GPU dedicada.",
             )
 
+    # Potencia mínima de fuente recomendada por el fabricante de la GPU (sistema completo).
+    req_gpu = 0
+    for pat, w in ((r"rtx\s*4090", 850), (r"rtx\s*4080", 750), (r"rtx\s*4070\s*ti", 700), (r"rtx\s*4070", 650),
+                   (r"rtx\s*4060", 550), (r"rtx\s*30[5-9]0", 550), (r"rx\s*7[89]00", 700), (r"rx\s*7[67]00", 600)):
+        if re.search(pat, low):
+            req_gpu = max(req_gpu, w)
+    if req_gpu:
+        psu_vals = []
+        for m_f in re.finditer(r"fuente|psu", low):
+            m_w = re.search(r"(\d{3,4})\s*w(?:att)?\b", low[m_f.end(): m_f.end() + 160])
+            if m_w and not re.search(r"ups|va\b", low[m_f.end(): m_f.end() + m_w.start()]):
+                psu_vals.append(int(m_w.group(1)))
+        if psu_vals and min(psu_vals) < req_gpu:
+            _add_discard(
+                reasons,
+                DiscardReasonCode.CAPACIDAD_INSUFICIENTE,
+                f"Fuente de poder insuficiente ({min(psu_vals)}W) para la GPU ofertada (requiere al menos {req_gpu}W).",
+            )
+
     ups_va_match = re.search(r"(?:ups|regulador)[^\n|]{0,45}?(\d{3,4})\s*va", low)
     ups_w_match = re.search(r"(?:ups|regulador)[^\n|]{0,50}?/\s*(\d{3,4})\s*w", low)
     if ups_va_match and has_dedicated_gpu:
