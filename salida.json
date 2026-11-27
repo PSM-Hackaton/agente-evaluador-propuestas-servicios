@@ -1,61 +1,61 @@
 {
   "reto": "propuesta_servicios",
   "repositorio": "grupo/chuao/chuao_grupo4/propuesta_servicios",
-  "commit": "3a3375d37fc76e0e25a493c4da04a96674ffa025",
-  "inicio": "2026-11-27T12:09:34-04:00",
-  "fin": "2026-11-27T12:09:49-04:00",
+  "commit": "2a8c80436cebaeb38afbefc5c25c64ee0199386d",
+  "inicio": "2026-11-27T17:15:16-04:00",
+  "fin": "2026-11-27T17:16:25-04:00",
   "procesados": [
     {
-      "archivo": "Propuesta_131_ReTech_Outlet_Venezuela_CA.pdf",
-      "hora": "2026-11-27T12:09:35-04:00"
+      "archivo": "Propuesta_147_Oficina_Basica_Tech_CA.png",
+      "hora": "2026-11-27T17:15:20-04:00"
     },
     {
-      "archivo": "Propuesta_331_Mayorista_Sin_Fronteras_CA.png",
-      "hora": "2026-11-27T12:09:38-04:00"
+      "archivo": "Propuesta_195_Consorcio_Enterprise_Caracas_SA.pdf",
+      "hora": "2026-11-27T17:15:20-04:00"
     },
     {
-      "archivo": "Propuesta_602_Krypton_Ingenieria_CA.png",
-      "hora": "2026-11-27T12:09:40-04:00"
+      "archivo": "Propuesta_284_Licencias__Hardware_Global_CA.pdf",
+      "hora": "2026-11-27T17:15:20-04:00"
     },
     {
-      "archivo": "Propuesta_638_TecnoAndes_Soluciones_CA.xlsx",
-      "hora": "2026-11-27T12:09:40-04:00"
+      "archivo": "Propuesta_376_Soluciones_Tecnologicas_Merida_CA.png",
+      "hora": "2026-11-27T17:15:24-04:00"
     },
     {
-      "archivo": "Propuesta_734_Inversiones_Elite_Tech_2026_CA.xlsx",
-      "hora": "2026-11-27T12:09:40-04:00"
+      "archivo": "Propuesta_519_Saldos__Remates_TI_CA.png",
+      "hora": "2026-11-27T17:15:32-04:00"
     },
     {
-      "archivo": "Propuesta_832_Sistemas_del_Valle_CA.jpg",
-      "hora": "2026-11-27T12:09:43-04:00"
+      "archivo": "Propuesta_628_DataCenter__Workstations_CA.xlsx",
+      "hora": "2026-11-27T17:15:32-04:00"
     },
     {
-      "archivo": "Propuesta_841_Avila_Hardware__Redes_CA.png",
-      "hora": "2026-11-27T12:09:44-04:00"
+      "archivo": "Propuesta_712_MegaPC_Directo_CA.jpg",
+      "hora": "2026-11-27T17:15:37-04:00"
     },
     {
-      "archivo": "Propuesta_898_Distribuidora_10x10_Tech_CA.png",
-      "hora": "2026-11-27T12:09:46-04:00"
+      "archivo": "Propuesta_761_NovaTech_Soluciones_Integrales_CA.png",
+      "hora": "2026-11-27T17:16:21-04:00"
     },
     {
-      "archivo": "Propuesta_923_Grupo_Digital_Miranda_CA.pdf",
-      "hora": "2026-11-27T12:09:46-04:00"
+      "archivo": "Propuesta_853_Importadora_Relampago_Logistic_CA.xlsx",
+      "hora": "2026-11-27T17:16:21-04:00"
     },
     {
-      "archivo": "Propuesta_975_Ofertas_Express_Digital_CA.jpg",
-      "hora": "2026-11-27T12:09:49-04:00"
+      "archivo": "Propuesta_904_Vertice_Sistemas_Integrados_CA.jpg",
+      "hora": "2026-11-27T17:16:25-04:00"
     }
   ],
   "ranking": [
-    "Propuesta_602_Krypton_Ingenieria_CA",
-    "Propuesta_923_Grupo_Digital_Miranda_CA",
-    "Propuesta_841_Avila_Hardware__Redes_CA",
-    "Propuesta_832_Sistemas_del_Valle_CA",
-    "Propuesta_638_TecnoAndes_Soluciones_CA",
-    "Propuesta_131_ReTech_Outlet_Venezuela_CA",
-    "Propuesta_331_Mayorista_Sin_Fronteras_CA",
-    "Propuesta_734_Inversiones_Elite_Tech_2026_CA",
-    "Propuesta_898_Distribuidora_10x10_Tech_CA",
-    "Propuesta_975_Ofertas_Express_Digital_CA"
+    "Propuesta_376_Soluciones_Tecnologicas_Merida_CA",
+    "Propuesta_628_DataCenter__Workstations_CA",
+    "Propuesta_195_Consorcio_Enterprise_Caracas_SA",
+    "Propuesta_761_NovaTech_Soluciones_Integrales_CA",
+    "Propuesta_147_Oficina_Basica_Tech_CA",
+    "Propuesta_284_Licencias__Hardware_Global_CA",
+    "Propuesta_519_Saldos__Remates_TI_CA",
+    "Propuesta_712_MegaPC_Directo_CA",
+    "Propuesta_853_Importadora_Relampago_Logistic_CA",
+    "Propuesta_904_Vertice_Sistemas_Integrados_CA"
   ]
 }
