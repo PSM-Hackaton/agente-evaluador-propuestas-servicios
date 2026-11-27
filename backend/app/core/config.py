@@ -70,11 +70,14 @@ class Settings(BaseSettings):
     # LLM Configuration (local OpenAI-compatible API recommended: Ollama / llama.cpp)
     llm_provider: Literal["auto", "openai", "heuristic"] = "auto"
     llm_timeout_seconds: float = 120.0
+    llm_disable_thinking: bool = True
+    llm_local_max_tokens: int = Field(default=650, ge=64)
+    llm_local_vision_max_tokens: int = Field(default=900, ge=64)
 
     openai_api_key: str = ""
     openai_base_url: str = ""
-    openai_model: str = "qwen2.5:3b"
-    openai_vision_model: str = "qwen2.5vl:3b"
+    openai_model: str = "qwen3.5:4b"
+    openai_vision_model: str = "qwen3.5:4b"
 
     # Web Search & Finance
     web_search_enabled: bool = True
