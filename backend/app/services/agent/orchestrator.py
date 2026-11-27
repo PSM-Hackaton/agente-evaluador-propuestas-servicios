@@ -473,13 +473,16 @@ async def evaluate_proposals_core(
         llm_tool_market_results: list[dict[str, Any]] = []
 
         if llm.is_available and doc.sanitized_text:
+            is_local_llm = bool(getattr(getattr(llm, "settings", None), "is_local_llm", False))
+            req_limit = 900 if is_local_llm else 2500
+            doc_limit = 2600 if is_local_llm else 7000
             user_prompt = (
                 f"Proyecto: {project_name} (Ubicación: {project_location})\n"
                 f"Tasa oficial BCV vigente: {bcv_rate:.4f} Bs/USD\n"
-                f"Requisitos clave del proyecto:\n{project_requirements_text[:2500]}\n\n"
+                f"Requisitos clave del proyecto:\n{project_requirements_text[:req_limit]}\n\n"
                 "Usa tus herramientas disponibles (verify_arithmetic, compute_tco, check_hardware_compatibility, "
                 "web_search_market_prices) para auditar la propuesta y luego devuelve el JSON estructurado final.\n\n"
-                f"{wrap_untrusted_document(doc.identifier, doc.sanitized_text[:7000])}"
+                f"{wrap_untrusted_document(doc.identifier, doc.sanitized_text[:doc_limit])}"
             )
 
             async def _dispatch_llm_tool(
@@ -542,15 +545,17 @@ async def evaluate_proposals_core(
                 return res_t
 
             llm_data = None
+            loop_ran = False
             if hasattr(llm, "run_agent_tool_loop"):
                 loop_res = await llm.run_agent_tool_loop(
                     LLM_EXTRACTION_SYSTEM_PROMPT,
                     user_prompt,
                     tool_executor=_dispatch_llm_tool,
-                    images_b64=doc.images_b64[:2] if not doc.used_vision_llm and doc.images_b64 else None,
+                    images_b64=doc.images_b64[:2] if not doc.used_vision_llm and doc.images_b64 and not is_local_llm else None,
                 )
                 llm_data = loop_res.structured_json
-            if not llm_data:
+                loop_ran = True
+            if not llm_data and (not is_local_llm or not loop_ran):
                 llm_data = await llm.generate_json(
                     LLM_EXTRACTION_SYSTEM_PROMPT,
                     user_prompt,

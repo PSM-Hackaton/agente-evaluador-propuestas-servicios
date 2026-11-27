@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
-from app.db.base import get_session_factory, init_db
+from app.db.base import check_db_health, dispose_engine, get_session_factory, init_db
 from app.db.seed import seed_default_users
 
 
@@ -30,11 +30,15 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         logging.getLogger(__name__).warning(
             "Secretos de desarrollo en uso (%s): no usar este entorno con documentos reales.", ", ".join(weak)
         )
-    await init_db()
+    if settings.db_auto_create_tables:
+        await init_db()
     factory = get_session_factory()
     async with factory() as db:
         await seed_default_users(db)
-    yield
+    try:
+        yield
+    finally:
+        await dispose_engine()
 
 
 def create_app() -> FastAPI:
@@ -73,11 +77,18 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["Sistema"])
     async def health() -> dict:
+        db_ok = await check_db_health()
+        resolved = settings.resolved_llm_provider()
         return {
-            "status": "ok",
+            "status": "ok" if db_ok else "degraded",
             "service": settings.app_name,
             "version": "1.0.0",
-            "llm_provider": settings.resolved_llm_provider(),
+            "database": "postgresql",
+            "database_connected": db_ok,
+            "llm_provider": resolved,
+            "llm_mode": "local_api" if settings.is_local_llm else resolved,
+            "llm_model": settings.openai_model if resolved == "openai" else "heuristic",
+            "llm_vision_model": settings.openai_vision_model if resolved == "openai" else "tesseract_ocr",
             "encryption_at_rest": "AES-256-GCM",
             "tls_enabled": settings.tls_enabled,
         }

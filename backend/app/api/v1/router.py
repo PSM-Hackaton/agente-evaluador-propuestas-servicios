@@ -12,6 +12,7 @@ from app.api.v1 import (
     dashboard,
     evaluations,
     finance,
+    market,
     projects,
     proposals,
     suppliers,
@@ -25,6 +26,7 @@ api_router.include_router(proposals.router)
 api_router.include_router(evaluations.router)
 api_router.include_router(suppliers.router)
 api_router.include_router(finance.router)
+api_router.include_router(market.router)
 api_router.include_router(chat.router)
 api_router.include_router(audit.router)
 api_router.include_router(batch.router)
