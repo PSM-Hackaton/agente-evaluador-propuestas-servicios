@@ -314,11 +314,17 @@ export interface ParametrosEvaluacion {
   iva_rate?: number;
 }
 
+export interface CitaChat {
+  fuente: string;
+  tipo: 'attachment' | 'proposal' | 'project' | string;
+}
+
 export interface MensajeChat {
   id: string;
   rol: 'user' | 'assistant';
   contenido: string;
   fecha: string;
+  citas?: CitaChat[];
 }
 
 export type FormatoExport = 'pdf' | 'markdown' | 'xlsx' | 'csv' | 'salida-json';
@@ -422,7 +428,7 @@ export interface Api {
   };
   chat: {
     history(projectId: string): Promise<MensajeChat[]>;
-    send(projectId: string, contenido: string): Promise<MensajeChat>;
+    send(projectId: string, contenido: string, documentIds?: string[]): Promise<MensajeChat>;
     clear(projectId: string): Promise<void>;
   };
 }

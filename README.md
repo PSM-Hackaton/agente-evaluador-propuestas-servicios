@@ -310,3 +310,30 @@ sh scripts/instalar-hooks.sh
 
 El flujo de ramas, revisiones y Merge Request del equipo está en
 [docs/entrega/flujo-gitlab.md](docs/entrega/flujo-gitlab.md).
+
+---
+
+## Estado de IA Local, Arquitectura y Tablero de Issues
+
+### Estado de privacidad e IA 100 % Local
+- **Cero APIs públicas de IA:** no se utilizan SDKs ni endpoints cloud de proveedores externos de IA.
+- **Motor local:** Ollama (`http://127.0.0.1:11434/v1`) con **`qwen3.5:4b`** (multimodal: razonamiento, *tool calling* y visión) y respaldo determinista local (`LLM_PROVIDER=heuristic` + OCR Tesseract en memoria).
+- **Auditoría de fugas cerradas:**
+  - Dependencias de proveedores cloud externos (`google-genai`, `tavily`) eliminadas de `backend/pyproject.toml` y del código (PR #67).
+  - Fixture residual de proveedor externo reemplazado por `ollama` en `frontend/src/api/__tests__/adapters.test.ts`.
+  - Pendiente de cierre en backend (Enggel): validar que `OPENAI_BASE_URL` solo acepte `localhost`/`127.0.0.1`/`::1` para impedir tráfico accidental hacia la nube.
+
+### Base conceptual (Puertos y Adaptadores sobre la estructura del repositorio)
+- **Frontend (`frontend/src/`):** contratos/puertos en `api/types.ts`, adaptadores de salida en `api/http.ts` y `api/mock/index.ts`, reglas de dominio en `lib/roles.ts` y `lib/files.ts`, y adaptadores de entrada (UI) en `pages/` y `components/`.
+- **Backend (`backend/app/`):** rutas HTTP/SSE en `api/v1/`, lógica de auditoría/finanzas/ingesta en `services/`, modelos cifrados en `db/models.py` y esquemas en `schemas/`.
+
+### Tablero de Issues (Coordinación Frontend / Backend)
+
+| Issue # | Descripción | Área | Responsable | Estado |
+| :--- | :--- | :--- | :--- | :--- |
+| `#57` | Paleta oscura neutra, login por usuario/correo y visibilidad de contraseña | Frontend | Javier | Listo para revisión |
+| `#65` / `#68` | Soporte IA 100 % local (`qwen3.5:4b` en Ollama) y documentación | Backend | Enggel | Listo para revisión |
+| `#70` / `#71` | Registro público (`/auth/signup`) y códigos de invitación | Full-Stack | Enggel / Javier | Listo para revisión |
+| `Chat-1` | Evaluación directa en 1 clic (IVA/BCV en Opciones) y chat ampliado | Full-Stack | Javier | Listo para revisión |
+| `Chat-2` | Adjuntar documentos del proyecto (`document_ids`) y render de citas en el chat | Frontend | Javier | En pruebas |
+| `Chat-3` | Endpoint `POST /projects/{id}/chat` con `document_ids`, `wrap_untrusted_document()` y blindaje estricto `localhost` para Ollama | Backend | Enggel | Pendiente |

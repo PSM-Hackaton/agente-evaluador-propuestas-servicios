@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Send, Trash2, User } from 'lucide-react';
+import { Bot, FileText, Paperclip, Send, Trash2, User, X } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
 import { time } from '../lib/format';
 import { can } from '../lib/roles';
 import { Alert, Button, Card, CardBody, CardHeader, Spinner } from './ui';
+
+export interface DocumentoAdjuntableChat {
+  id: string;
+  label: string;
+  tipo: 'project' | 'proposal';
+}
 
 const SUGERENCIAS = [
   '¿Cuál es la propuesta recomendada?',
@@ -22,10 +28,18 @@ function conNegritas(texto: string) {
   );
 }
 
-export function ProjectChat({ projectId }: { projectId: string }) {
+export function ProjectChat({
+  projectId,
+  documentos = [],
+}: {
+  projectId: string;
+  documentos?: DocumentoAdjuntableChat[];
+}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [texto, setTexto] = useState('');
+  const [adjuntosIds, setAdjuntosIds] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data: mensajes = [], isLoading } = useQuery({
@@ -34,7 +48,8 @@ export function ProjectChat({ projectId }: { projectId: string }) {
   });
 
   const mut = useMutation({
-    mutationFn: (contenido: string) => api.chat.send(projectId, contenido),
+    mutationFn: ({ contenido, documentIds }: { contenido: string; documentIds?: string[] }) =>
+      api.chat.send(projectId, contenido, documentIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat', projectId] });
     },
@@ -51,11 +66,22 @@ export function ProjectChat({ projectId }: { projectId: string }) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes.length, mut.isPending]);
 
+  const toggleAdjunto = (docId: string) => {
+    setAdjuntosIds((prev) =>
+      prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId],
+    );
+  };
+
+  const adjuntosSeleccionados = documentos.filter((d) => adjuntosIds.includes(d.id));
+
   const enviar = (contenido: string) => {
     const clean = contenido.trim();
     if (!clean || mut.isPending) return;
+    const docsToSend = adjuntosIds.length > 0 ? [...adjuntosIds] : undefined;
     setTexto('');
-    mut.mutate(clean);
+    setAdjuntosIds([]);
+    setPickerOpen(false);
+    mut.mutate({ contenido: clean, documentIds: docsToSend });
   };
 
   const handleSubmit = (e: FormEvent) => {
@@ -97,7 +123,12 @@ export function ProjectChat({ projectId }: { projectId: string }) {
           ))}
         </div>
 
-        <div role="log" aria-live="polite" aria-label="Conversación sobre el proyecto" className="h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+        <div
+          role="log"
+          aria-live="polite"
+          aria-label="Conversación sobre el proyecto"
+          className="h-96 space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+        >
           {isLoading ? (
             <Spinner label="Cargando conversación..." className="py-12" />
           ) : mensajes.length === 0 ? (
@@ -105,7 +136,7 @@ export function ProjectChat({ projectId }: { projectId: string }) {
               <Bot className="h-8 w-8 text-slate-400" />
               <p className="mt-2 font-medium text-slate-700">Haz una pregunta sobre este proceso</p>
               <p className="mt-1 max-w-md text-xs">
-                Puedes preguntar por garantías, costos ocultos en notas al margen, motivos de descarte o comparar proveedores.
+                Puedes preguntar por garantías, costos ocultos en notas al margen, motivos de descarte o adjuntar un documento específico con el botón 📎.
               </p>
             </div>
           ) : (
@@ -127,10 +158,30 @@ export function ProjectChat({ projectId }: { projectId: string }) {
                     )}
                   >
                     <p className="whitespace-pre-line break-words">{conNegritas(m.contenido)}</p>
+                    {m.citas && m.citas.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {m.citas.map((c, idx) => (
+                          <span
+                            key={`${c.fuente}-${idx}`}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                              esUser
+                                ? 'bg-indigo-500/40 text-indigo-50'
+                                : c.tipo === 'attachment'
+                                  ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                                  : 'bg-slate-100 text-slate-600',
+                            )}
+                          >
+                            <FileText className="h-2.5 w-2.5" />
+                            {c.fuente}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <p
                       className={cn(
                         'mt-1 text-[10px]',
-                        esUser ? 'text-indigo-200 text-right' : 'text-slate-500',
+                        esUser ? 'text-right text-indigo-200' : 'text-slate-500',
                       )}
                     >
                       {time(m.fecha)}
@@ -160,21 +211,106 @@ export function ProjectChat({ projectId }: { projectId: string }) {
           </Alert>
         )}
 
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input
-            type="text"
-            aria-label="Pregunta sobre el proyecto"
-            className="input flex-1"
-            placeholder="Escribe una pregunta sobre las propuestas o el dictamen..."
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            disabled={mut.isPending}
-          />
-          <Button type="submit" loading={mut.isPending} disabled={!texto.trim()}>
-            <Send className="h-4 w-4" />
-            Enviar
-          </Button>
-        </form>
+        {adjuntosSeleccionados.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Documentos adjuntos">
+            {adjuntosSeleccionados.map((doc) => (
+              <span
+                key={doc.id}
+                className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200"
+              >
+                <FileText className="h-3 w-3" />
+                {doc.label}
+                <button
+                  type="button"
+                  onClick={() => toggleAdjunto(doc.id)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-100"
+                  aria-label={`Quitar ${doc.label}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="relative">
+          {pickerOpen && documentos.length > 0 && (
+            <div className="absolute bottom-full left-0 z-20 mb-2 w-80 max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+              <div className="flex items-center justify-between px-2 py-1">
+                <span className="text-xs font-semibold text-slate-600">
+                  Adjuntar documento del proyecto
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(false)}
+                  className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar selector de documentos"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <ul className="max-h-52 space-y-1 overflow-y-auto">
+                {documentos.map((doc) => {
+                  const activo = adjuntosIds.includes(doc.id);
+                  return (
+                    <li key={doc.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleAdjunto(doc.id)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition',
+                          activo
+                            ? 'bg-indigo-50 font-semibold text-indigo-700'
+                            : 'text-slate-700 hover:bg-slate-50',
+                        )}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <FileText className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{doc.label}</span>
+                        </span>
+                        <span className="ml-2 shrink-0 text-[10px] uppercase text-slate-400">
+                          {doc.tipo === 'project' ? 'Proyecto' : 'Propuesta'}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            {documentos.length > 0 && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setPickerOpen((o) => !o)}
+                disabled={mut.isPending}
+                title="Adjuntar documento del proyecto a la consulta"
+                aria-label="Adjuntar documento del proyecto"
+                aria-expanded={pickerOpen}
+              >
+                <Paperclip className="h-4 w-4" />
+                {adjuntosIds.length > 0 && (
+                  <span className="text-xs font-semibold">{adjuntosIds.length}</span>
+                )}
+              </Button>
+            )}
+            <input
+              type="text"
+              aria-label="Pregunta sobre el proyecto"
+              className="input flex-1"
+              placeholder="Escribe una pregunta sobre las propuestas o el dictamen..."
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              disabled={mut.isPending}
+            />
+            <Button type="submit" loading={mut.isPending} disabled={!texto.trim()}>
+              <Send className="h-4 w-4" />
+              Enviar
+            </Button>
+          </form>
+        </div>
       </CardBody>
     </Card>
   );

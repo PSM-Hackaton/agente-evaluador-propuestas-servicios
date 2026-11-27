@@ -273,6 +273,7 @@ export interface BChat {
   id: string;
   role: string;
   content: string;
+  citations?: { source?: string; type?: string }[] | null;
   created_at: string;
 }
 
@@ -655,11 +656,15 @@ export function toAuditoria(a: BAudit): RegistroAuditoria {
 }
 
 export function toMensaje(m: BChat): MensajeChat {
+  const citas = (m.citations ?? [])
+    .filter((c): c is { source: string; type?: string } => Boolean(c?.source))
+    .map((c) => ({ fuente: c.source, tipo: c.type ?? 'proposal' }));
   return {
     id: m.id,
     rol: m.role === 'user' ? 'user' : 'assistant',
     contenido: m.content,
     fecha: fechaUtc(m.created_at),
+    ...(citas.length > 0 ? { citas } : {}),
   };
 }
 

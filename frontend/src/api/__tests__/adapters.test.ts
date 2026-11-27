@@ -137,7 +137,7 @@ describe('adaptadores del contrato backend -> frontend', () => {
       id: 'ev-1',
       project_id: 'pr-1',
       status: 'completed',
-      llm_provider_used: 'gemini',
+      llm_provider_used: 'ollama',
       bcv_rate_used: 48.5,
       started_at: '2026-11-26T10:00:00',
       finished_at: '2026-11-26T10:02:00',

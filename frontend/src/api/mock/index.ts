@@ -930,14 +930,41 @@ export const mockApi: Api = {
       await delay(60);
       return clone(db.chat[projectId] ?? []);
     },
-    async send(projectId, contenido) {
+    async send(projectId, contenido, documentIds) {
       const u = exigir('chat.usar');
-      (db.chat[projectId] ??= []).push({ id: uid(), rol: 'user', contenido, fecha: now() });
+      const adjuntos = (documentIds ?? []).map((docId) => {
+        if (docId === 'project_document') {
+          const p = db.proyectos.find((x) => x.id === projectId);
+          return { fuente: p?.archivo_proyecto || 'proyecto.pdf', tipo: 'attachment' as const };
+        }
+        const prop = db.propuestas.find((x) => x.proyecto_id === projectId && x.id === docId);
+        return { fuente: prop?.codigo || docId, tipo: 'attachment' as const };
+      });
+      (db.chat[projectId] ??= []).push({
+        id: uid(),
+        rol: 'user',
+        contenido,
+        fecha: now(),
+        ...(adjuntos.length > 0 ? { citas: adjuntos } : {}),
+      });
       persist();
       await delay(700);
-      const resp: MensajeChat = { id: uid(), rol: 'assistant', contenido: responderChat(projectId, contenido), fecha: now() };
+      const prefijo =
+        adjuntos.length > 0
+          ? `Consultando documento(s) adjunto(s): ${adjuntos.map((a) => `**${a.fuente}**`).join(', ')}.\n\n`
+          : '';
+      const resp: MensajeChat = {
+        id: uid(),
+        rol: 'assistant',
+        contenido: prefijo + responderChat(projectId, contenido),
+        fecha: now(),
+        ...(adjuntos.length > 0 ? { citas: adjuntos } : {}),
+      };
       db.chat[projectId].push(resp);
-      registrar(u.nombre, 'chat.consulta', 'proyecto', projectId, { pregunta: contenido.slice(0, 120) });
+      registrar(u.nombre, 'chat.consulta', 'proyecto', projectId, {
+        pregunta: contenido.slice(0, 120),
+        adjuntos: adjuntos.length,
+      });
       persist();
       return resp;
     },

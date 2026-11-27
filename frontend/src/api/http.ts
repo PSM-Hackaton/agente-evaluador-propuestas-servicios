@@ -660,11 +660,14 @@ export const httpApi: Api = {
   chat: {
     history: async (projectId) =>
       (await req<BChat[]>(`/projects/${encodeURIComponent(projectId)}/chat`)).map(toMensaje),
-    send: async (projectId, contenido) =>
+    send: async (projectId, contenido, documentIds) =>
       toMensaje(
         await req<BChat>(`/projects/${encodeURIComponent(projectId)}/chat`, {
           method: 'POST',
-          body: json({ question: contenido }),
+          body: json({
+            question: contenido,
+            ...(documentIds && documentIds.length > 0 ? { document_ids: documentIds } : {}),
+          }),
         }),
       ),
     clear: (projectId) => req<void>(`/projects/${encodeURIComponent(projectId)}/chat`, { method: 'DELETE' }),

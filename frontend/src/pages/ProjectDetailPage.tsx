@@ -735,7 +735,7 @@ export function ProjectDetailPage() {
                         <th>Proveedor</th>
                         <th>Archivo</th>
                         <th>Formato</th>
-                        <th className="text-right">Declarado</th>
+                        <th className="text-right">Cotizado</th>
                         <th>Estado</th>
                         <th>Cargado</th>
                         {puedeSubir && <th className="text-right">Acción</th>}
@@ -959,7 +959,7 @@ export function ProjectDetailPage() {
               <Card>
                 <CardHeader
                   title="Tabla comparativa de propuestas"
-                  subtitle="Montos declarados frente a costos reales ajustados (incluyendo fletes, recargos e impuestos)"
+                  subtitle="Montos cotizados por los proveedores frente a costos reales ajustados (incluyendo fletes, recargos e impuestos)"
                 />
                 <CardBody>
                   <ComparisonTable
@@ -1003,7 +1003,7 @@ export function ProjectDetailPage() {
                               </div>
                             </div>
                             <div className="text-right text-xs text-slate-600">
-                              <div>Declarado: {money(r.total_declarado, r.moneda)}</div>
+                              <div>Cotizado: {money(r.total_declarado, r.moneda)}</div>
                               <div className="font-semibold text-slate-900">
                                 Costo real: {money(r.total_ajustado_usd)}
                               </div>
@@ -1067,7 +1067,21 @@ export function ProjectDetailPage() {
       )}
 
       {/* TAB 4: CHAT */}
-      {tab === 'chat' && <ProjectChat projectId={id} />}
+      {tab === 'chat' && (
+        <ProjectChat
+          projectId={id}
+          documentos={[
+            ...(proyecto.archivo_proyecto
+              ? [{ id: 'project_document', label: proyecto.archivo_proyecto, tipo: 'project' as const }]
+              : []),
+            ...propuestas.map((p) => ({
+              id: p.id,
+              label: p.codigo,
+              tipo: 'proposal' as const,
+            })),
+          ]}
+        />
+      )}
 
       {/* TAB 5: HISTORIAL */}
       {tab === 'historial' && (
