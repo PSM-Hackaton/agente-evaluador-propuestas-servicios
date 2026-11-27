@@ -286,10 +286,14 @@ class UnifiedLLMClient:
     ) -> AgentLoopResult:
         from openai import AsyncOpenAI
 
-        client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
+        is_local = self.settings.is_local_llm
+        client_kwargs: dict[str, Any] = {
+            "api_key": self.settings.openai_api_key or "local",
+            "timeout": self.settings.llm_timeout_seconds,
+            "max_retries": 0 if is_local else 1,
+        }
         if self.settings.openai_base_url:
             client_kwargs["base_url"] = self.settings.openai_base_url
-        client = AsyncOpenAI(**client_kwargs)
 
         tools = [
             {
@@ -316,49 +320,66 @@ class UnifiedLLMClient:
             {"role": "user", "content": user_content},
         ]
         model_name = self.settings.openai_vision_model if images_b64 else self.settings.openai_model
+        effective_steps = min(max_steps, 3) if is_local else max_steps
         out = AgentLoopResult()
 
-        for _ in range(max_steps):
-            out.turns_executed += 1
-            resp = await client.chat.completions.create(
-                model=model_name,
-                temperature=0.1,
-                messages=messages,
-                tools=tools,
-            )
-            msg = resp.choices[0].message
-            tool_calls = msg.tool_calls or []
+        async with AsyncOpenAI(**client_kwargs) as client:
+            for _ in range(effective_steps):
+                out.turns_executed += 1
+                create_kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "temperature": 0.1,
+                    "messages": messages,
+                    "tools": tools,
+                }
+                if is_local:
+                    create_kwargs["max_tokens"] = 650
+                resp = await client.chat.completions.create(**create_kwargs)
+                msg = resp.choices[0].message
+                tool_calls = msg.tool_calls or []
 
-            assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
-            if tool_calls:
-                assistant_msg["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    }
-                    for tc in tool_calls
-                ]
-            messages.append(assistant_msg)
+                assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+                if tool_calls:
+                    assistant_msg["tool_calls"] = [
+                        {
+                            "id": tc.id or f"call_{idx}",
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": (
+                                    tc.function.arguments
+                                    if isinstance(tc.function.arguments, str)
+                                    else json.dumps(tc.function.arguments or {}, ensure_ascii=False)
+                                ),
+                            },
+                        }
+                        for idx, tc in enumerate(tool_calls)
+                    ]
+                messages.append(assistant_msg)
 
-            if not tool_calls:
-                if msg.content:
-                    out.structured_json = _parse_json_safely(msg.content)
-                break
+                if not tool_calls:
+                    if msg.content:
+                        out.structured_json = _parse_json_safely(msg.content)
+                    break
 
-            for tc in tool_calls:
-                args = _parse_json_safely(tc.function.arguments or "{}") or {}
-                tool_res = await tool_executor(tc.function.name, args)
-                out.tool_calls.append(
-                    AgentToolCallRecord(tool_name=tc.function.name, arguments=args, result=tool_res)
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(tool_res, ensure_ascii=False),
-                    }
-                )
+                for idx, tc in enumerate(tool_calls):
+                    raw_args = tc.function.arguments
+                    args = (
+                        raw_args
+                        if isinstance(raw_args, dict)
+                        else (_parse_json_safely(raw_args or "{}") or {})
+                    )
+                    tool_res = await tool_executor(tc.function.name, args)
+                    out.tool_calls.append(
+                        AgentToolCallRecord(tool_name=tc.function.name, arguments=args, result=tool_res)
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id or f"call_{idx}",
+                            "content": json.dumps(tool_res, ensure_ascii=False),
+                        }
+                    )
 
         return out
 
@@ -418,10 +439,14 @@ class UnifiedLLMClient:
     ) -> str | None:
         from openai import AsyncOpenAI
 
-        client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
+        is_local = self.settings.is_local_llm
+        client_kwargs: dict[str, Any] = {
+            "api_key": self.settings.openai_api_key or "local",
+            "timeout": self.settings.llm_timeout_seconds,
+            "max_retries": 0 if is_local else 1,
+        }
         if self.settings.openai_base_url:
             client_kwargs["base_url"] = self.settings.openai_base_url
-        client = AsyncOpenAI(**client_kwargs)
 
         user_content: Any
         if images_b64:
@@ -441,11 +466,20 @@ class UnifiedLLMClient:
                 {"role": "user", "content": user_content},
             ],
         }
+        if is_local:
+            kwargs["max_tokens"] = 900 if images_b64 else 650
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        resp = await client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content
+        async with AsyncOpenAI(**client_kwargs) as client:
+            try:
+                resp = await client.chat.completions.create(**kwargs)
+            except Exception:
+                if not json_mode:
+                    raise
+                kwargs.pop("response_format", None)
+                resp = await client.chat.completions.create(**kwargs)
+            return resp.choices[0].message.content
 
 
 def _parse_json_safely(raw: str) -> dict[str, Any] | None:

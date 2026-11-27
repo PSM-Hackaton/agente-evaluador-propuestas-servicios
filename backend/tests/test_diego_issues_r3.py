@@ -507,3 +507,29 @@ async def test_r3_b4_postgres_tables_contain_zero_plaintext_supplier_names_rifs_
         "propuesta_602_krypton",
     ):
         assert sensitive not in raw_lower, f"Plaintext leak detected in PostgreSQL: {sensitive!r}"
+
+
+def test_local_llm_provider_resolution_without_cloud_keys() -> None:
+    """Ensure local OpenAI-compatible servers (Ollama/llama.cpp) resolve cleanly without external cloud keys."""
+    from app.core.config import Settings
+
+    s_local = Settings(
+        llm_provider="openai",
+        openai_base_url="http://127.0.0.1:11434/v1",
+        openai_api_key="local",
+        openai_model="qwen2.5:3b",
+        openai_vision_model="qwen2.5vl:3b",
+        gemini_api_key="",
+    )
+    assert s_local.resolved_llm_provider() == "openai"
+    assert s_local.is_local_llm is True
+    assert s_local.llm_timeout_seconds >= 60.0
+
+    s_heur = Settings(
+        llm_provider="auto",
+        openai_base_url="",
+        openai_api_key="",
+        gemini_api_key="",
+    )
+    assert s_heur.resolved_llm_provider() == "heuristic"
+    assert s_heur.is_local_llm is False

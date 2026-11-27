@@ -13,6 +13,9 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+# Guarantee offline deterministic test isolation even when local backend/.env enables Ollama or live web search
+os.environ["LLM_PROVIDER"] = "heuristic"
+os.environ["WEB_SEARCH_ENABLED"] = "false"
 
 
 @pytest.fixture(scope="session")

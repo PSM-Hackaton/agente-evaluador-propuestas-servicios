@@ -67,16 +67,17 @@ class Settings(BaseSettings):
     tls_cert_file: str = "./certs/server.crt"
     tls_key_file: str = "./certs/server.key"
 
-    # LLM Configuration
+    # LLM Configuration (local OpenAI-compatible API recommended: Ollama / llama.cpp)
     llm_provider: Literal["auto", "gemini", "openai", "heuristic"] = "auto"
+    llm_timeout_seconds: float = 120.0
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     gemini_vision_model: str = "gemini-2.5-flash"
 
     openai_api_key: str = ""
     openai_base_url: str = ""
-    openai_model: str = "gpt-4o-mini"
-    openai_vision_model: str = "gpt-4o-mini"
+    openai_model: str = "qwen2.5:3b"
+    openai_vision_model: str = "qwen2.5vl:3b"
 
     # Web Search & Finance
     web_search_enabled: bool = True
@@ -135,16 +136,20 @@ class Settings(BaseSettings):
     def resolved_llm_provider(self) -> Literal["gemini", "openai", "heuristic"]:
         if self.llm_provider == "gemini" and self.gemini_api_key:
             return "gemini"
-        if self.llm_provider == "openai" and self.openai_api_key:
+        if self.llm_provider == "openai" and (self.openai_api_key or self.openai_base_url):
             return "openai"
         if self.llm_provider == "heuristic":
             return "heuristic"
         # Auto detection
         if self.gemini_api_key:
             return "gemini"
-        if self.openai_api_key:
+        if self.openai_api_key or self.openai_base_url:
             return "openai"
         return "heuristic"
+
+    @property
+    def is_local_llm(self) -> bool:
+        return self.resolved_llm_provider() == "openai" and bool(self.openai_base_url.strip())
 
 
 @lru_cache

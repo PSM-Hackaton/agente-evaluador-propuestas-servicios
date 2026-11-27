@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -138,16 +139,29 @@ async def ingest_document(
         ingestion_method = f"image_{img_res.ocr_engine}"
 
         if llm_client and llm_client.is_available:
-            prompt = CHAT_SCREENSHOT_VISION_PROMPT if is_chat else VISION_TRANSCRIPTION_PROMPT
-            transcribed = await llm_client.extract_from_image(
-                img_res.image_b64, img_res.mime_type, prompt
+            is_local_llm = bool(getattr(getattr(llm_client, "settings", None), "is_local_llm", False))
+            has_hw_signal = bool(
+                re.search(r"(?:ryzen|core\s*i[3579]|rtx\s*\d{4}|rx\s*\d{4}|xeon)", ocr_text, re.I)
             )
-            if transcribed:
-                visible_text = transcribed
-                used_vision_llm = True
-                ingestion_method = f"vision_llm_{llm_client.provider}" + ("_chat" if is_chat else "")
-            else:
+            has_price_signal = bool(re.search(r"\$\s*\d{2,5}", ocr_text))
+            ocr_looks_complete = len(ocr_text.strip()) >= 900 and has_hw_signal and has_price_signal
+            if is_local_llm and ocr_looks_complete:
                 visible_text = ocr_text
+            else:
+                prompt = CHAT_SCREENSHOT_VISION_PROMPT if is_chat else VISION_TRANSCRIPTION_PROMPT
+                transcribed = await llm_client.extract_from_image(
+                    img_res.image_b64, img_res.mime_type, prompt
+                )
+                if transcribed:
+                    visible_text = (
+                        f"{transcribed}\n\n{ocr_text}"
+                        if len(ocr_text.strip()) >= 80
+                        else transcribed
+                    )
+                    used_vision_llm = True
+                    ingestion_method = f"vision_llm_{llm_client.provider}" + ("_chat" if is_chat else "")
+                else:
+                    visible_text = ocr_text
         else:
             visible_text = ocr_text
 

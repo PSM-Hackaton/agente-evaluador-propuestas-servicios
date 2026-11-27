@@ -78,13 +78,25 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["Sistema"])
     async def health() -> dict:
         db_ok = await check_db_health()
+        resolved = settings.resolved_llm_provider()
         return {
             "status": "ok" if db_ok else "degraded",
             "service": settings.app_name,
             "version": "1.0.0",
             "database": "postgresql",
             "database_connected": db_ok,
-            "llm_provider": settings.resolved_llm_provider(),
+            "llm_provider": resolved,
+            "llm_mode": "local_api" if settings.is_local_llm else resolved,
+            "llm_model": (
+                settings.openai_model
+                if resolved == "openai"
+                else (settings.gemini_model if resolved == "gemini" else "heuristic")
+            ),
+            "llm_vision_model": (
+                settings.openai_vision_model
+                if resolved == "openai"
+                else (settings.gemini_vision_model if resolved == "gemini" else "tesseract_ocr")
+            ),
             "encryption_at_rest": "AES-256-GCM",
             "tls_enabled": settings.tls_enabled,
         }

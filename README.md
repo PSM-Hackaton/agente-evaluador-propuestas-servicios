@@ -48,13 +48,13 @@ directorio de proveedores con alertas y un chat que responde solo con lo que dic
 
 ```
 Navegador (React + Vite + TypeScript)
-   │  HTTPS (TLS 1.2/1.3 con el proxy de backend/nginx/tls.conf)
+   │  HTTPS (TLS 1.2/1.3 directo con `TLS_ENABLED=true` o proxy `backend/nginx/tls.conf`)
    ▼
-API REST + SSE (Python, FastAPI)  ──►  modelo de IA por API (Gemini u OpenAI compatible)
+API REST + SSE (Python, FastAPI)  ──►  IA 100 % local vía API compatible OpenAI (Ollama: `qwen2.5:3b` + `qwen2.5vl:3b`)
    │                                ──►  API propia de contraste web de precios (`/api/v1/market`, sin claves externas)
    │                                ──►  tasa oficial BCV
    ▼
-PostgreSQL (TLS 1.2+ y campos sensibles cifrados) + almacenamiento cifrado con AES-256-GCM
+PostgreSQL 16 (TLS 1.2+ y campos sensibles cifrados) + almacenamiento cifrado con AES-256-GCM
 ```
 
 **Estructura del repositorio**
@@ -101,23 +101,16 @@ Más detalle en [backend/README.md](backend/README.md), [frontend/README.md](fro
   para ello una API REST y un SDK. **Esta integración todavía no está implementada en este repositorio**: el
   inicio de sesión actual es usuario, contraseña y JWT.
 
-### Límites de esta versión
+### Límites y decisiones técnicas de esta versión
 
 El estado verificado de cada requisito está en la
-[matriz de cumplimiento](docs/cumplimiento/matriz-cumplimiento.html). Los límites principales:
+[matriz de cumplimiento](docs/cumplimiento/matriz-cumplimiento.html). Puntos clave:
 
-- **Integración en curso**: el frontend y el backend se integran en `staging` mediante los Pull Request #26
-  (frontend, adaptado al contrato `/api/v1`) y #18 (backend); la prueba de extremo a extremo está pendiente. Por
-  defecto el frontend funciona en **modo demostración** (`VITE_USE_MOCK=true`), con datos simulados en el navegador.
-- **Sin clave de API** el agente funciona en modo heurístico (reglas y OCR local), que lee peor los manuscritos y
-  escaneos. Las reglas de auditoría técnica están afinadas para el caso del laboratorio de computación del reto.
-- La búsqueda de precios lee los títulos y fragmentos de los resultados (no navega por las páginas) y se apoya
-  en un catálogo de referencia cuando no encuentra precios.
-- **TLS**: el servidor de desarrollo del frontend usa HTTP y el backend tiene TLS desactivado por defecto; el
-  cifrado en tránsito de extremo a extremo requiere el proxy `backend/nginx/tls.conf` o `TLS_ENABLED=true`, y `DB_SSL_MODE=require`/`verify-full` hacia PostgreSQL remoto.
-- Los campos sensibles se cifran por columna en PostgreSQL con AES-256-GCM (`enc:v1:...`), dejando únicamente índices ciegos HMAC-SHA256 para búsquedas exactas.
-- Los usuarios de demostración se crean con contraseñas conocidas (ver `backend/README.md`); deben cambiarse
-  fuera de una demostración.
+- **Integración frontend ↔ backend completada:** el frontend utiliza la API real `/api/v1` por defecto (el modo simulado solo se activa explícitamente con `VITE_USE_MOCK=true`) y las 40 rutas de contrato están verificadas contra el esquema OpenAPI del backend.
+- **IA 100 % local (sin envío de documentos a servicios externos):** el agente opera conectado por API local compatible con OpenAI (**Ollama `v0.40.18`** en `http://127.0.0.1:11434/v1`) usando **`qwen2.5:3b`** (razonamiento y *tool calling* nativo) y **`qwen2.5vl:3b`** (visión multimodal para manuscritos y escaneos). Como respaldo determinista (y para el modo lote rápido de 15 s sobre CPU), soporta `LLM_PROVIDER=heuristic` con OCR local Tesseract de doble pasada.
+- **Contraste de mercado sin claves de terceros:** la API interna `/api/v1/market` realiza búsqueda web directa mediante `ddgs` (sin servicios de IA externos) y emplea el catálogo local únicamente como respaldo explícito (`baseline_fallback_only`) cuando la red no devuelve precios en fragmentos.
+- **TLS 1.2/1.3 y cifrado en reposo:** el backend sirve HTTPS directo con `TLS_ENABLED=true` (verificado con TLSv1.3 `TLS_AES_256_GCM_SHA384` y rechazo de TLS 1.1) o detrás de `backend/nginx/tls.conf`, y cifra archivos en disco y columnas sensibles en PostgreSQL 16 con **AES-256-GCM** (`enc:v1:...`), dejando únicamente índices ciegos HMAC-SHA256 para búsquedas exactas.
+- Los usuarios de demostración se crean con credenciales locales (ver `backend/README.md`) que deben rotarse fuera de una demostración.
 
 ## Requerimientos del sistema
 
@@ -131,11 +124,11 @@ El estado verificado de cada requisito está en la
 | Frontend | **Node.js 20.19+ o 22.12+** y npm (requisito de Vite 7; el proyecto aún no fija la versión con `engines`). Dependencias: React 18, React Router 7, TanStack Query 5, Vite 7, TypeScript 5, TailwindCSS 3. |
 | Herramientas | git (el modo lote obtiene el commit con `git rev-parse HEAD`); `uv` o `pip` para instalar el backend; `openssl` para generar certificados TLS locales. |
 
-### Servicios externos
+### Servicios e infraestructura local
 
 | Servicio | Uso | ¿Obligatorio? |
 | :--- | :--- | :--- |
-| Modelo de IA por API: **Google Gemini** (`gemini-2.5-flash` por defecto) u **OpenAI o compatible** (`gpt-4o-mini` por defecto; también OpenRouter, Groq u Ollama con `OPENAI_BASE_URL`) | Visión de imágenes y escaneos, extracción estructurada, desempate del ranking y chat | Recomendado. Sin clave, modo heurístico. |
+| **IA Local vía Ollama (`v0.40.18`)** en `http://127.0.0.1:11434/v1` — modelos **`qwen2.5:3b`** (texto y *tool calling*) y **`qwen2.5vl:3b`** (visión de manuscritos y escaneos) | Razonamiento agéntico, *tool calling*, visión multimodal y chat documental sin enviar datos a terceros | Recomendado (local, sin claves externas). Respaldo rápido: `LLM_PROVIDER=heuristic`. |
 | Búsqueda web autónoma: API interna `/api/v1/market` (paquete `ddgs`, sin API key de terceros) | Precios de mercado | Sí, con acceso a internet. Se desactiva con `WEB_SEARCH_ENABLED=false`. |
 | Tasa oficial **BCV** (`ve.dolarapi.com` y, como respaldo, `bcv.org.ve`) | Conversión USD/Bs | No: si falla, usa `BCV_FALLBACK_RATE`. |
 
@@ -151,9 +144,9 @@ El estado verificado de cada requisito está en la
 | `MASTER_ENCRYPTION_KEY` | Clave AES-256 (32 bytes en base64 URL-safe). **Obligatorio cambiarla.** |
 | `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Firma y duración de las sesiones. **Cambiar el secreto.** |
 | `TLS_ENABLED`, `TLS_CERT_FILE`, `TLS_KEY_FILE` | HTTPS directo en Uvicorn con el certificado indicado. |
-| `LLM_PROVIDER` | `auto` (elige según la clave disponible o usa el modo heurístico), `gemini`, `openai` o `heuristic`. |
-| `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_VISION_MODEL` | Credencial y modelos de Google Gemini. |
-| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Credencial, URL y modelos de OpenAI o de una API compatible. |
+| `LLM_PROVIDER`, `LLM_TIMEOUT_SECONDS` | `openai` para la API local de Ollama (`LLM_TIMEOUT_SECONDS=120`), o `heuristic` para modo determinista rápido. |
+| `OPENAI_BASE_URL`, `OPENAI_API_KEY` | Endpoint local de Ollama (`http://127.0.0.1:11434/v1`) y valor local de relleno (`local`; nunca sale a internet). |
+| `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Modelos locales: `qwen2.5:3b` (texto + *tool calling*) y `qwen2.5vl:3b` (visión). |
 | `WEB_SEARCH_ENABLED` | Activa la búsqueda autónoma de precios en internet sin claves externas. |
 | `BCV_FALLBACK_RATE`, `DEFAULT_IVA_RATE` | Tasa de respaldo (Bs por USD) e IVA (0,16). |
 | `ABUSIVE_SURCHARGE_PCT_THRESHOLD` | Recargo (flete, envío) sobre el subtotal, en %, a partir del cual se considera abusivo (`50`). |
@@ -181,50 +174,54 @@ git clone <URL-del-repositorio> agente-evaluador-propuestas-servicios
 cd agente-evaluador-propuestas-servicios
 ```
 
-### Paso 2. Backend
+### Paso 2. IA local (Ollama) y PostgreSQL 16
 
 ```sh
-# Tesseract para el OCR local (Debian/Ubuntu)
+# 1. Levantar Ollama local (v0.40.18+) y descargar los modelos de texto y visión
+podman run -d --name evaluador-ollama \
+  -p 127.0.0.1:11434:11434 \
+  -v evaluador-ollama-models:/root/.ollama \
+  docker.io/ollama/ollama:latest
+podman exec evaluador-ollama ollama pull qwen2.5:3b      # 1.9 GB — texto y tool calling
+podman exec evaluador-ollama ollama pull qwen2.5vl:3b    # 3.2 GB — visión multimodal (manuscritos/escaneos)
+
+# 2. Levantar PostgreSQL 16 local
+podman run -d --name evaluador-postgres \
+  -e POSTGRES_USER=postgres -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_DB=evaluador_propuestas \
+  -p 127.0.0.1:5432:5432 docker.io/library/postgres:16-alpine
+```
+
+### Paso 3. Backend (con TLS 1.2/1.3)
+
+```sh
+# Tesseract para OCR de respaldo (Debian/Ubuntu)
 sudo apt install tesseract-ocr tesseract-ocr-spa
 
 cd backend
 cp .env.example .env
-# Editar .env: MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y, si se usa IA por API, GEMINI_API_KEY u OPENAI_API_KEY.
-# Clave AES-256 nueva:
+# Generar claves propias para MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY (32 bytes):
 python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+# Generar certificados TLS 1.2/1.3 locales:
+./scripts/generate_tls_certs.sh ./certs
 
-# Entorno e instalación (con uv, como en backend/README.md)
-uv venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-# Alternativa sin uv: python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
-
-# Aplicar migraciones Alembic en PostgreSQL
+# Entorno e instalación
+uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"
+# Aplicar migraciones Alembic en PostgreSQL 16
 alembic upgrade head
-
-# Servidor de desarrollo: http://localhost:8000 (documentación de la API en /docs)
+# Iniciar backend HTTPS (TLS 1.2/1.3) conectado a Ollama local:
 python -m app.run
-
-# Pruebas automatizadas (requiere PostgreSQL activo; usa TEST_DATABASE_URL o evaluador_test local)
-pytest -v
 ```
 
-Al arrancar se crean la base de datos y un usuario de demostración por cada rol (correos y contraseñas en
-`backend/README.md`).
-
-### Paso 3. Frontend
+### Paso 4. Frontend
 
 ```sh
 cd frontend
 npm install
 cp .env.example .env
-npm run dev          # http://localhost:5173
+npm run dev          # usa la API real /api/v1 por defecto (modo simulado solo con VITE_USE_MOCK=true)
 npm run build        # verificación de TypeScript y compilación de producción en dist/
 ```
-
-Con `VITE_USE_MOCK=true` (valor por defecto) la interfaz funciona sola, con datos de demostración.
-Para usar el backend real: en `frontend/.env`, `VITE_USE_MOCK=false`,
-`VITE_API_URL=/api/v1` y `BACKEND_URL=http://localhost:8000`; con el backend en marcha, `npm run dev`.
 
 ### Paso 4. Modo lote: `salida.json` (sección 3 del enunciado)
 

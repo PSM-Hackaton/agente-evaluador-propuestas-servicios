@@ -66,10 +66,19 @@ podman run -d --name evaluador-postgres \
 podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_test;"
 podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_alembic_test;"
 
-# 2. Configurar variables y entorno Python
+# 2. Levantar IA local vía Ollama (sin claves externas de nube)
+podman run -d --name evaluador-ollama \
+  -p 127.0.0.1:11434:11434 \
+  -v evaluador-ollama-models:/root/.ollama \
+  docker.io/ollama/ollama:latest
+podman exec evaluador-ollama ollama pull qwen2.5:3b
+podman exec evaluador-ollama ollama pull qwen2.5vl:3b
+
+# 3. Configurar variables y entorno Python
 cd backend
 cp .env.example .env
-# Configurar DATABASE_URL, DB_SSL_MODE, GEMINI_API_KEY o OPENAI_API_KEY, MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY en .env
+# Configurar DATABASE_URL, DB_SSL_MODE, MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y TLS_ENABLED=true en .env
+# (OPENAI_BASE_URL=http://127.0.0.1:11434/v1, OPENAI_API_KEY=local, OPENAI_MODEL=qwen2.5:3b, OPENAI_VISION_MODEL=qwen2.5vl:3b)
 
 uv venv
 source .venv/bin/activate
@@ -128,6 +137,7 @@ python -m app.cli.batch --lote ../docs/reto --output ../salida.json --verbose
 - **Evaluación Agéntica & Reportes**: `POST /projects/{id}/evaluate`, `GET /evaluations/{id}`, `GET /evaluations/{id}/stream` (SSE compatible con `EventSource` vía `?token=`), `POST /evaluations/{id}/reviews`, `GET /evaluations/{id}/export/{pdf|markdown|xlsx|csv|salida-json}`
 - **Proveedores & Alertas**: `GET /suppliers`, `POST /suppliers`, `GET /suppliers/{id}`, `PATCH /suppliers/{id}`, `POST /suppliers/alerts/{alert_id}/resolve`
 - **Finanzas & BCV**: `GET /finance/bcv-rate`, `POST /finance/bcv-rate/override`, `GET /finance/bcv-rate/history`, `POST /finance/tco-preview`
+- **Contraste de Mercado (Autónomo)**: `POST /market/benchmark`, `POST /market/benchmark/batch`, `GET /market/reference-catalog`, `DELETE /market/cache`
 - **Chat Documental**: `POST /projects/{id}/chat`, `GET /projects/{id}/chat`, `DELETE /projects/{id}/chat`
 - **Auditoría**: `GET /audit-logs`
 - **Modo Lote**: `POST /batch/run`, `POST /batch/validate-salida`
