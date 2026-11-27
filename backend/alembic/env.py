@@ -1,21 +1,19 @@
-"""Alembic async environment supporting SQLite (aiosqlite) and PostgreSQL/Supabase (asyncpg)."""
+"""Alembic async environment for PostgreSQL (`asyncpg`) with TLS 1.2+ support."""
 
 from __future__ import annotations
 
 import asyncio
 import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 from app.core.config import get_settings
 from app.db import models  # noqa: F401
-from app.db.base import Base
+from app.db.base import Base, normalize_database_url
 
 config = context.config
 if config.config_file_name is not None:
@@ -34,13 +32,12 @@ def _resolve_db_url() -> str:
 
 
 def run_migrations_offline() -> None:
-    url = _resolve_db_url()
+    url, _ = normalize_database_url(_resolve_db_url())
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=url.startswith("sqlite"),
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -50,29 +47,25 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        render_as_batch=connection.dialect.name == "sqlite",
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
-def _ensure_sqlite_parent_dir(database_url: str) -> None:
-    """Create parent directory for file-backed SQLite databases in clean clones."""
-    url = make_url(database_url)
-    if url.drivername.startswith("sqlite") and url.database and url.database != ":memory:":
-        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
-
-
 async def run_async_migrations() -> None:
+    get_settings.cache_clear()
+    settings = get_settings()
     db_url = _resolve_db_url()
-    _ensure_sqlite_parent_dir(db_url)
-    configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = db_url
-
-    connectable = async_engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
+    normalized_url, connect_args = normalize_database_url(
+        db_url,
+        default_ssl_mode=settings.db_ssl_mode,
+        ca_file=settings.db_ssl_ca_file,
+        statement_cache_size=settings.db_statement_cache_size,
+    )
+    connectable = create_async_engine(
+        normalized_url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

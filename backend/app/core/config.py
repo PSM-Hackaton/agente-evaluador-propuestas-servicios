@@ -33,8 +33,15 @@ class Settings(BaseSettings):
         "https://localhost:3000,http://localhost:3000,http://127.0.0.1:3000"
     )
 
-    # Database & Encrypted Storage
-    database_url: str = "sqlite+aiosqlite:///./data/evaluador.db"
+    # Database (PostgreSQL) & Encrypted Storage
+    database_url: str = "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_propuestas"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_recycle: int = 1800
+    db_ssl_mode: Literal["disable", "prefer", "require", "verify-ca", "verify-full"] = "prefer"
+    db_ssl_ca_file: str = ""
+    db_statement_cache_size: int | None = None
+    db_auto_create_tables: bool = False
     storage_dir: str = "./data/storage"
 
     # Security: AES-256-GCM & JWT & TLS 1.2/1.3
