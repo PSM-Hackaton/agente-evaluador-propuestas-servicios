@@ -268,6 +268,7 @@ class UnifiedLLMClient:
                         else self.settings.llm_local_max_tokens
                     )
                     if self.settings.llm_disable_thinking:
+                        create_kwargs["reasoning_effort"] = "none"
                         create_kwargs["extra_body"] = {"think": False}
                 resp = await self._create_completion(client, create_kwargs)
                 msg = resp.choices[0].message
@@ -330,14 +331,17 @@ class UnifiedLLMClient:
         return cleaned or None
 
     async def _create_completion(self, client: Any, kwargs: dict[str, Any]) -> Any:
-        """Invoke chat.completions.create with safe fallback when extra_body or response_format is rejected."""
+        """Invoke chat.completions.create with safe fallback when optional params are rejected."""
         try:
             return await client.chat.completions.create(**kwargs)
         except Exception as exc:
             retry_kwargs = dict(kwargs)
-            if "extra_body" in retry_kwargs and _is_unsupported_param_error(exc):
-                logger.debug("Retrying LLM completion without extra_body after error: %s", exc)
+            if ("extra_body" in retry_kwargs or "reasoning_effort" in retry_kwargs) and _is_unsupported_param_error(
+                exc
+            ):
+                logger.debug("Retrying LLM completion without thinking toggle params after error: %s", exc)
                 retry_kwargs.pop("extra_body", None)
+                retry_kwargs.pop("reasoning_effort", None)
                 try:
                     return await client.chat.completions.create(**retry_kwargs)
                 except Exception as exc2:
@@ -398,6 +402,7 @@ class UnifiedLLMClient:
                 else self.settings.llm_local_max_tokens
             )
             if self.settings.llm_disable_thinking:
+                kwargs["reasoning_effort"] = "none"
                 kwargs["extra_body"] = {"think": False}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
