@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api, type Usuario } from '../api';
+import { api, type RegistroPublicoInput, type Usuario } from '../api';
 import {
   clearSession,
   getRefreshToken,
@@ -19,6 +19,7 @@ interface AuthContextValue {
   sessionExpiringSoon: boolean;
   renewing: boolean;
   login: (email: string, password: string) => Promise<Usuario>;
+  signup: (data: RegistroPublicoInput) => Promise<Usuario>;
   logout: () => void;
   renewSession: () => Promise<boolean>;
 }
@@ -108,9 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return logged;
   }, []);
 
+  const signup = useCallback(async (data: RegistroPublicoInput) => {
+    const { token, refreshToken, user: created } = await api.auth.signup(data);
+    saveSession(token, created, refreshToken);
+    setUser(created);
+    setSessionExpiringSoon(false);
+    return created;
+  }, []);
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, sessionExpiringSoon: expiringSoon, renewing, login, logout, renewSession }}
+      value={{ user, loading, sessionExpiringSoon: expiringSoon, renewing, login, signup, logout, renewSession }}
     >
       {children}
     </AuthContext.Provider>

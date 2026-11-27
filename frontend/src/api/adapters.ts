@@ -10,6 +10,7 @@ import type {
   EstadoProyecto,
   Evaluacion,
   EvaluacionResumen,
+  Invitacion,
   ItemEvaluado,
   MensajeChat,
   Moneda,
@@ -27,6 +28,7 @@ import type {
   TipoArchivo,
   TrazaAgente,
   Usuario,
+  ValidacionInvitacion,
 } from './types';
 
 // ── Esquemas del backend (app/schemas/*.py) ─────────────────────────────────
@@ -45,6 +47,55 @@ export interface BToken {
   role: string;
   user_id: string;
   full_name: string;
+}
+
+export interface BInvitation {
+  id: string;
+  code?: string | null;
+  code_prefix?: string | null;
+  role: string;
+  email?: string | null;
+  max_uses: number;
+  uses_count: number;
+  expires_at: string;
+  revoked_at?: string | null;
+  is_revoked?: boolean;
+  created_at: string;
+}
+
+export interface BInvitationValidation {
+  valid: boolean;
+  role: string;
+  email_locked?: string | null;
+  expires_at: string;
+}
+
+const VALID_ROLES: ReadonlySet<string> = new Set<Rol>(['admin', 'cargador', 'revisor', 'aprobador', 'auditor']);
+const parseRol = (r: string): Rol => (VALID_ROLES.has(r) ? (r as Rol) : 'cargador');
+
+export function toInvitacion(i: BInvitation): Invitacion {
+  const prefijo = i.code_prefix || (i.code ? i.code.slice(0, 8) : i.id.slice(0, 8).toUpperCase());
+  return {
+    id: i.id,
+    codigo: i.code ?? null,
+    codigo_prefijo: prefijo,
+    rol: parseRol(i.role),
+    email: i.email ?? null,
+    usos_maximos: i.max_uses,
+    usos_actuales: i.uses_count,
+    expira_en: fechaUtc(i.expires_at),
+    revocada: Boolean(i.is_revoked || i.revoked_at),
+    creado_en: fechaUtc(i.created_at),
+  };
+}
+
+export function toValidacionInvitacion(v: BInvitationValidation): ValidacionInvitacion {
+  return {
+    valida: Boolean(v.valid),
+    rol: parseRol(v.role),
+    email_bloqueado: v.email_locked ?? null,
+    expira_en: fechaUtc(v.expires_at),
+  };
 }
 
 export interface BProject {
