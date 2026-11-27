@@ -618,11 +618,11 @@ async def evaluate_proposals_core(
             },
         )
         # Solo es error aritmético si una partida no cuadra (cantidad x precio) o si las partidas leídas cubren el
-        # total declarado (±10 %); una cobertura menor indica partidas no leídas, no un error del proveedor.
+        # total declarado (≥ 90 %); una cobertura menor indica partidas no leídas, no un error del proveedor.
         _decl = float(arith.get("declared_total") or 0.0)
         _cobertura = (float(arith.get("computed_total") or 0.0) / _decl) if _decl > 0 else 0.0
         _error_de_partida = any(str(e).startswith("Discrepancia en") for e in (arith.get("errors") or []))
-        if not arith["is_valid"] and (_error_de_partida or 0.9 <= _cobertura <= 1.1):
+        if not arith["is_valid"] and (_error_de_partida or _cobertura >= 0.9):
             discard_reasons.append(
                 {
                     "code": DiscardReasonCode.ERROR_ARITMETICO.value,
