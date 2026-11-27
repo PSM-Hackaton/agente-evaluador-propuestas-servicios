@@ -50,7 +50,7 @@ directorio de proveedores con alertas y un chat que responde solo con lo que dic
 Navegador (React + Vite + TypeScript)
    │  HTTPS (TLS 1.2/1.3 directo con `TLS_ENABLED=true` o proxy `backend/nginx/tls.conf`)
    ▼
-API REST + SSE (Python, FastAPI)  ──►  IA 100 % local vía API compatible OpenAI (Ollama: `qwen2.5:3b` + `qwen2.5vl:3b`)
+API REST + SSE (Python, FastAPI)  ──►  IA 100 % local vía API compatible OpenAI (Ollama: `qwen3.5:4b`, multimodal)
    │                                ──►  API propia de contraste web de precios (`/api/v1/market`, sin claves externas)
    │                                ──►  tasa oficial BCV
    ▼
@@ -107,7 +107,7 @@ El estado verificado de cada requisito está en la
 [matriz de cumplimiento](docs/cumplimiento/matriz-cumplimiento.html). Puntos clave:
 
 - **Integración frontend ↔ backend completada:** el frontend utiliza la API real `/api/v1` por defecto (el modo simulado solo se activa explícitamente con `VITE_USE_MOCK=true`) y las 40 rutas de contrato están verificadas contra el esquema OpenAPI del backend.
-- **IA 100 % local (sin envío de documentos a servicios externos):** el agente opera conectado por API local compatible con OpenAI (**Ollama `v0.40.18`** en `http://127.0.0.1:11434/v1`) usando **`qwen2.5:3b`** (razonamiento y *tool calling* nativo) y **`qwen2.5vl:3b`** (visión multimodal para manuscritos y escaneos). Como respaldo determinista (y para el modo lote rápido de 15 s sobre CPU), soporta `LLM_PROVIDER=heuristic` con OCR local Tesseract de doble pasada.
+- **IA 100 % local (sin envío de documentos a servicios externos):** el agente opera conectado por API local compatible con OpenAI (**Ollama `v0.40.18`** en `http://127.0.0.1:11434/v1`) usando **`qwen3.5:4b`**, un solo modelo multimodal para razonamiento, *tool calling* y visión de manuscritos y escaneos. Como respaldo determinista (y para el modo lote rápido de 15 s sobre CPU), soporta `LLM_PROVIDER=heuristic` con OCR local Tesseract de doble pasada.
 - **Contraste de mercado sin claves de terceros:** la API interna `/api/v1/market` realiza búsqueda web directa mediante `ddgs` (sin servicios de IA externos) y emplea el catálogo local únicamente como respaldo explícito (`baseline_fallback_only`) cuando la red no devuelve precios en fragmentos.
 - **TLS 1.2/1.3 y cifrado en reposo:** el backend sirve HTTPS directo con `TLS_ENABLED=true` (verificado con TLSv1.3 `TLS_AES_256_GCM_SHA384` y rechazo de TLS 1.1) o detrás de `backend/nginx/tls.conf`, y cifra archivos en disco y columnas sensibles en PostgreSQL 16 con **AES-256-GCM** (`enc:v1:...`), dejando únicamente índices ciegos HMAC-SHA256 para búsquedas exactas.
 - Los usuarios de demostración se crean con credenciales locales (ver `backend/README.md`) que deben rotarse fuera de una demostración.
@@ -128,7 +128,7 @@ El estado verificado de cada requisito está en la
 
 | Servicio | Uso | ¿Obligatorio? |
 | :--- | :--- | :--- |
-| **IA Local vía Ollama (`v0.40.18`)** en `http://127.0.0.1:11434/v1` — modelos **`qwen2.5:3b`** (texto y *tool calling*) y **`qwen2.5vl:3b`** (visión de manuscritos y escaneos) | Razonamiento agéntico, *tool calling*, visión multimodal y chat documental sin enviar datos a terceros | Recomendado (local, sin claves externas). Respaldo rápido: `LLM_PROVIDER=heuristic`. |
+| **IA Local vía Ollama (`v0.40.18`)** en `http://127.0.0.1:11434/v1` — modelo **`qwen3.5:4b`** (texto, *tool calling* y visión) | Razonamiento agéntico, *tool calling*, visión multimodal y chat documental sin enviar datos a terceros | Recomendado (local, sin claves externas). Respaldo rápido: `LLM_PROVIDER=heuristic`. |
 | Búsqueda web autónoma: API interna `/api/v1/market` (paquete `ddgs`, sin API key de terceros) | Precios de mercado | Sí, con acceso a internet. Se desactiva con `WEB_SEARCH_ENABLED=false`. |
 | Tasa oficial **BCV** (`ve.dolarapi.com` y, como respaldo, `bcv.org.ve`) | Conversión USD/Bs | No: si falla, usa `BCV_FALLBACK_RATE`. |
 
@@ -146,7 +146,7 @@ El estado verificado de cada requisito está en la
 | `TLS_ENABLED`, `TLS_CERT_FILE`, `TLS_KEY_FILE` | HTTPS directo en Uvicorn con el certificado indicado. |
 | `LLM_PROVIDER`, `LLM_TIMEOUT_SECONDS` | `openai` para la API local de Ollama (`LLM_TIMEOUT_SECONDS=120`), o `heuristic` para modo determinista rápido. |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | Endpoint local de Ollama (`http://127.0.0.1:11434/v1`) y valor local de relleno (`local`; nunca sale a internet). |
-| `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Modelos locales: `qwen2.5:3b` (texto + *tool calling*) y `qwen2.5vl:3b` (visión). |
+| `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Modelo local: `qwen3.5:4b` para texto, *tool calling* y visión (ambas variables con el mismo valor). `LLM_DISABLE_THINKING=true` y `LLM_LOCAL_MAX_TOKENS` acotan la respuesta para CPU. |
 | `WEB_SEARCH_ENABLED` | Activa la búsqueda autónoma de precios en internet sin claves externas. |
 | `BCV_FALLBACK_RATE`, `DEFAULT_IVA_RATE` | Tasa de respaldo (Bs por USD) e IVA (0,16). |
 | `ABUSIVE_SURCHARGE_PCT_THRESHOLD` | Recargo (flete, envío) sobre el subtotal, en %, a partir del cual se considera abusivo (`50`). |
@@ -182,8 +182,7 @@ podman run -d --name evaluador-ollama \
   -p 127.0.0.1:11434:11434 \
   -v evaluador-ollama-models:/root/.ollama \
   docker.io/ollama/ollama:latest
-podman exec evaluador-ollama ollama pull qwen2.5:3b      # 1.9 GB — texto y tool calling
-podman exec evaluador-ollama ollama pull qwen2.5vl:3b    # 3.2 GB — visión multimodal (manuscritos/escaneos)
+podman exec evaluador-ollama ollama pull qwen3.5:4b      # modelo multimodal: texto, tool calling y visión
 
 # 2. Levantar PostgreSQL 16 local (o una instancia propia con TLS 1.2+): base de la aplicación y bases de pruebas
 podman run -d --name evaluador-postgres \
@@ -231,7 +230,7 @@ npm run dev          # usa la API real /api/v1 por defecto (modo simulado solo c
 npm run build        # verificación de TypeScript y compilación de producción en dist/
 ```
 
-### Paso 4. Modo lote: `salida.json` (sección 3 del enunciado)
+### Paso 5. Modo lote: `salida.json` (sección 3 del enunciado)
 
 ```sh
 cd backend
@@ -244,7 +243,7 @@ HACKATHON_REPO_PATH="<ruta-del-repositorio-en-GitLab>" \
 Opciones: `--no-web-search` (sin búsqueda web) y `--bcv-rate <tasa>` (tasa fija). El programa valida el archivo
 antes de terminar. Con los datos de ejemplo: `--lote ../docs/reto`.
 
-### Paso 5. Despliegue con TLS 1.2/1.3
+### Paso 6. Despliegue con TLS 1.2/1.3
 
 ```sh
 cd backend
@@ -255,7 +254,52 @@ TLS_ENABLED=true python -m app.run             # HTTPS directo en Uvicorn
 En producción, servir el frontend compilado (`frontend/dist/`) y el backend detrás de Nginx con la plantilla
 `backend/nginx/tls.conf` (`ssl_protocols TLSv1.2 TLSv1.3`), y ajustar `CORS_ORIGINS` al dominio público.
 
-### Paso 6. Contribuir
+### Paso 7. Guía rápida de uso: recorrido paso a paso
+
+Con el backend (Paso 3) y el frontend (Paso 4) en marcha, abra **`http://localhost:5173`**. Al arrancar por
+primera vez, el backend crea un usuario de demostración por rol (correos y contraseñas en
+`backend/app/db/seed.py`; solo para entornos locales, cámbielas fuera de una demostración):
+
+| Rol | Correo | Qué puede hacer |
+| :--- | :--- | :--- |
+| Administrador | `admin@evaluador.ve` | Todo, incluidos usuarios y auditoría |
+| Carga documental | `cargador@evaluador.ve` | Crear proyectos y subir documentos |
+| Revisor técnico | `revisor@evaluador.ve` | Evaluar y registrar revisiones humanas |
+| Comité aprobador | `aprobador@evaluador.ve` | Aprobar o adjudicar otra propuesta |
+| Auditor | `auditor@evaluador.ve` | Solo lectura y bitácora de auditoría |
+
+**1. Crear el proyecto.** Entre como administrador → **Nuevo proyecto** → nombre (p. ej. «Laboratorio de
+computación»), moneda de referencia y presupuesto → guardar. Dentro del proyecto, suba el documento de
+requerimientos (`docs/reto/proyecto.pdf`).
+
+**2. Cargar las propuestas.** Pestaña **Propuestas** → arrastre los archivos o «Seleccionar archivos de
+propuestas» (de 3 a 20; con el lote de ejemplo, las 10 de `docs/reto/propuestas/`: PDF, escaneos, fotos, PNG de
+chat y Excel). Cada archivo se cifra al guardarse.
+
+**3. Evaluar.** Revise los **Parámetros de evaluación del agente** (búsqueda web de precios, tasa BCV oficial o
+manual e IVA) y pulse **Evaluar Propuestas de Servicios**. La pestaña **Trazabilidad** muestra en vivo cada paso
+del agente: lectura multimodal, cálculo del costo total real, letra pequeña, aritmética, contraste de precios de
+mercado y verificación del alcance.
+
+**4. Leer el informe.** Pestaña **Informe**: propuesta recomendada, **tabla comparativa** (costo total real en USD
+y Bs., puntaje técnico y económico) y el **dictamen de descarte** de cada propuesta rechazada con su causa. Con el
+lote de ejemplo: válidas `602 · 923 · 841 · 832 · 638`; descartadas 131 (inyección de instrucciones), 331
+(costos abusivos), 734 (incompatibilidad técnica), 898 (equipos reciclados) y 975 (alcance incompleto).
+Exportación en PDF, Markdown, CSV, Excel y JSON.
+
+**5. Revisión humana y adjudicación.** Entre como **revisor** y registre su revisión con notas por propuesta; como
+**aprobador**, confirme la recomendada o use la **adjudicación alternativa** con su justificación. Todo queda
+en el **Historial de estados del proceso**.
+
+**6. Resto de módulos.**
+- **Historial:** ejecuciones anteriores del proyecto, consultables en su vista histórica.
+- **Proveedores:** directorio editable con RIF, antecedentes y alertas que influyen en la evaluación.
+- **Chat:** preguntas en lenguaje natural sobre los documentos y la evaluación.
+- **Auditoría:** bitácora de acciones de los usuarios (rol auditor o administrador).
+
+**7. Modo lote para la evaluación automática.** Paso 5: genera `salida.json` en la raíz con el ranking del lote.
+
+### Paso 8. Contribuir
 
 Antes del primer commit en un clon nuevo, activar los ganchos de git del proyecto (bloquean secretos, archivos
 `.env`, archivos de más de 5 MB y mensajes no válidos, y ejecutan las pruebas antes de cada push):
