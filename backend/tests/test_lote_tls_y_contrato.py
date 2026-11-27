@@ -186,8 +186,8 @@ def test_issue21_issue29_cli_batch_on_docs_reto_matches_expected_table(tmp_path:
         "Propuesta_602_Krypton_Ingenieria_CA",
         "Propuesta_923_Grupo_Digital_Miranda_CA",
         "Propuesta_841_Avila_Hardware__Redes_CA",
-        "Propuesta_638_TecnoAndes_Soluciones_CA",
         "Propuesta_832_Sistemas_del_Valle_CA",
+        "Propuesta_638_TecnoAndes_Soluciones_CA",
     ]
     expected_discarded = {
         "Propuesta_131_ReTech_Outlet_Venezuela_CA",
@@ -877,3 +877,23 @@ Garantia: 24 meses en Venezuela
         if e["phase"] == "verificacion_aritmetica" and "975" in str(e.get("proposal_identifier") or "")
     ]
     assert steps_975 and "Verificación aritmética OK" not in steps_975[0]["message"]
+
+
+def test_issue40_cpu_tier_and_single_channel_ram_scoring() -> None:
+    """Verify CPU tier (10C/14C vs 6C) and single-channel 1x16GB RAM penalty break ties cleanly."""
+    req = "Diez (10) computadoras para estudiantes y una (1) para el docente; once (11) equipos."
+    offer_10c_dual = (
+        "Estación Estudiantes (10x): Core i5-14400F, 16GB DDR5 (2x8GB), 512GB NVMe, RX 7600 8GB\n"
+        "Estación Docente (1x): Core i7-14700F, 32GB DDR5, 1TB NVMe, RX 7600 8GB\n"
+        "Monitor 24 IPS, Supresor Tripp Lite Isobar + AVR, Garantía: 18 meses, Instalación en sitio"
+    )
+    offer_6c_single = (
+        "Estación Estudiantes (10x): Ryzen 5 7600, 16GB DDR5 (1x16GB), 512GB NVMe, RTX 4060 8GB\n"
+        "Estación Docente (1x): Ryzen 7 7700, 32GB DDR5, 1TB NVMe, RTX 4060 8GB\n"
+        "Monitor 24 IPS, Regulador AVR 1200VA, Garantía: 12 meses, Instalación en sitio"
+    )
+    a1 = audit_proposal_technically(offer_10c_dual, {}, req)
+    a2 = audit_proposal_technically(offer_6c_single, {}, req)
+    assert a1.is_technically_valid and a2.is_technically_valid
+    assert a1.score_breakdown["ram_almacenamiento"] > a2.score_breakdown["ram_almacenamiento"]
+    assert a1.technical_score > a2.technical_score
