@@ -137,28 +137,60 @@ def _check_station_compatibility(section_label: str, seg: str, reasons: list[dic
 
 
 def _score_cpu(seg: str) -> float:
-    """Score CPU tier for programming, 3D rendering, and video editing workloads."""
-    if re.search(r"core\s*i9|ryzen\s*9", seg, re.I):
+    """Score CPU tier anchored to brand/series for Section 3.B workloads.
+
+    Criterion (Section 3.B — programming, 3D rendering, video encoding):
+      +5.0: Enthusiast/workstation class (Core i9, Core Ultra 9, Ryzen 9 7000/8000/9000; 12–24C)
+            for heavy parallel compilation, CPU-assisted rendering, and encoding.
+      +4.0: High-performance class (Core i7 12th–15th gen, Core Ultra 7, Ryzen 7 7000/8000/9000; 8–20C).
+      +3.0: Mid-high hybrid class (Core i5 13th–15th gen, Core Ultra 5; 10–14C hybrid E+P cores)
+            with higher multi-thread throughput than 6-core entry chips.
+      +2.0: Entry modern 6-core class (Ryzen 5 7000/8000/9000, Core i5 12th gen; 6C/12T).
+      +1.0: Unclassified or baseline CPU tier.
+
+    Patterns are anchored to brand/series tokens (never bare numeric model codes) so
+    prices (e.g. $13700) or reference numbers (e.g. REF-14700) never match.
+    """
+    if re.search(
+        r"\b(?:core\s*i9(?:[- ]\s*1[2-5]\d{3}[a-z]*)?|core\s*ultra\s*9|ryzen\s*9\s*[789]\d{3}[a-z]*)\b",
+        seg,
+        re.I,
+    ):
         return 5.0
     if re.search(
-        r"core\s*i7-1[2-5]\d{3}|core\s*ultra\s*7|ryzen\s*7\s*[789]\d{3}|\b1[34]700[a-z]*\b",
+        r"\b(?:(?:intel\s+)?core\s*i[7#][- ]?\s*1[2-5]\d{3}[a-z]*|i7[- ]1[2-5]\d{3}[a-z]*|"
+        r"core\s*ultra\s*7|ryzen\s*7\s*[789]\d{3}[a-z]*)\b",
         seg,
         re.I,
     ):
         return 4.0
     if re.search(
-        r"core\s*i5-1[3-5]\d{3}|\b1[34][45]00[a-z]*\b|core\s*ultra\s*5",
+        r"\b(?:(?:intel\s+)?core\s*i[5#][- ]?\s*1[3-5]\d{3}[a-z]*|i5[- ]1[3-5]\d{3}[a-z]*|core\s*ultra\s*5)\b",
         seg,
         re.I,
     ):
         return 3.0
-    if re.search(r"ryzen\s*5\s*[789]\d{3}|core\s*i5-12\d{3}", seg, re.I):
+    if re.search(
+        r"\b(?:ryzen\s*5\s*[789]\d{3}[a-z]*|(?:intel\s+)?core\s*i5[- ]?\s*12\d{3}[a-z]*|i5[- ]12\d{3}[a-z]*)\b",
+        seg,
+        re.I,
+    ):
         return 2.0
     return 1.0
 
 
 def _score_gpu_cpu(seg: str) -> tuple[float, str | None]:
-    """Score CPU+GPU combination for a station and extract actual GPU label dynamically."""
+    """Score CPU+GPU combination for a station and extract actual GPU label dynamically.
+
+    GPU weights (18.0–39.5 pts) reflect Section 3.B suitability for 3D modeling/rendering and video:
+      - 12–16 GB VRAM / upper mid-high (RTX 4070 Super 39.5, RTX 4070 37.0, RTX 4060 Ti 16GB 36.5)
+        sustain larger Blender/CUDA viewports and 4K timelines without VRAM bottlenecks.
+      - 8–12 GB mainstream tiers (RTX 4060 Ti 8GB 33.0, RTX 3060 12GB 29.5, RTX 4060 8GB 29.0,
+        RX 7600 8GB 27.0): RTX 4060 leads RX 7600 by 2.0 pts (not an excessive 4-pt cliff)
+        for CUDA/OptiX ecosystem support while keeping comparable 8GB raster performance close
+        so CPU cores, RAM topology, electrical protection, and warranty remain decisive.
+    Combined with `_score_cpu(seg)` (1.0–5.0 pts) for total station compute up to 44.5 pts.
+    """
     gpu_m = re.search(
         r"(?:nvidia\s+geforce\s+)?(rtx\s*40[789]0\s*(?:super|ti)?(?:\s*\d+\s*gb)?|"
         r"rtx\s*4060\s*ti(?:\s*\d+\s*gb)?|rtx\s*4060(?:\s*\d+\s*gb)?|"
@@ -372,7 +404,8 @@ def audit_proposal_technically(
     st_ram_gb = int(st_ram_m.group(1)) if st_ram_m else 16
     score_ram = 12.0 if st_ram_gb >= 64 else (10.5 if st_ram_gb >= 32 else 7.0)
     if re.search(r"\b1\s*x\s*\d+\s*gb\b", student_seg):
-        # Single-channel memory reduces effective bandwidth in 3D/video workloads
+        # Single-channel (1xN GB) halves memory bandwidth vs dual-channel (2xN GB),
+        # hurting parallel compilation, 3D viewport asset streaming, and video timeline scrubbing.
         score_ram = max(4.0, score_ram - 1.0)
 
     st_nvme_m = re.search(r"(\d+)\s*(tb|gb)\s*nvme", student_seg)
