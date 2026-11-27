@@ -171,12 +171,15 @@ class UnifiedLLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        history: list[dict[str, str]] | None = None,
     ) -> str | None:
         """Generate free-form text (e.g. grounded chat response or executive summary)."""
         if not self.is_available:
             return None
         try:
-            raw = await self._openai_generate(system_prompt, user_prompt, None, json_mode=False)
+            raw = await self._openai_generate(
+                system_prompt, user_prompt, None, json_mode=False, history=history
+            )
             cleaned = _strip_thinking_blocks(raw or "")
             return cleaned or None
         except Exception as exc:
@@ -351,6 +354,7 @@ class UnifiedLLMClient:
         user_prompt: str,
         images_b64: list[tuple[str, str]] | None,
         json_mode: bool,
+        history: list[dict[str, str]] | None = None,
     ) -> str | None:
         from openai import AsyncOpenAI
 
@@ -373,13 +377,19 @@ class UnifiedLLMClient:
         else:
             user_content = user_prompt
 
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        if history:
+            for item in history:
+                role = item.get("role")
+                content = item.get("content")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_content})
+
         kwargs: dict[str, Any] = {
             "model": self.settings.openai_vision_model if images_b64 else self.settings.openai_model,
             "temperature": 0.1,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            "messages": messages,
         }
         if is_local:
             kwargs["max_tokens"] = (
