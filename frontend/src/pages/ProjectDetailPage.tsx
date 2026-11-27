@@ -506,9 +506,14 @@ export function ProjectDetailPage() {
             </div>
           </div>
 
-          {transiciones.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 print:hidden">
-              {transiciones.map((t) => (
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {can(user?.rol, 'chat.usar') && (
+              <Button variant="primary" size="sm" onClick={() => pickTab('chat')}>
+                <MessageSquare className="h-4 w-4" />
+                Preguntar a la IA
+              </Button>
+            )}
+            {transiciones.map((t) => (
                 <Button
                   key={`${t.de}-${t.a}`}
                   variant={t.a === 'ADJUDICADO' ? 'primary' : 'secondary'}
@@ -518,8 +523,7 @@ export function ProjectDetailPage() {
                   {t.label}
                 </Button>
               ))}
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Barra de etapas del proceso */}
@@ -873,7 +877,15 @@ export function ProjectDetailPage() {
                       {resultados.filter((r) => r.valida).length} válidas y {descartadas.length} descartadas
                     </p>
                   </div>
-                  <ExportButtons evaluacion={evaluacion} proyecto={proyecto} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ExportButtons evaluacion={evaluacion} proyecto={proyecto} />
+                    {can(user?.rol, 'chat.usar') && (
+                      <Button variant="secondary" size="sm" onClick={() => pickTab('chat')} className="print:hidden">
+                        <MessageSquare className="h-4 w-4" />
+                        Preguntar a la IA sobre este informe
+                      </Button>
+                    )}
+                  </div>
                 </CardBody>
               </Card>
 
