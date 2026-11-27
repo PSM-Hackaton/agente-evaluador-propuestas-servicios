@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente Evaluador de Propuestas de Servicios — Presentación al jurado</title>
+<style>
+  @page { size: 1280px 720px; margin: 0; }
+  :root {
+    --azul: #00247D;
+    --azul-osc: #0A1A4F;
+    --azul-med: #1F4AA8;
+    --azul-claro: #E8EEFA;
+    --azul-borde: #C3D0EE;
+    --amarillo: #FFCC00;
+    --rojo: #CF142B;
+    --tinta: #14182B;
+    --gris: #4A5170;
+    --gris-claro: #F3F5FA;
+    --verde: #0B6B3A;
+    --verde-claro: #E3F3EA;
+    --ambar: #8A5A00;
+    --ambar-claro: #FFF4D6;
+    --fuente: "Noto Sans", "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
+    --mono: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #DADFEA; color: var(--tinta); font-family: var(--fuente); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .diapo {
+    position: relative; width: 1280px; height: 720px; overflow: hidden;
+    background: #fff; margin: 24px auto 0; padding: 58px 64px 64px;
+    page-break-after: always; break-after: page;
+  }
+  .diapo::before { /* franja tricolor */
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 8px;
+    background: linear-gradient(to right, var(--amarillo) 0 33.33%, var(--azul) 33.33% 66.66%, var(--rojo) 66.66% 100%);
+  }
+  .pie {
+    position: absolute; left: 64px; right: 64px; bottom: 20px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 14px; color: var(--gris); border-top: 1px solid var(--azul-borde); padding-top: 9px;
+  }
+  .pie b { color: var(--azul); font-weight: 700; }
+  .seccion { font-size: 16px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--azul-med); margin: 0 0 6px; }
+  h1 { font-size: 44px; line-height: 1.12; margin: 0 0 22px; color: var(--azul-osc); letter-spacing: -.01em; }
+  h2 { font-size: 24px; margin: 0 0 10px; color: var(--azul-osc); }
+  p { margin: 0; }
+  .grande { font-size: 28px; line-height: 1.35; }
+  .medio { font-size: 22px; line-height: 1.4; }
+  .gris { color: var(--gris); }
+  .mono { font-family: var(--mono); }
+  .rejilla { display: grid; gap: 18px; }
+  .tarjeta { background: var(--gris-claro); border: 1px solid #DDE3F0; border-radius: 12px; padding: 18px 20px; }
+  .tarjeta h3 { margin: 0 0 6px; font-size: 21px; color: var(--azul-osc); }
+  .tarjeta p { font-size: 18px; line-height: 1.4; color: var(--gris); }
+  .cifra { font-size: 54px; font-weight: 800; color: var(--azul); line-height: 1; letter-spacing: -.02em; }
+  .cifra small { font-size: 26px; font-weight: 700; }
+  .etq { font-size: 17px; color: var(--gris); margin-top: 6px; line-height: 1.3; }
+  .fuente { position: absolute; left: 64px; right: 64px; bottom: 52px; font-size: 13px; color: var(--gris); }
+  .chip { display: inline-block; font-size: 15px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .ok { background: var(--verde-claro); color: var(--verde); }
+  .parcial { background: var(--ambar-claro); color: var(--ambar); }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--gris); border-bottom: 2px solid var(--azul); padding: 6px 10px; }
+  td { font-size: 18px; padding: 6px 10px; border-bottom: 1px solid #E1E6F2; vertical-align: middle; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--azul-osc); }
+  ul.lista { margin: 0; padding: 0; list-style: none; }
+  ul.lista li { position: relative; padding-left: 26px; font-size: 22px; line-height: 1.35; margin-bottom: 12px; }
+  ul.lista li::before { content: ""; position: absolute; left: 0; top: 11px; width: 12px; height: 12px; border-radius: 3px; background: var(--azul); }
+  .recorte { overflow: hidden; border: 1px solid #C9D2E6; border-radius: 10px; box-shadow: 0 6px 18px rgba(10,26,79,.14); background: #fff; }
+  .recorte img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .captura { border: 1px solid #C9D2E6; border-radius: 10px; box-shadow: 0 6px 18px rgba(10,26,79,.14); display: block; }
+  .leyenda { font-size: 15px; color: var(--gris); margin-top: 8px; }
+  .notas { width: 1280px; margin: 0 auto; background: #FFFBEA; border: 1px dashed #B99A2E; border-top: 0; padding: 12px 22px 14px; font-size: 15px; line-height: 1.5; color: #3B3418; }
+  .notas b { color: #5B4A00; }
+  @media print {
+    body { background: #fff; }
+    .diapo { margin: 0; }
+    .notas { display: none; }
+  }
+
+  /* Portada */
+  .portada { background: var(--azul-osc); color: #fff; padding: 0; }
+  .portada::before { height: 14px; }
+  .portada .contenido { position: absolute; left: 80px; right: 80px; top: 92px; }
+  .portada .sobre { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; color: #FFE27A; font-weight: 700; }
+  .portada h1 { color: #fff; font-size: 56px; margin: 18px 0 18px; max-width: 980px; }
+  .portada .sub { font-size: 26px; color: #D6E0F7; max-width: 900px; line-height: 1.35; }
+  .portada .equipo { position: absolute; left: 80px; right: 80px; bottom: 56px; display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid rgba(255,255,255,.25); padding-top: 20px; }
+  .portada .equipo .nom { font-size: 20px; line-height: 1.55; color: #fff; }
+  .portada .equipo .nom span { color: #B9C7EA; font-size: 17px; }
+  .portada .equipo .der { text-align: right; font-size: 20px; color: #D6E0F7; line-height: 1.5; }
+  .portada .equipo .der b { color: #fff; font-size: 26px; }
+  .sello { position: absolute; right: 80px; top: 92px; }
+
+  /* Cierre */
+  .cierre { background: var(--azul-osc); color: #fff; }
+  .cierre h1 { color: #fff; font-size: 50px; }
+  .cierre .pie { color: #B9C7EA; border-top-color: rgba(255,255,255,.25); }
+  .cierre .pie b { color: #fff; }
+  .comando { background: #050D2B; border: 1px solid #3A57A6; border-radius: 12px; padding: 20px 24px; font-family: var(--mono); font-size: 23px; color: #fff; line-height: 1.5; }
+  .comando .p { color: #FFCC00; }
+  .vista { position: relative; overflow: hidden; border: 1px solid #C9D2E6; border-radius: 10px; box-shadow: 0 6px 18px rgba(10,26,79,.14); background: #fff; }
+  .vista img { position: absolute; left: 0; width: 100%; height: auto; display: block; }
+  td.c { font-size: 16px; }
+  .val { color: var(--verde); font-weight: 700; }
+  .des { color: var(--rojo); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ============ 1. PORTADA ============ -->
+<section class="diapo portada">
+  <svg class="sello" width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+    <circle cx="75" cy="75" r="70" fill="none" stroke="#FFCC00" stroke-width="3" stroke-dasharray="4 7"/>
+    <circle cx="75" cy="75" r="56" fill="#13286B" stroke="#3A57A6" stroke-width="2"/>
+    <rect x="48" y="44" width="54" height="66" rx="6" fill="#fff"/>
+    <rect x="57" y="56" width="36" height="5" rx="2" fill="#0A1A4F"/><rect x="57" y="68" width="36" height="5" rx="2" fill="#0A1A4F"/><rect x="57" y="80" width="24" height="5" rx="2" fill="#0A1A4F"/>
+    <circle cx="94" cy="98" r="15" fill="#FFCC00"/><path d="M87 98l5 5 9-10" fill="none" stroke="#0A1A4F" stroke-width="4"/>
+  </svg>
+  <div class="contenido">
+    <div class="sobre">Reto Grupal 3 · Hackatón Venezuela Innova 2026</div>
+    <h1>Agente Evaluador de Propuestas de Servicios</h1>
+    <p class="sub">Un agente de IA local que lee propuestas en cualquier formato, calcula el costo real, detecta trampas y recomienda, con la decisión final en manos del comité.</p>
+  </div>
+  <div class="equipo">
+    <div class="nom">
+      Juan Laya <span>· arquitectura e integración</span><br>
+      Diego Landaeta <span>· backend, criptografía y seguridad</span><br>
+      Javier Rodríguez <span>· frontend y experiencia de usuario</span><br>
+      Giovani Marcano <span>· seguridad y laboratorio de ataques</span><br>
+      Enggel Rodríguez <span>· detector local, documentación y presentación</span>
+    </div>
+    <div class="der"><b>Grupo 4 · Sede Chuao</b><br>27 de noviembre de 2026</div>
+  </div>
+</section>
+
+<!-- ============ 2. PROBLEMA ============ -->
+<section class="diapo">
+  <div class="seccion">El problema</div>
+  <h1>Comparar propuestas a mano es lento y deja pasar trampas</h1>
+  <p class="medio gris" style="margin-bottom: 26px;">Un comité recibe de 3 a 20 propuestas en formatos distintos: PDF, escaneos, fotos de manuscritos, capturas de chat y hojas de cálculo. La más barata en papel no siempre lo es.</p>
+  <div class="rejilla" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="tarjeta"><h3>Costos ocultos</h3><p>Fletes, instalación, licencias que se cobran al vencer y recargos en la letra pequeña.</p></div>
+    <div class="tarjeta"><h3>Equipos reciclados</h3><p>Hardware obsoleto o de segunda mano presentado como nuevo.</p></div>
+    <div class="tarjeta"><h3>Errores aritméticos</h3><p>Totales que no cuadran con las partidas, en USD o en Bs.</p></div>
+    <div class="tarjeta"><h3>Instrucciones ocultas para la IA</h3><p>Texto invisible que intenta manipular al evaluador automático.</p></div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Fuente: enunciado del Reto Grupal 3 y lote de práctica (10 propuestas)</span><b>2</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Contar el caso del lote: un laboratorio de computación para programación, diseño 3D y edición de video, con 10 propuestas y cinco tipos de trampa escondidas.</aside>
+
+<!-- ============ 3. SOLUCIÓN ============ -->
+<section class="diapo">
+  <div class="seccion">La solución</div>
+  <h1>Una plataforma completa con un agente autónomo dentro</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="tarjeta"><h3>Interfaz web institucional</h3><p>React con identidad nacional: proyectos, carga masiva, trazabilidad en vivo, informe, chat y administración.</p></div>
+    <div class="tarjeta"><h3>Agente con herramientas</h3><p>FastAPI y un agente que llama a herramientas de cálculo, búsqueda de precios y verificación técnica.</p></div>
+    <div class="tarjeta"><h3>IA 100 % local</h3><p>Ollama con <b>qwen3.5:4b</b>, un modelo multimodal para texto y visión, por API compatible con OpenAI. Ningún documento sale de la institución.</p></div>
+    <div class="tarjeta"><h3>PostgreSQL 16 cifrado</h3><p>Archivos y columnas sensibles con AES-256-GCM; búsquedas exactas con índices ciegos.</p></div>
+    <div class="tarjeta"><h3>Precios de mercado propios</h3><p>API interna <span class="mono">/api/v1/market</span> con búsqueda web directa, sin claves ni IA de terceros.</p></div>
+    <div class="tarjeta"><h3>Tasa BCV en vivo</h3><p>Dólar oficial consultado en tiempo real para normalizar USD y Bs.</p></div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Arquitectura: README §Descripción y §Requerimientos</span><b>3</b></div>
+</section>
+<aside class="notas"><b>Notas (45 s).</b> Recalcar soberanía: el modelo de IA corre en la máquina; solo sale a internet la búsqueda de precios públicos y la tasa oficial.</aside>
+
+<!-- ============ 4. INGESTA ============ -->
+<section class="diapo">
+  <div class="seccion">Ingesta multimodal</div>
+  <h1 style="margin-bottom: 16px;">Lee cualquier formato que llegue al comité</h1>
+  <div style="display: grid; grid-template-columns: 430px 1fr; gap: 30px;">
+    <ul class="lista">
+      <li><b>PDF digital</b> y <b>PDF escaneado</b></li>
+      <li><b>Fotos de manuscritos</b> (JPG) con visión local</li>
+      <li><b>Capturas de chat</b> (PNG)</li>
+      <li><b>Hojas de cálculo</b> con fórmulas (XLSX)</li>
+      <li>Cada archivo se <b>cifra</b> al guardarse; de 3 a 20 por proyecto</li>
+    </ul>
+    <div>
+      <div class="vista" style="height: 430px;"><img src="img/04-pestana-propuestas.png" style="top: -390px;" alt="Pestaña Propuestas: carga masiva y tabla de las 10 propuestas con su formato detectado"></div>
+      <div class="leyenda">Las 10 propuestas del lote, con el formato que detecta la plataforma.</div>
+    </div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Captura de la plataforma en funcionamiento (27-11-2026)</span><b>4</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Arrastrar las 10 propuestas en vivo (guion 0:45–1:45).</aside>
+
+<!-- ============ 5. AGENTE ============ -->
+<section class="diapo">
+  <div class="seccion">Razonamiento del agente</div>
+  <h1 style="margin-bottom: 16px;">Cada paso queda trazado y es auditable</h1>
+  <div style="display: grid; grid-template-columns: 450px 1fr; gap: 30px;">
+    <ul class="lista">
+      <li style="font-size:20px">Lectura del documento y extracción de partidas</li>
+      <li style="font-size:20px">Normalización con la <b>tasa BCV oficial</b></li>
+      <li style="font-size:20px">Verificación <b>aritmética</b> con herramientas</li>
+      <li style="font-size:20px"><b>Costo total real</b>: fletes, instalación, garantía y recargos</li>
+      <li style="font-size:20px">Compatibilidad técnica frente al requerimiento</li>
+      <li style="font-size:20px">Contraste con <b>precios de mercado</b></li>
+      <li style="font-size:20px">Detección de <b>instrucciones ocultas</b></li>
+    </ul>
+    <div>
+      <div class="vista" style="height: 440px;"><img src="img/05-pestana-trazabilidad.png" style="top: -330px;" alt="Pestaña Trazabilidad: pasos del agente con hora, tipo y resultado"></div>
+      <div class="leyenda">Trazabilidad en vivo: 54 pasos y alertas por propuesta.</div>
+    </div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Captura de la pestaña Trazabilidad</span><b>5</b></div>
+</section>
+<aside class="notas"><b>Notas (60 s).</b> Pulsar «Evaluar Propuestas de Servicios» y comentar la trazabilidad mientras avanza (guion 1:45–3:15).</aside>
+
+<!-- ============ 6. RESULTADO ============ -->
+<section class="diapo">
+  <div class="seccion">Resultado del lote</div>
+  <h1 style="margin-bottom: 14px;">5 válidas en orden y 5 descartadas con su causa</h1>
+  <table>
+    <tr><th>Puesto</th><th>Propuesta</th><th>Dictamen</th></tr>
+    <tr><td class="n">1</td><td>602 · Krypton Ingeniería C.A.</td><td class="c"><span class="val">Válida · recomendada</span></td></tr>
+    <tr><td class="n">2</td><td>923 · Grupo Digital Miranda C.A.</td><td class="c"><span class="val">Válida</span></td></tr>
+    <tr><td class="n">3</td><td>841 · Ávila Hardware &amp; Redes C.A.</td><td class="c"><span class="val">Válida</span></td></tr>
+    <tr><td class="n">4</td><td>832 · Sistemas del Valle C.A.</td><td class="c"><span class="val">Válida</span></td></tr>
+    <tr><td class="n">5</td><td>638 · TecnoAndes Soluciones C.A.</td><td class="c"><span class="val">Válida</span></td></tr>
+    <tr><td class="n">—</td><td>131 · ReTech Outlet Venezuela C.A.</td><td class="c"><span class="des">Descartada:</span> instrucciones ocultas para la IA</td></tr>
+    <tr><td class="n">—</td><td>331 · Mayorista Sin Fronteras C.A.</td><td class="c"><span class="des">Descartada:</span> costos o condiciones abusivas</td></tr>
+    <tr><td class="n">—</td><td>734 · Inversiones Élite Tech 2026 C.A.</td><td class="c"><span class="des">Descartada:</span> incompatibilidad técnica</td></tr>
+    <tr><td class="n">—</td><td>898 · Distribuidora 10x10 Tech C.A.</td><td class="c"><span class="des">Descartada:</span> equipos obsoletos o reciclados</td></tr>
+    <tr><td class="n">—</td><td>975 · Ofertas Express Digital C.A.</td><td class="c"><span class="des">Descartada:</span> alcance incompleto</td></tr>
+  </table>
+  <p class="gris" style="font-size: 17px; margin-top: 12px;">El mismo agente sin interfaz (modo lote) genera <span class="mono">salida.json</span> con este ranking en unos 15 segundos.</p>
+  <div class="pie"><span>Agente Evaluador · Fuente: docs/verificacion-final-2026-11-27.md y salida.json</span><b>6</b></div>
+</section>
+<aside class="notas"><b>Notas (45 s).</b> Leer la recomendada y dos descartes llamativos: la 131 (manipulación) y la 898 (reciclados).</aside>
+
+<!-- ============ 7. INFORME ============ -->
+<section class="diapo">
+  <div class="seccion">Informe</div>
+  <h1 style="margin-bottom: 16px;">Informe comparativo listo para el expediente</h1>
+  <div style="display: grid; grid-template-columns: 1fr 360px; gap: 30px;">
+    <div>
+      <div class="vista" style="height: 470px;"><img src="img/06-pestana-informe.png" style="top: -300px;" alt="Pestaña Informe: propuesta recomendada y tabla comparativa con costo real en USD y Bs"></div>
+    </div>
+    <ul class="lista">
+      <li style="font-size:20px">Propuesta <b>recomendada</b> con su justificación</li>
+      <li style="font-size:20px"><b>Tabla comparativa</b>: declarado frente a costo real, en USD o Bs</li>
+      <li style="font-size:20px"><b>Dictamen de descarte</b> por propuesta</li>
+      <li style="font-size:20px">Exporta a <b>PDF, Excel, CSV, Markdown</b> y <span class="mono">salida.json</span></li>
+    </ul>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Captura de la pestaña Informe</span><b>7</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Exportar el PDF en vivo y abrirlo (guion 4:30–5:15).</aside>
+
+<!-- ============ 8. SEGURIDAD IA ============ -->
+<section class="diapo">
+  <div class="seccion">Defensa del agente</div>
+  <h1 style="margin-bottom: 16px;">Las instrucciones ocultas se detectan, no se obedecen</h1>
+  <div style="display: grid; grid-template-columns: 430px 1fr; gap: 30px;">
+    <ul class="lista">
+      <li style="font-size:20px">La propuesta 131 esconde texto dirigido a la IA para manipular la evaluación</li>
+      <li style="font-size:20px">El agente lo trata como <b>evidencia de descarte</b>, nunca como orden</li>
+      <li style="font-size:20px">El proveedor queda con <b>alerta</b> en el directorio para futuras licitaciones</li>
+      <li style="font-size:20px">El <b>chat</b> explica el porqué con las fuentes del expediente</li>
+    </ul>
+    <div>
+      <div class="vista" style="height: 440px;"><img src="img/08-pestana-chat.png" style="top: -235px;" alt="Chat: pregunta sobre el descarte de la 131 y respuesta con la causa"></div>
+      <div class="leyenda">Chat sobre los documentos: «¿Por qué se descartó la propuesta 131?».</div>
+    </div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Captura de la pestaña Chat</span><b>8</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Hacer la pregunta en vivo en el chat.</aside>
+
+<!-- ============ 9. PLATAFORMA GRUPAL ============ -->
+<section class="diapo">
+  <div class="seccion">Trabajo del comité</div>
+  <h1 style="margin-bottom: 16px;">La IA recomienda; la decisión es humana y queda registrada</h1>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 26px;">
+    <div>
+      <ul class="lista">
+        <li style="font-size:20px"><b>5 roles</b>: administrador, carga, revisor, aprobador y auditor</li>
+        <li style="font-size:20px"><b>Revisión humana</b> con notas por propuesta</li>
+        <li style="font-size:20px"><b>Adjudicación alternativa</b> justificada</li>
+        <li style="font-size:20px"><b>Historial</b> de estados y de ejecuciones</li>
+        <li style="font-size:20px"><b>Directorio de proveedores</b> con alertas de antecedentes</li>
+        <li style="font-size:20px"><b>Bitácora de auditoría</b> de cada acción</li>
+      </ul>
+    </div>
+    <div>
+      <div class="vista" style="height: 420px;"><img src="img/09-proveedores.png" style="top: -40px;" alt="Directorio de proveedores con RIF, participaciones y alertas de antecedentes"></div>
+      <div class="leyenda">Directorio de proveedores con alertas generadas por las evaluaciones.</div>
+    </div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Captura del directorio de proveedores</span><b>9</b></div>
+</section>
+<aside class="notas"><b>Notas (60 s).</b> Cambiar a la ventana del revisor y del aprobador (guion 5:15–6:15).</aside>
+
+<!-- ============ 10. FINANZAS ============ -->
+<section class="diapo">
+  <div class="seccion">Normalización financiera</div>
+  <h1>Costo real en dólares y bolívares, con la tasa del día</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(3, 1fr); margin-top: 10px;">
+    <div class="tarjeta"><div class="cifra">926,36</div><div class="etq">Bs/USD · tasa oficial BCV consultada en vivo el 27-11-2026</div></div>
+    <div class="tarjeta"><h3>Tasa del comité</h3><p>El comité puede fijar una tasa manual; solo vale ese día y después vuelve sola la oficial.</p></div>
+    <div class="tarjeta"><h3>IVA configurable</h3><p>Parámetro de cada evaluación, con desglose del costo real por propuesta.</p></div>
+  </div>
+  <div class="vista" style="height: 210px; margin-top: 22px;"><img src="img/02-panel.png" style="top: -40px;" alt="Panel con la tasa BCV vigente y la postura de seguridad"></div>
+  <div class="pie"><span>Agente Evaluador · Fuente: /api/v1/finance/bcv-rate (ve.dolarapi.com, dólar oficial)</span><b>10</b></div>
+</section>
+<aside class="notas"><b>Notas (30 s).</b> Señalar la tasa en la cabecera y el desglose USD/Bs de la tabla.</aside>
+
+<!-- ============ 11. SEGURIDAD ============ -->
+<section class="diapo">
+  <div class="seccion">Seguridad y soberanía</div>
+  <h1>Datos sensibles protegidos de extremo a extremo</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="tarjeta"><h3>TLS 1.2 / 1.3</h3><p>HTTPS directo en el backend (TLSv1.3 con AES-256-GCM verificado) o detrás de Nginx.</p></div>
+    <div class="tarjeta"><h3>AES-256-GCM en reposo</h3><p>Archivos y columnas sensibles cifrados en PostgreSQL; índices ciegos HMAC-SHA256.</p></div>
+    <div class="tarjeta"><h3>Control de acceso</h3><p>Roles con permisos, sesión con renovación y tickets de un solo uso para descargas.</p></div>
+    <div class="tarjeta"><h3>IA sin fugas</h3><p>Modelos locales: ningún documento ni dato del comité se envía a servicios de IA externos.</p></div>
+    <div class="tarjeta"><h3>Entradas seguras</h3><p>Lectura de DOCX protegida contra entidades externas; URL de API restringidas al mismo origen.</p></div>
+    <div class="tarjeta"><h3>Trazabilidad</h3><p>Bitácora de auditoría y trazas del agente persistidas por ejecución.</p></div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Fuente: README §Límites y decisiones técnicas, matriz de cumplimiento</span><b>11</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Mostrar /health en la terminal: PostgreSQL conectado, AES-256-GCM y TLS activo.</aside>
+
+<!-- ============ 12. CALIDAD ============ -->
+<section class="diapo">
+  <div class="seccion">Calidad verificada</div>
+  <h1>Probado de extremo a extremo con la versión entregada</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(4, 1fr); margin-top: 16px;">
+    <div class="tarjeta"><div class="cifra">74</div><div class="etq">pruebas del backend sobre PostgreSQL 16, en verde</div></div>
+    <div class="tarjeta"><div class="cifra">39</div><div class="etq">pruebas del frontend, más tipos, lint y compilación</div></div>
+    <div class="tarjeta"><div class="cifra">28/28</div><div class="etq">comprobaciones del recorrido completo por la API real</div></div>
+    <div class="tarjeta"><div class="cifra">0</div><div class="etq">errores de consola en el recorrido de todas las pantallas</div></div>
+  </div>
+  <p class="medio gris" style="margin-top: 30px;">Roles, control de acceso, carga de las 10 propuestas, evaluación, informe, exportaciones, historial, revisión humana, tasa BCV, proveedores, chat, auditoría y panel.</p>
+  <div class="pie"><span>Agente Evaluador · Fuente: docs/verificacion-final-2026-11-27.md</span><b>12</b></div>
+</section>
+<aside class="notas"><b>Notas (30 s).</b> Mencionar que la guía paso a paso está en el README (Paso 7) para que cualquiera lo reproduzca.</aside>
+
+<!-- ============ 13. POR QUÉ ES LA SOLUCIÓN IDEAL ============ -->
+<section class="diapo">
+  <div class="seccion">Por qué es la solución ideal</div>
+  <h1>Resuelve el reto completo, con el comité al mando</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="tarjeta"><h3>Todo el ciclo en un lugar</h3><p>Del documento del proyecto al informe adjudicable: ingesta, evaluación, revisión, adjudicación y auditoría.</p></div>
+    <div class="tarjeta"><h3>Decisión humana, trazada</h3><p>La IA recomienda y explica; revisores y aprobadores deciden con roles y cada paso queda registrado.</p></div>
+    <div class="tarjeta"><h3>Soberana</h3><p>IA local y precios con búsqueda propia: sin claves ni servicios de IA de terceros; los documentos no salen de la institución.</p></div>
+    <div class="tarjeta"><h3>Nunca se queda sin responder</h3><p>Si la IA local no está disponible, el agente sigue con OCR y reglas locales y llega al mismo ranking del lote.</p></div>
+    <div class="tarjeta"><h3>Lista para producción</h3><p>PostgreSQL 16 cifrado, TLS 1.3 y despliegue con Nginx, probado de extremo a extremo.</p></div>
+    <div class="tarjeta"><h3>Costo real, no el declarado</h3><p>Recargos ocultos, aritmética y tasa BCV del día: el comité compara lo que de verdad va a pagar.</p></div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Fuentes: README, docs/verificacion-final-2026-11-27.md</span><b>13</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Frase clave: «el agente propone, el comité decide, y todo queda registrado».</aside>
+
+<!-- ============ 14. ESCALABILIDAD ============ -->
+<section class="diapo">
+  <div class="seccion">Escalabilidad</div>
+  <h1>Medido en esta máquina, no supuesto</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="tarjeta"><div class="cifra">~1,6 <small>s</small></div><div class="etq">por propuesta en el modo lote: 10 en 16,5 s y 19 en 31,4 s (crece de forma lineal)</div></div>
+    <div class="tarjeta"><div class="cifra">~320</div><div class="etq">peticiones/s a la API a través de Nginx y TLS 1.3, con un solo proceso del backend</div></div>
+    <div class="tarjeta"><div class="cifra">&lt; 200 <small>ms</small></div><div class="etq">p95 con 50 usuarios simultáneos, 0 errores</div></div>
+    <div class="tarjeta"><div class="cifra">3–20</div><div class="etq">propuestas por proyecto; proyectos ilimitados en paralelo</div></div>
+  </div>
+  <h2 style="margin-top: 26px;">Cómo crece</h2>
+  <ul class="lista">
+    <li style="font-size:20px">Backend sin estado detrás de Nginx: <b>más procesos o servidores</b> sin cambiar el código</li>
+    <li style="font-size:20px"><b>PostgreSQL 16</b> con pool de conexiones y TLS: la misma base sirve a varias instancias</li>
+    <li style="font-size:20px">La IA local se escala por separado: un servidor de modelos para varias instituciones</li>
+  </ul>
+  <div class="pie"><span>Agente Evaluador · Medición del 27-11-2026 en la PC de pruebas (modo heurístico; API con 10 y 50 usuarios durante 8 s)</span><b>14</b></div>
+</section>
+<aside class="notas"><b>Notas (40 s).</b> Aclarar que las cifras son de esta PC sin GPU; con IA local en vivo el tiempo por propuesta sube y se compensa escalando el servidor de modelos.</aside>
+
+<!-- ============ 15. INNOVACIÓN ============ -->
+<section class="diapo">
+  <div class="seccion">Innovación</div>
+  <h1>Un evaluador que no se deja engañar</h1>
+  <div class="rejilla" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="tarjeta"><h3>Inmune a instrucciones ocultas</h3><p>Detecta texto dirigido a la IA dentro de una propuesta y lo convierte en motivo de descarte, no en una orden.</p></div>
+    <div class="tarjeta"><h3>Lee lo que llega de verdad</h3><p>Fotos de manuscritos y capturas de chat, no solo PDF limpios, con un único modelo multimodal local.</p></div>
+    <div class="tarjeta"><h3>Memoria de proveedores</h3><p>Las alertas de una licitación se convierten en antecedentes para las siguientes, sin castigar al proveedor dos veces por lo mismo.</p></div>
+    <div class="tarjeta"><h3>Razonamiento con herramientas</h3><p>El agente no inventa cifras: llama a herramientas de cálculo, tasa BCV y precios de mercado, y deja la traza.</p></div>
+    <div class="tarjeta"><h3>Mismo agente, dos usos</h3><p>Interfaz para el comité y modo lote sin interfaz que produce <span class="mono">salida.json</span> para auditorías masivas.</p></div>
+    <div class="tarjeta"><h3>Pregúntale al expediente</h3><p>Chat en lenguaje natural sobre los documentos y el dictamen de cada proyecto.</p></div>
+  </div>
+  <div class="pie"><span>Agente Evaluador · Fuentes: backend/app/services/agent, ingestion y market</span><b>15</b></div>
+</section>
+<aside class="notas"><b>Notas (45 s).</b> Mostrar en vivo el descarte de la 131 en el informe o en el chat.</aside>
+
+<!-- ============ 13. CIERRE ============ -->
+<section class="diapo cierre">
+  <div class="seccion" style="color: #FFE27A;">Llamado a la acción</div>
+  <h1>Licitaciones más rápidas, justas y trazables,<br>con la IA en casa</h1>
+  <p style="font-size: 22px; color: #D6E0F7; margin-bottom: 14px;">Se instala con PostgreSQL 16 y Ollama locales, sin claves de terceros:</p>
+  <div class="comando"><span class="p">$</span> alembic upgrade head &amp;&amp; python -m app.run &nbsp;·&nbsp; npm run dev</div>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; margin-top: 18px; font-size: 17px; color: #D6E0F7;">
+    <div><b style="color:#FFE27A">Código fuente (GitLab del evento):</b><br><span style="font-family: monospace; color:#fff">gitlab.nube.gob.ve/grupo/chuao/chuao_grupo4/propuesta_servicios</span></div>
+    <div><b style="color:#FFE27A">En la demostración (servidor local):</b><br><span style="font-family: monospace; color:#fff">http://localhost:5173 · API https://localhost:8000</span></div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 22px;">
+    <div><div class="cifra" style="color: #FFCC00;">10</div><div class="etq" style="color: #D6E0F7;">propuestas evaluadas por lote</div></div>
+    <div><div class="cifra" style="color: #FFCC00;">5</div><div class="etq" style="color: #D6E0F7;">tipos de trampa detectados</div></div>
+    <div><div class="cifra" style="color: #FFCC00;">~15 s</div><div class="etq" style="color: #D6E0F7;">modo lote sin interfaz</div></div>
+    <div><div class="cifra" style="color: #FFCC00;">0</div><div class="etq" style="color: #D6E0F7;">documentos enviados a IA externa</div></div>
+  </div>
+  <div class="pie"><span>Repositorio: gitlab.nube.gob.ve/grupo/chuao/chuao_grupo4/propuesta_servicios · Instalación y guía: README (Pasos 1 a 7)</span><b>16</b></div>
+</section>
+<aside class="notas"><b>Notas (30 s).</b> Cerrar: «el agente propone, el comité decide, y todo queda registrado». Abrir preguntas.</aside>
+
+</body>
+</html>
