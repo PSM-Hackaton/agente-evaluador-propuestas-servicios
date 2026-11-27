@@ -798,7 +798,6 @@ async def test_issue37_no_false_overprice_and_retech_alert_priority(
 
     market_search._SEARCH_CACHE.clear()
     monkeypatch.setattr(market_search, "_search_ddgs", _mock_loose_parts)
-    monkeypatch.setattr(market_search.get_settings(), "tavily_api_key", "")
     ws_res = await market_search.search_market_price(teacher_target["description"], 1590.0, enable_web=True)
     assert ws_res["is_abusive_overprice"] is False
     assert ws_res["reference_source_type"] == "baseline_fallback_only"
@@ -972,3 +971,89 @@ def test_issue52_cpu_regex_ignores_bare_prices_and_codes() -> None:
     assert _score_cpu("Core i#-14700F 32GB DDR5") == 4.0
     assert _score_cpu("Intel Core i5-14400F") == 3.0
     assert _score_cpu("AMD Ryzen 5 7600 (6C/12T)") == 2.0
+
+
+@pytest.mark.asyncio
+async def test_market_api_endpoints_without_third_party_keys(
+    app_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the self-contained /api/v1/market endpoints work without Tavily or external API keys."""
+    from app.services.market import search as market_search
+
+    market_search._SEARCH_CACHE.clear()
+    assert not hasattr(market_search.get_settings(), "tavily_api_key")
+
+    async def _fake_ddgs(query: str) -> list[dict]:
+        return [
+            {
+                "title": "Shop A — RTX 4060 Desktop PC",
+                "url": "https://shop-a.example.com/rtx4060",
+                "snippet": "Now $1,250.00 USD",
+                "extracted_price_usd": 1250.0,
+                "retrieved_at": "2026-11-27T15:00:00+00:00",
+            },
+            {
+                "title": "Shop B — RTX 4060 Workstation",
+                "url": "https://shop-b.example.com/rtx4060",
+                "snippet": "USD 1,350.00 in stock",
+                "extracted_price_usd": 1350.0,
+                "retrieved_at": "2026-11-27T15:00:00+00:00",
+            },
+        ]
+
+    monkeypatch.setattr(market_search, "_search_ddgs", _fake_ddgs)
+
+    cargador = await _login(app_client, "cargador@evaluador.ve", "Cargador2026!")
+    aprobador = await _login(app_client, "aprobador@evaluador.ve", "Aprobador2026!")
+
+    # Single benchmark endpoint
+    resp = await app_client.post(
+        "/api/v1/market/benchmark",
+        json={
+            "item_description": "AMD Ryzen 5 7600 RTX 4060 8GB 16GB DDR5",
+            "proposed_unit_price_usd": 1320.0,
+            "enable_web": True,
+        },
+        headers=cargador,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "autonomous_web_search"
+    assert body["reference_source_type"] == "web_market_sources"
+    assert body["market_reference_mid_usd"] == 1300.0
+    assert len(body["sources"]) == 2
+    assert body["is_abusive_overprice"] is False
+
+    # Batch benchmark endpoint
+    batch_resp = await app_client.post(
+        "/api/v1/market/benchmark/batch",
+        json={
+            "items": [
+                {"item_description": "AMD Ryzen 5 7600 RTX 4060 8GB", "proposed_unit_price_usd": 1300.0},
+                {"item_description": "AMD Ryzen 5 7600 RTX 4060 8GB", "proposed_unit_price_usd": 2900.0},
+            ],
+            "enable_web": True,
+        },
+        headers=cargador,
+    )
+    assert batch_resp.status_code == 200
+    batch_data = batch_resp.json()
+    assert batch_data["total_items"] == 2
+    assert batch_data["abusive_overprice_count"] == 1
+
+    # Reference catalog endpoint
+    cat_resp = await app_client.get("/api/v1/market/reference-catalog", headers=cargador)
+    assert cat_resp.status_code == 200
+    cat_data = cat_resp.json()
+    assert cat_data["requires_external_api_key"] is False
+    assert cat_data["cached_queries"] >= 1
+    assert len(cat_data["fallback_catalog"]) >= 5
+
+    # Cache clear requires approval role (RBAC)
+    denied = await app_client.delete("/api/v1/market/cache", headers=cargador)
+    assert denied.status_code == 403
+    cleared = await app_client.delete("/api/v1/market/cache", headers=aprobador)
+    assert cleared.status_code == 200
+    assert cleared.json()["cleared_entries"] >= 1
+    market_search._SEARCH_CACHE.clear()

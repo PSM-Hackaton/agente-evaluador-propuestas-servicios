@@ -347,6 +347,58 @@ async def test_r3_b3_web_search_cites_sources_and_discards_85pct_overprice(
     assert len(xlsx_bytes) > 500
 
 
+@pytest.mark.asyncio
+async def test_r3_b3_fallback_query_and_discount_price_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When primary query returns unpriced snippets, fallback hardware query merges priced sources and ignores discounts."""
+    market_search._SEARCH_CACHE.clear()
+    assert market_search._extract_prices_from_text("Save $35 on monitor, now USD 249.99") == [249.99]
+
+    calls: list[str] = []
+
+    async def _fake_ddgs(query: str) -> list[dict[str, Any]]:
+        calls.append(query)
+        if len(calls) == 1:
+            return [
+                {
+                    "title": "Review RTX 4070 Workstation",
+                    "url": "https://review.example.com/4070",
+                    "snippet": "Great performance for 3D rendering",
+                    "extracted_price_usd": None,
+                    "retrieved_at": "2026-11-27T14:55:00+00:00",
+                }
+            ]
+        return [
+            {
+                "title": "Shop 1 — RTX 4070 Desktop PC",
+                "url": "https://shop1.example.com/rtx4070",
+                "snippet": "Now $1,899.00",
+                "extracted_price_usd": 1899.0,
+                "retrieved_at": "2026-11-27T14:55:00+00:00",
+            },
+            {
+                "title": "Shop 2 — RTX 4070 Workstation",
+                "url": "https://shop2.example.com/rtx4070",
+                "snippet": "USD 2,099.00 in stock",
+                "extracted_price_usd": 2099.0,
+                "retrieved_at": "2026-11-27T14:55:00+00:00",
+            },
+        ]
+
+    monkeypatch.setattr(market_search, "_search_ddgs", _fake_ddgs)
+    res = await market_search.search_market_price(
+        "Intel Core i7-13700F RTX 4070 12GB 32GB DDR5",
+        1980.0,
+        enable_web=True,
+    )
+    assert len(calls) == 2
+    assert res["reference_source_type"] == "web_market_sources"
+    assert res["market_reference_mid_usd"] == 1999.0
+    assert res["sources"][0]["extracted_price_usd"] is not None
+    assert res["sources"][1]["extracted_price_usd"] is not None
+
+
 # ---------------------------------------------------------------------------
 # R3-B4 (Issue #12): Full DB Encryption at Rest (Zero Plaintext in PostgreSQL)
 # ---------------------------------------------------------------------------

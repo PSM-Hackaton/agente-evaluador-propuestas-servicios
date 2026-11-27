@@ -80,7 +80,6 @@ class Settings(BaseSettings):
 
     # Web Search & Finance
     web_search_enabled: bool = True
-    tavily_api_key: str = ""
     bcv_fallback_rate: float = 52.50
     default_iva_rate: float = 0.16
     abusive_surcharge_pct_threshold: float = 50.0
