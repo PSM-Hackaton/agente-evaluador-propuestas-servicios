@@ -24,7 +24,7 @@ backend/
 │   │   ├── ingestion/                  # Ingesta multimodal (PDF, Word .docx, Excel .xlsx/.xlsm/.xls, CSV/TSV, Imágenes JPG/PNG/WEBP/TIFF + OCR/Vision, TXT/MD)
 │   │   ├── llm/client.py               # Cliente unificado multimodal (Google Gemini y OpenAI-compatible)
 │   │   ├── finance/                    # Tasa oficial BCV (TLS 1.2+) y motor TCO aritmético con Decimal
-│   │   ├── market/search.py            # Contraste autónomo de precios en internet (Tavily / DuckDuckGo)
+│   │   ├── market/search.py            # Contraste autónomo de precios en internet (búsqueda web libre sin claves externas)
 │   │   ├── agent/
 │   │   │   ├── security_guard.py       # Detección de Prompt Injection y sanitización de datos no confiables
 │   │   │   ├── technical_audit.py      # Auditoría determinista de las 7 causales de descarte (Sección 3.B)
@@ -37,7 +37,7 @@ backend/
 │   │   └── audit/service.py            # Registro inmutable de auditoría
 │   ├── api/
 │   │   ├── deps.py                     # Dependencias JWT y guardias RBAC
-│   │   └── v1/                         # Routers: auth, projects, proposals, evaluations, suppliers, finance, chat, audit, batch
+│   │   └── v1/                         # Routers: auth, projects, proposals, evaluations, suppliers, finance, market, chat, audit, batch
 │   └── cli/
 │       └── batch.py                    # CLI modo lote (`python -m app.cli.batch`)
 ├── scripts/generate_tls_certs.sh       # Generador de certificados TLS locales

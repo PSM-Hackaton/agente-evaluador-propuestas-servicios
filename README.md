@@ -51,7 +51,7 @@ Navegador (React + Vite + TypeScript)
    │  HTTPS (TLS 1.2/1.3 con el proxy de backend/nginx/tls.conf)
    ▼
 API REST + SSE (Python, FastAPI)  ──►  modelo de IA por API (Gemini u OpenAI compatible)
-   │                                ──►  búsqueda web de precios (DuckDuckGo o Tavily)
+   │                                ──►  API propia de contraste web de precios (`/api/v1/market`, sin claves externas)
    │                                ──►  tasa oficial BCV
    ▼
 PostgreSQL (TLS 1.2+ y campos sensibles cifrados) + almacenamiento cifrado con AES-256-GCM
@@ -136,7 +136,7 @@ El estado verificado de cada requisito está en la
 | Servicio | Uso | ¿Obligatorio? |
 | :--- | :--- | :--- |
 | Modelo de IA por API: **Google Gemini** (`gemini-2.5-flash` por defecto) u **OpenAI o compatible** (`gpt-4o-mini` por defecto; también OpenRouter, Groq u Ollama con `OPENAI_BASE_URL`) | Visión de imágenes y escaneos, extracción estructurada, desempate del ranking y chat | Recomendado. Sin clave, modo heurístico. |
-| Búsqueda web: **DuckDuckGo** (paquete `ddgs`, sin clave) o **Tavily** (con `TAVILY_API_KEY`) | Precios de mercado | Sí, con acceso a internet. Se desactiva con `WEB_SEARCH_ENABLED=false`. |
+| Búsqueda web autónoma: API interna `/api/v1/market` (paquete `ddgs`, sin API key de terceros) | Precios de mercado | Sí, con acceso a internet. Se desactiva con `WEB_SEARCH_ENABLED=false`. |
 | Tasa oficial **BCV** (`ve.dolarapi.com` y, como respaldo, `bcv.org.ve`) | Conversión USD/Bs | No: si falla, usa `BCV_FALLBACK_RATE`. |
 
 ### Variables de entorno del backend (`backend/.env`, plantilla `backend/.env.example`)
@@ -154,7 +154,7 @@ El estado verificado de cada requisito está en la
 | `LLM_PROVIDER` | `auto` (elige según la clave disponible o usa el modo heurístico), `gemini`, `openai` o `heuristic`. |
 | `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_VISION_MODEL` | Credencial y modelos de Google Gemini. |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_VISION_MODEL` | Credencial, URL y modelos de OpenAI o de una API compatible. |
-| `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY` | Activa la búsqueda de precios; Tavily es opcional. |
+| `WEB_SEARCH_ENABLED` | Activa la búsqueda autónoma de precios en internet sin claves externas. |
 | `BCV_FALLBACK_RATE`, `DEFAULT_IVA_RATE` | Tasa de respaldo (Bs por USD) e IVA (0,16). |
 | `ABUSIVE_SURCHARGE_PCT_THRESHOLD` | Recargo (flete, envío) sobre el subtotal, en %, a partir del cual se considera abusivo (`50`). |
 | `MAX_UPLOAD_SIZE_MB` | Tamaño máximo por archivo subido (`25`). |
