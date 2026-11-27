@@ -376,11 +376,12 @@ async def evaluate_proposals_core(
     iva_rate: float = 0.16,
     trace_emitter: TraceEmitter | None = None,
     repo_dir: Path | None = None,
+    project_id: str | None = None,
 ) -> EvaluationOutput:
     """Core autonomous evaluation pipeline shared by Web API and Batch CLI (`salida.json`)."""
     inicio_iso = format_iso_local()
     llm = UnifiedLLMClient()
-    toolbox = AgentToolbox(db=db)
+    toolbox = AgentToolbox(db=db, exclude_project_id=project_id)
     trace_events: list[dict[str, Any]] = []
     step_counter = 0
 
@@ -1030,6 +1031,7 @@ async def run_project_evaluation_in_db(
             db=db,
             enable_web_search=enable_web_search,
             bcv_rate_override=bcv_rate_override,
+            project_id=project.id,
             iva_rate=run.iva_rate_used,
             trace_emitter=persist_and_stream_trace,
         )
