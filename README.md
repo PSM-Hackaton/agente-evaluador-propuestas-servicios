@@ -327,13 +327,23 @@ El flujo de ramas, revisiones y Merge Request del equipo está en
 - **Frontend (`frontend/src/`):** contratos/puertos en `api/types.ts`, adaptadores de salida en `api/http.ts` y `api/mock/index.ts`, reglas de dominio en `lib/roles.ts` y `lib/files.ts`, y adaptadores de entrada (UI) en `pages/` y `components/`.
 - **Backend (`backend/app/`):** rutas HTTP/SSE en `api/v1/`, lógica de auditoría/finanzas/ingesta en `services/`, modelos cifrados en `db/models.py` y esquemas en `schemas/`.
 
-### Tablero de Issues (Coordinación Frontend / Backend)
+### Tablero de Issues y avance verificado — Día 2 (27-11-2026)
 
 | Issue # | Descripción | Área | Responsable | Estado |
 | :--- | :--- | :--- | :--- | :--- |
-| `#57` | Paleta oscura neutra, login por usuario/correo y visibilidad de contraseña | Frontend | Javier | Listo para revisión |
-| `#65` / `#68` | Soporte IA 100 % local (`qwen3.5:4b` en Ollama) y documentación | Backend | Enggel | Listo para revisión |
-| `#70` / `#71` | Registro público (`/auth/signup`) y códigos de invitación | Full-Stack | Enggel / Javier | Listo para revisión |
-| `Chat-1` | Evaluación directa en 1 clic (IVA/BCV en Opciones) y chat ampliado | Full-Stack | Javier | Listo para revisión |
-| `Chat-2` | Adjuntar documentos del proyecto (`document_ids`) y render de citas en el chat | Frontend | Javier | En pruebas |
-| `Chat-3` | Endpoint `POST /projects/{id}/chat` con `document_ids`, `wrap_untrusted_document()` y blindaje estricto `localhost` para Ollama | Backend | Enggel | Pendiente |
+| `#45` | `R3-D1 · [ALTO]` Validación estricta de origen y rutas en `frontend/src/api/http.ts` (`parseApiBase` / `buildApiUrl`) | Frontend | Javier | Listo para revisión |
+| `#48` | `R3-D4 · [MEDIO ×4]` Eliminación de `Math.random` y comparación en tiempo constante (`constantTimeEqual`) en mocks | Frontend | Javier | Listo para revisión |
+| `#57` | Paleta oscura neutra, login por usuario/correo y visibilidad de contraseña | Frontend | Javier | Integrado en `staging` (`#72`) |
+| `#65` / `#68` | Soporte IA 100 % local (`qwen3.5:4b` en Ollama) y documentación | Backend | Enggel | Integrado en `staging` |
+| `#70` / `#71` | Registro público (`/auth/signup`) y códigos de invitación (`/auth/invitations`) | Full-Stack | Enggel / Javier | Integrado en `staging` (`#72`) |
+| `#74` | Lote oficial (datos 17:05), `salida.json` y ajustes del agente | Backend | Diego / Enggel | Integrado en `staging` |
+| `#75` | `[Cierre Día 2 · Frontend]` Sincronización con `staging`, E2E en navegador real (`VITE_USE_MOCK=false`), exportes y calidad | Frontend | Javier | Listo para revisión |
+| `Chat-1` | Evaluación directa en 1 clic (IVA/BCV en «Opciones») y chat ampliado con historial y contexto enriquecido | Full-Stack | Javier | Integrado en `staging` (`#72`) |
+| `Chat-2` | Adjuntar documentos del proyecto (`document_ids`, botón 📎) y renderizado de citas en `ProjectChat` | Frontend | Javier | Listo para revisión |
+| `#76` / `Chat-3` | Validación final lote oficial + Ollama `qwen3.5:4b`, `document_ids` en `POST /projects/{id}/chat`, `wrap_untrusted_document()` y blindaje `localhost` | Backend | Enggel | Pendiente |
+| `#77` | Ensayo cronometrado de presentación (13 diapositivas), demo en vivo y paso a `terminado` | Equipo | Javier / Enggel | Pendiente |
+
+### Resumen de verificación del Día 2 (Frontend — Issue `#75`)
+- **Rama sincronizada:** `javier` rebaseada limpiamente sobre `origin/staging` (`b57fa82`, incluye `#72` y `#74`).
+- **Calidad y seguridad:** `npm run lint` (PASS), `npm run typecheck` (PASS), `npm test` (42/42 PASS), `npm run build` (PASS) y `npm audit --audit-level=low` (**0 vulnerabilidades**).
+- **Prueba E2E en navegador real (`http://localhost:5173` contra backend real en `:8000`):** login por acceso rápido, cabecera con tasa BCV y cambio de tema Claro/Oscuro, evaluación directa + botón «Opciones», informe con propuesta recomendada y descarga verificada de CSV y `salida.json`, y consulta en el chat adjuntando documento con respuesta HTTP 200 y citas (0 errores de consola y 0 errores HTTP ≥ 400).
