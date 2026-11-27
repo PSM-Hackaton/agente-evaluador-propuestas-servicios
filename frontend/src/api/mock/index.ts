@@ -6,6 +6,7 @@ import type {
   Api,
   EstadoProyecto,
   Evaluacion,
+  Invitacion,
   MensajeChat,
   PasoAgente,
   Propuesta,
@@ -28,6 +29,21 @@ const persist = () => guardarDB(db);
 const delay = (ms = 160) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+const mockInvitations: Invitacion[] = [
+  {
+    id: 'inv-demo-1',
+    codigo: 'INV-DEMO-2026',
+    codigo_prefijo: 'INV-DEMO',
+    rol: 'revisor',
+    email: null,
+    usos_maximos: 10,
+    usos_actuales: 0,
+    expira_en: new Date(Date.now() + 72 * 3600_000).toISOString(),
+    revocada: false,
+    creado_en: new Date().toISOString(),
+  },
+];
 
 const textEncoder = new TextEncoder();
 
@@ -317,6 +333,49 @@ export const mockApi: Api = {
       registrar(user.nombre, 'auth.login', 'usuario', user.id);
       persist();
       return { token: `mock-${user.id}`, refreshToken: `mock-rt-${user.id}`, user: clone(user) };
+    },
+    async validateInvitation(code) {
+      await delay(150);
+      const clean = code.trim().toUpperCase();
+      const inv = mockInvitations.find((i) => i.codigo?.toUpperCase() === clean);
+      if (!inv || inv.revocada) throw new ApiError(404, 'Código de invitación inválido o revocado.');
+      if (new Date(inv.expira_en).getTime() < Date.now() || inv.usos_actuales >= inv.usos_maximos) {
+        throw new ApiError(410, 'El código de invitación expiró o alcanzó su límite de usos.');
+      }
+      return { valida: true, rol: inv.rol, email_bloqueado: inv.email, expira_en: inv.expira_en };
+    },
+    async signup(data) {
+      await delay(250);
+      const email = data.email.trim().toLowerCase();
+      if (db.usuarios.some((u) => u.email.toLowerCase() === email)) {
+        throw new ApiError(409, 'El correo ya está registrado.');
+      }
+      let rol: Usuario['rol'] = 'cargador';
+      if (data.codigo_invitacion?.trim()) {
+        const clean = data.codigo_invitacion.trim().toUpperCase();
+        const inv = mockInvitations.find((i) => i.codigo?.toUpperCase() === clean);
+        if (!inv || inv.revocada) throw new ApiError(404, 'Código de invitación inválido o revocado.');
+        if (new Date(inv.expira_en).getTime() < Date.now() || inv.usos_actuales >= inv.usos_maximos) {
+          throw new ApiError(410, 'El código de invitación expiró o alcanzó su límite de usos.');
+        }
+        if (inv.email && inv.email.toLowerCase() !== email) {
+          throw new ApiError(400, `Este código está reservado para ${inv.email}.`);
+        }
+        inv.usos_actuales += 1;
+        rol = inv.rol;
+      }
+      const nuevo: Usuario = {
+        id: uid(),
+        nombre: data.nombre.trim(),
+        email,
+        rol,
+        activo: true,
+        creado_en: now(),
+      };
+      db.usuarios.push(nuevo);
+      registrar(nuevo.nombre, 'auth.signup', 'usuario', nuevo.id, { rol, con_invitacion: Boolean(data.codigo_invitacion) });
+      persist();
+      return { token: `mock-${nuevo.id}`, refreshToken: `mock-rt-${nuevo.id}`, user: clone(nuevo) };
     },
     async refresh(refreshToken) {
       await delay(80);
@@ -795,6 +854,41 @@ export const mockApi: Api = {
       registrar(u.nombre, 'usuario.actualizar', 'usuario', id, data as Record<string, unknown>);
       persist();
       return clone(target);
+    },
+    async listInvitations() {
+      await delay(100);
+      exigir('usuarios.admin');
+      return clone(mockInvitations);
+    },
+    async createInvitation(data) {
+      await delay(150);
+      const u = exigir('usuarios.admin');
+      const code = `INV-${Math.floor(1000 + secureRandomFraction() * 9000)}-${uid().slice(-4).toUpperCase()}`;
+      const inv: Invitacion = {
+        id: uid(),
+        codigo: code,
+        codigo_prefijo: code.slice(0, 8),
+        rol: data.rol,
+        email: data.email?.trim() || null,
+        usos_maximos: data.usos_maximos ?? 1,
+        usos_actuales: 0,
+        expira_en: new Date(Date.now() + (data.horas_vigencia ?? 72) * 3600_000).toISOString(),
+        revocada: false,
+        creado_en: now(),
+      };
+      mockInvitations.unshift(inv);
+      registrar(u.nombre, 'invitation.create', 'invitacion', inv.id, { rol: inv.rol, usos_maximos: inv.usos_maximos });
+      persist();
+      return clone(inv);
+    },
+    async revokeInvitation(id) {
+      await delay(100);
+      const u = exigir('usuarios.admin');
+      const inv = mockInvitations.find((x) => x.id === id);
+      if (!inv) throw new ApiError(404, 'Invitación no encontrada');
+      inv.revocada = true;
+      registrar(u.nombre, 'invitation.revoke', 'invitacion', id);
+      persist();
     },
   },
 
