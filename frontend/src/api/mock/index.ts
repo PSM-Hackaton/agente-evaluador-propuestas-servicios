@@ -382,6 +382,15 @@ export const mockApi: Api = {
       persist();
       return aProyecto(row);
     },
+    async uploadDocument(id, archivo) {
+      await delay(200);
+      const u = exigir('proyecto.crear');
+      const row = proyectoRow(id);
+      row.archivo_proyecto = archivo.name;
+      registrar(u.nombre, 'proyecto.documento', 'proyecto', row.id, { archivo: archivo.name });
+      persist();
+      return aProyecto(row);
+    },
     async changeState(id, estado, nota, propuestaAdjudicadaId) {
       await delay();
       const u = usuarioActual();

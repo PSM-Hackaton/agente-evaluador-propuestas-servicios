@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Play,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import {
   api,
@@ -47,6 +48,7 @@ import {
 } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
+import { ACCEPT_DOCUMENTO_PROYECTO } from '../lib/files';
 import { date, datetime, duration, money, number } from '../lib/format';
 import {
   CONCEPTO_LABEL,
@@ -215,6 +217,19 @@ export function ProjectDetailPage() {
     onError: (e) => setActionError(e instanceof Error ? e.message : 'Error al subir propuestas'),
   });
 
+  const docMut = useMutation({
+    mutationFn: (archivo: File) => api.projects.uploadDocument(id, archivo),
+    onSuccess: async () => {
+      setActionError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['project', id] }),
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['audit'] }),
+      ]);
+    },
+    onError: (e) => setActionError(e instanceof Error ? e.message : 'Error al subir el documento del proyecto'),
+  });
+
   const deleteMut = useMutation({
     mutationFn: (proposalId: string) => api.proposals.remove(proposalId),
     onSuccess: async () => {
@@ -337,6 +352,10 @@ export function ProjectDetailPage() {
       </div>
     ) : null;
 
+  const puedeSubirDocumento =
+    can(user?.rol, 'proyecto.crear') &&
+    (proyecto.estado === 'EN_RECEPCION' || proyecto.estado === 'EN_EVALUACION');
+
   const puedeSubir =
     can(user?.rol, 'propuesta.cargar') &&
     (proyecto.estado === 'EN_RECEPCION' || proyecto.estado === 'EN_EVALUACION');
@@ -449,6 +468,33 @@ export function ProjectDetailPage() {
                     {proyecto.archivo_proyecto}
                   </span>
                 ))}
+              {puedeSubirDocumento && (
+                <label
+                  className={cn(
+                    'inline-flex cursor-pointer items-center gap-1.5 text-indigo-600 hover:underline',
+                    docMut.isPending && 'pointer-events-none opacity-60',
+                  )}
+                  title="Subir o reemplazar el documento de requerimientos del proyecto (PDF, DOCX, TXT o MD)"
+                >
+                  <Upload className="h-4 w-4" />
+                  {docMut.isPending
+                    ? 'Subiendo documento…'
+                    : proyecto.archivo_proyecto
+                      ? 'Reemplazar documento'
+                      : 'Subir documento del proyecto'}
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept={ACCEPT_DOCUMENTO_PROYECTO}
+                    aria-label="Documento del proyecto"
+                    onChange={(e) => {
+                      const archivo = e.target.files?.[0];
+                      e.target.value = '';
+                      if (archivo) docMut.mutate(archivo);
+                    }}
+                  />
+                </label>
+              )}
               <span>
                 Presupuesto ref.:{' '}
                 <strong className="text-slate-700">
