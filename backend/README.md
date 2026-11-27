@@ -1,6 +1,6 @@
 # Backend — Agente Evaluador de Propuestas de Servicios
 
-Backend completo en **Python + FastAPI + SQLAlchemy (async)** diseñado para cumplir el 100% de las especificaciones técnicas, funcionales y de ciberseguridad del **Reto Grupal — Hackatón Venezuela INNOVA 2026**.
+Backend completo en **Python + FastAPI + SQLAlchemy (async) + PostgreSQL** diseñado para cumplir el 100% de las especificaciones técnicas, funcionales y de ciberseguridad del **Reto Grupal — Hackatón Venezuela INNOVA 2026**.
 
 ## Arquitectura del Proyecto
 
@@ -48,6 +48,7 @@ backend/
 ## Prerrequisitos del Sistema y Dependencias
 
 - **Python** `>= 3.11` (`python3 --version`)
+- **PostgreSQL 16** (local, contenedor `podman`/`docker` o Supabase/PostgreSQL gestionado con TLS 1.2+)
 - **Tesseract OCR** con paquete de idioma español/inglés para OCR local en memoria (sin crear archivos temporales en disco):
   ```bash
   sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng openssl
@@ -57,19 +58,28 @@ backend/
 ## Instalación, Migraciones y Configuración
 
 ```bash
+# 1. Levantar PostgreSQL 16 local (si no usas una instancia gestionada)
+podman run -d --name evaluador-postgres \
+  -e POSTGRES_USER=postgres -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_DB=evaluador_propuestas \
+  -p 127.0.0.1:5432:5432 docker.io/library/postgres:16-alpine
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_test;"
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_alembic_test;"
+
+# 2. Configurar variables y entorno Python
 cd backend
 cp .env.example .env
-# Configurar GEMINI_API_KEY o OPENAI_API_KEY, MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y MAX_UPLOAD_SIZE_MB en .env
+# Configurar DATABASE_URL, DB_SSL_MODE, GEMINI_API_KEY o OPENAI_API_KEY, MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY en .env
 
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Aplicar esquema inicial (SQLite por defecto o PostgreSQL/Supabase según DATABASE_URL)
+# 3. Aplicar esquema inicial en PostgreSQL (nunca se usan tablas manuales ni SQLite)
 alembic upgrade head
 ```
 
-> **TLS 1.2 / TLS 1.3 en Tránsito:** `app/run.py` construye explícitamente un `ssl.SSLContext` con `minimum_version = TLSv1_2`, rechazando TLS 1.0/1.1. En Nginx (`nginx/tls.conf`), se habilita `proxy_ssl_verify on` hacia el certificado del backend.
+> **TLS 1.2 / TLS 1.3 en Tránsito:** `app/run.py` construye explícitamente un `ssl.SSLContext` con `minimum_version = TLSv1_2`, rechazando TLS 1.0/1.1. En Nginx (`nginx/tls.conf`), se habilita `proxy_ssl_verify on` hacia el certificado del backend. Para conexiones hacia PostgreSQL remoto, configura `DB_SSL_MODE=require` o `verify-full` (o `?sslmode=require` en `DATABASE_URL`): `app/db/base.py` construye automáticamente un `SSLContext` con TLS 1.2 mínimo.
 >
 > **Regla de Carga Masiva:** Cada proyecto admite **entre 3 y 20 propuestas** (`422 Unprocessable Content` fuera de rango) con límite individual configurable vía `MAX_UPLOAD_SIZE_MB` (25 MB por defecto).
 >
@@ -123,6 +133,8 @@ python -m app.cli.batch --lote ../docs/reto --output ../salida.json --verbose
 - **Modo Lote**: `POST /batch/run`, `POST /batch/validate-salida`
 
 ## Pruebas Automatizadas
+
+Requiere PostgreSQL 16 activo (por defecto usa `evaluador_test` y `evaluador_alembic_test`, configurables vía `TEST_DATABASE_URL` y `TEST_ALEMBIC_DATABASE_URL`):
 
 ```bash
 source .venv/bin/activate

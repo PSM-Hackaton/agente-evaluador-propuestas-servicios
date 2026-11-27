@@ -54,7 +54,7 @@ API REST + SSE (Python, FastAPI)  ──►  modelo de IA por API (Gemini u Open
    │                                ──►  búsqueda web de precios (DuckDuckGo o Tavily)
    │                                ──►  tasa oficial BCV
    ▼
-SQLite (campos sensibles cifrados) + almacenamiento de documentos cifrado con AES-256-GCM
+PostgreSQL (TLS 1.2+ y campos sensibles cifrados) + almacenamiento cifrado con AES-256-GCM
 ```
 
 **Estructura del repositorio**
@@ -114,8 +114,8 @@ El estado verificado de cada requisito está en la
 - La búsqueda de precios lee los títulos y fragmentos de los resultados (no navega por las páginas) y se apoya
   en un catálogo de referencia cuando no encuentra precios.
 - **TLS**: el servidor de desarrollo del frontend usa HTTP y el backend tiene TLS desactivado por defecto; el
-  cifrado en tránsito de extremo a extremo requiere el proxy `backend/nginx/tls.conf` o `TLS_ENABLED=true`.
-- La base SQLite como archivo no está cifrada: solo lo están sus campos sensibles.
+  cifrado en tránsito de extremo a extremo requiere el proxy `backend/nginx/tls.conf` o `TLS_ENABLED=true`, y `DB_SSL_MODE=require`/`verify-full` hacia PostgreSQL remoto.
+- Los campos sensibles se cifran por columna en PostgreSQL con AES-256-GCM (`enc:v1:...`), dejando únicamente índices ciegos HMAC-SHA256 para búsquedas exactas.
 - Los usuarios de demostración se crean con contraseñas conocidas (ver `backend/README.md`); deben cambiarse
   fuera de una demostración.
 
@@ -125,7 +125,8 @@ El estado verificado de cada requisito está en la
 
 | Componente | Requisito |
 | :--- | :--- |
-| Backend | **Python 3.11 o superior** (`requires-python = ">=3.11"` en `backend/pyproject.toml`). Dependencias: FastAPI, Uvicorn, SQLAlchemy 2 asíncrono con aiosqlite, Pydantic 2, cryptography, PyJWT, httpx, PyMuPDF, pypdf, openpyxl, xlrd, Pillow, pytesseract, ReportLab, ddgs, google-genai, openai, sse-starlette. Desarrollo: pytest, pytest-asyncio, ruff. |
+| Backend | **Python 3.11 o superior** (`requires-python = ">=3.11"` en `backend/pyproject.toml`). Dependencias: FastAPI, Uvicorn, SQLAlchemy 2 asíncrono con `asyncpg`, Alembic, Pydantic 2, cryptography, PyJWT, httpx, PyMuPDF, pypdf, openpyxl, xlrd, Pillow, pytesseract, ReportLab, ddgs, google-genai, openai, sse-starlette, defusedxml. Desarrollo: pytest, pytest-asyncio, ruff. |
+| Base de datos | **PostgreSQL 16** (local, contenedor o gestionado con TLS 1.2+). |
 | OCR local | Programa **Tesseract** con el idioma español (`tesseract-ocr` y `tesseract-ocr-spa` en Debian/Ubuntu). Sin él, las imágenes solo se leen con la visión del modelo de IA. |
 | Frontend | **Node.js 20.19+ o 22.12+** y npm (requisito de Vite 7; el proyecto aún no fija la versión con `engines`). Dependencias: React 18, React Router 7, TanStack Query 5, Vite 7, TypeScript 5, TailwindCSS 3. |
 | Herramientas | git (el modo lote obtiene el commit con `git rev-parse HEAD`); `uv` o `pip` para instalar el backend; `openssl` para generar certificados TLS locales. |
@@ -145,7 +146,7 @@ El estado verificado de cada requisito está en la
 | `APP_NAME`, `APP_ENV`, `DEBUG` | Nombre, entorno (`development`) y modo de depuración (recarga automática). |
 | `HOST`, `PORT` | Dirección y puerto del servidor (`0.0.0.0:8000`). |
 | `CORS_ORIGINS` | Orígenes del frontend permitidos, separados por comas. |
-| `DATABASE_URL` | Base de datos (`sqlite+aiosqlite:///./data/evaluador.db`; admite PostgreSQL). |
+| `DATABASE_URL`, `DB_SSL_MODE` | Cadena de conexión PostgreSQL (`postgresql+asyncpg://...`) y modo TLS 1.2+ (`prefer`, `require`, `verify-full`). |
 | `STORAGE_DIR` | Carpeta de documentos cifrados (`./data/storage`). |
 | `MASTER_ENCRYPTION_KEY` | Clave AES-256 (32 bytes en base64 URL-safe). **Obligatorio cambiarla.** |
 | `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Firma y duración de las sesiones. **Cambiar el secreto.** |
@@ -198,10 +199,13 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 # Alternativa sin uv: python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 
+# Aplicar migraciones Alembic en PostgreSQL
+alembic upgrade head
+
 # Servidor de desarrollo: http://localhost:8000 (documentación de la API en /docs)
 python -m app.run
 
-# Pruebas automatizadas
+# Pruebas automatizadas (requiere PostgreSQL activo; usa TEST_DATABASE_URL o evaluador_test local)
 pytest -v
 ```
 
