@@ -11,7 +11,7 @@ Se conserva React 18, TypeScript, Vite y Tailwind CSS, que ya forman parte del p
 - **Institucional:** franja tricolor de 5 px y cintillo con bandera `27 × 18 px`, nombre de la República y del servicio.
 - **Acento:** azul bandera `#00247D`; azul de acción `#1A3A8F`; hover `#0B2A6F`; amarillo `#FFCC00` reservado para indicadores sobre navegación azul.
 - **Claro:** lienzo `#F2F4F8`, superficies `#FFFFFF` / `#F7F8FB`, texto `#141B2D`, bordes `#DCE1EA`.
-- **Oscuro:** lienzo `#0C1120`, superficies `#141A2B` / `#182033`, texto `#E8EBF3`, bordes `#283249`.
+- **Oscuro:** lienzo `#09090B`, superficies `#121215` / `#18181C`, texto `#F4F4F6`, bordes `#26262B`.
 - **Estados:** éxito `#12704F`, aviso `#8A5300`, peligro `#B42318` e información `#2C5A78`, cada uno acompañado por fondo y borde semánticos.
 - **Tipografía:** `system-ui` y pila mono local. Los valores numéricos usan cifras tabulares.
 - **Geometría:** radio compacto `6 px`, tarjetas `10 px`, modales `14 px`, sidebar `248 px`, topbar `60 px` y controles táctiles de `48 px` en móvil.
