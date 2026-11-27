@@ -31,7 +31,7 @@ async def test_r3_b1_llm_tool_calling_loop_executes_tools_and_traces(monkeypatch
     """Verify the LLM invokes verify_arithmetic and web_search_market_prices via run_agent_tool_loop."""
 
     class _ToolCallingLLM:
-        provider = "gemini_tool_simulado"
+        provider = "local_tool_simulado"
         is_available = True
 
         async def extract_from_image(self, *_: Any, **__: Any) -> str | None:
@@ -519,17 +519,16 @@ def test_local_llm_provider_resolution_without_cloud_keys() -> None:
         openai_api_key="local",
         openai_model="qwen2.5:3b",
         openai_vision_model="qwen2.5vl:3b",
-        gemini_api_key="",
     )
     assert s_local.resolved_llm_provider() == "openai"
     assert s_local.is_local_llm is True
     assert s_local.llm_timeout_seconds >= 60.0
+    assert not hasattr(s_local, "gemini_api_key")
 
     s_heur = Settings(
         llm_provider="auto",
         openai_base_url="",
         openai_api_key="",
-        gemini_api_key="",
     )
     assert s_heur.resolved_llm_provider() == "heuristic"
     assert s_heur.is_local_llm is False

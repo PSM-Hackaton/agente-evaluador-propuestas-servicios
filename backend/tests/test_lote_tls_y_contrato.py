@@ -209,8 +209,8 @@ def test_issue21_issue29_cli_batch_on_docs_reto_matches_expected_table(tmp_path:
     env = {
         **os.environ,
         "LLM_PROVIDER": "heuristic",
-        "GEMINI_API_KEY": "",
         "OPENAI_API_KEY": "",
+        "OPENAI_BASE_URL": "",
     }
     proc = subprocess.run(
         [
@@ -499,7 +499,7 @@ async def test_issue28_chat_screenshots_long_scanned_pdf_and_deskew(monkeypatch:
     prompts_seen: list[str] = []
 
     class _MockVision:
-        provider = "gemini_mock"
+        provider = "local_llm_mock"
         is_available = True
 
         async def extract_from_image(self, image_b64: str, mime_type: str, prompt: str) -> str:

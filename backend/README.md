@@ -22,7 +22,7 @@ backend/
 │   ├── services/
 │   │   ├── storage/encrypted_storage.py # Almacenamiento en disco cifrado con AES-256-GCM y borrado seguro
 │   │   ├── ingestion/                  # Ingesta multimodal (PDF, Word .docx, Excel .xlsx/.xlsm/.xls, CSV/TSV, Imágenes JPG/PNG/WEBP/TIFF + OCR/Vision, TXT/MD)
-│   │   ├── llm/client.py               # Cliente unificado multimodal (Google Gemini y OpenAI-compatible)
+│   │   ├── llm/client.py               # Cliente unificado multimodal para IA local (API compatible OpenAI / Ollama)
 │   │   ├── finance/                    # Tasa oficial BCV (TLS 1.2+) y motor TCO aritmético con Decimal
 │   │   ├── market/search.py            # Contraste autónomo de precios en internet (búsqueda web libre sin claves externas)
 │   │   ├── agent/

@@ -68,11 +68,8 @@ class Settings(BaseSettings):
     tls_key_file: str = "./certs/server.key"
 
     # LLM Configuration (local OpenAI-compatible API recommended: Ollama / llama.cpp)
-    llm_provider: Literal["auto", "gemini", "openai", "heuristic"] = "auto"
+    llm_provider: Literal["auto", "openai", "heuristic"] = "auto"
     llm_timeout_seconds: float = 120.0
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_vision_model: str = "gemini-2.5-flash"
 
     openai_api_key: str = ""
     openai_base_url: str = ""
@@ -133,16 +130,12 @@ class Settings(BaseSettings):
                 weak.append(name)
         return weak
 
-    def resolved_llm_provider(self) -> Literal["gemini", "openai", "heuristic"]:
-        if self.llm_provider == "gemini" and self.gemini_api_key:
-            return "gemini"
+    def resolved_llm_provider(self) -> Literal["openai", "heuristic"]:
         if self.llm_provider == "openai" and (self.openai_api_key or self.openai_base_url):
             return "openai"
         if self.llm_provider == "heuristic":
             return "heuristic"
         # Auto detection
-        if self.gemini_api_key:
-            return "gemini"
         if self.openai_api_key or self.openai_base_url:
             return "openai"
         return "heuristic"

@@ -87,16 +87,8 @@ def create_app() -> FastAPI:
             "database_connected": db_ok,
             "llm_provider": resolved,
             "llm_mode": "local_api" if settings.is_local_llm else resolved,
-            "llm_model": (
-                settings.openai_model
-                if resolved == "openai"
-                else (settings.gemini_model if resolved == "gemini" else "heuristic")
-            ),
-            "llm_vision_model": (
-                settings.openai_vision_model
-                if resolved == "openai"
-                else (settings.gemini_vision_model if resolved == "gemini" else "tesseract_ocr")
-            ),
+            "llm_model": settings.openai_model if resolved == "openai" else "heuristic",
+            "llm_vision_model": settings.openai_vision_model if resolved == "openai" else "tesseract_ocr",
             "encryption_at_rest": "AES-256-GCM",
             "tls_enabled": settings.tls_enabled,
         }

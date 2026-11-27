@@ -118,7 +118,7 @@ El estado verificado de cada requisito está en la
 
 | Componente | Requisito |
 | :--- | :--- |
-| Backend | **Python 3.11 o superior** (`requires-python = ">=3.11"` en `backend/pyproject.toml`). Dependencias: FastAPI, Uvicorn, SQLAlchemy 2 asíncrono con `asyncpg`, Alembic, Pydantic 2, cryptography, PyJWT, httpx, PyMuPDF, pypdf, openpyxl, xlrd, Pillow, pytesseract, ReportLab, ddgs, google-genai, openai, sse-starlette, defusedxml. Desarrollo: pytest, pytest-asyncio, ruff. |
+| Backend | **Python 3.11 o superior** (`requires-python = ">=3.11"` en `backend/pyproject.toml`). Dependencias: FastAPI, Uvicorn, SQLAlchemy 2 asíncrono con `asyncpg`, Alembic, Pydantic 2, cryptography, PyJWT, httpx, PyMuPDF, pypdf, openpyxl, xlrd, Pillow, pytesseract, ReportLab, ddgs, openai (cliente local para Ollama/llama.cpp), sse-starlette, defusedxml. Desarrollo: pytest, pytest-asyncio, ruff. |
 | Base de datos | **PostgreSQL 16** (local, contenedor o gestionado con TLS 1.2+). |
 | OCR local | Programa **Tesseract** con el idioma español (`tesseract-ocr` y `tesseract-ocr-spa` en Debian/Ubuntu). Sin él, las imágenes solo se leen con la visión del modelo de IA. |
 | Frontend | **Node.js 20.19+ o 22.12+** y npm (requisito de Vite 7; el proyecto aún no fija la versión con `engines`). Dependencias: React 18, React Router 7, TanStack Query 5, Vite 7, TypeScript 5, TailwindCSS 3. |

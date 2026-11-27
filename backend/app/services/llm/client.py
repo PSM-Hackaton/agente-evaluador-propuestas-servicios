@@ -1,8 +1,7 @@
-"""Unified multimodal LLM client (Gemini & OpenAI) with Vision, JSON Mode, and Real Tool Calling."""
+"""Unified multimodal LLM client (OpenAI-compatible local API: Ollama / llama.cpp) with Vision, JSON Mode, and Real Tool Calling."""
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -13,7 +12,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Tool declarations exposed directly to Gemini & OpenAI during the autonomous evaluation loop (Issue #9 R3-B1)
+# Tool declarations exposed directly to the local OpenAI-compatible LLM during the autonomous evaluation loop (Issue #9 R3-B1)
 AGENT_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "verify_arithmetic",
@@ -131,7 +130,7 @@ class UnifiedLLMClient:
 
     @property
     def is_available(self) -> bool:
-        return self.provider in ("gemini", "openai")
+        return self.provider == "openai"
 
     async def extract_from_image(
         self,
@@ -139,15 +138,10 @@ class UnifiedLLMClient:
         mime_type: str,
         prompt: str,
     ) -> str | None:
-        """Use Vision LLM API to transcribe handwritten budgets, noisy scans, or chat screenshots."""
+        """Use local Vision LLM API to transcribe handwritten budgets, noisy scans, or chat screenshots."""
         if not self.is_available:
             return None
-
-        if self.provider == "gemini":
-            return await self._gemini_vision(image_b64, mime_type, prompt)
-        if self.provider == "openai":
-            return await self._openai_vision(image_b64, mime_type, prompt)
-        return None
+        return await self._openai_vision(image_b64, mime_type, prompt)
 
     async def generate_json(
         self,
@@ -160,12 +154,7 @@ class UnifiedLLMClient:
             return None
 
         try:
-            raw: str | None = None
-            if self.provider == "gemini":
-                raw = await self._gemini_generate(system_prompt, user_prompt, images_b64, json_mode=True)
-            elif self.provider == "openai":
-                raw = await self._openai_generate(system_prompt, user_prompt, images_b64, json_mode=True)
-
+            raw = await self._openai_generate(system_prompt, user_prompt, images_b64, json_mode=True)
             if not raw:
                 return None
             return _parse_json_safely(raw)
@@ -182,10 +171,7 @@ class UnifiedLLMClient:
         if not self.is_available:
             return None
         try:
-            if self.provider == "gemini":
-                return await self._gemini_generate(system_prompt, user_prompt, None, json_mode=False)
-            if self.provider == "openai":
-                return await self._openai_generate(system_prompt, user_prompt, None, json_mode=False)
+            return await self._openai_generate(system_prompt, user_prompt, None, json_mode=False)
         except Exception as exc:
             logger.warning("LLM generate_text failed (%s): %s", self.provider, exc)
         return None
@@ -198,83 +184,16 @@ class UnifiedLLMClient:
         images_b64: list[tuple[str, str]] | None = None,
         max_steps: int = 6,
     ) -> AgentLoopResult:
-        """Execute a bounded multi-turn tool-calling loop where the LLM decides which tools to invoke."""
+        """Execute a bounded multi-turn tool-calling loop where the local LLM decides which tools to invoke."""
         result = AgentLoopResult()
         if not self.is_available:
             return result
 
         try:
-            if self.provider == "gemini":
-                return await self._gemini_tool_loop(system_prompt, user_prompt, tool_executor, images_b64, max_steps)
-            if self.provider == "openai":
-                return await self._openai_tool_loop(system_prompt, user_prompt, tool_executor, images_b64, max_steps)
+            return await self._openai_tool_loop(system_prompt, user_prompt, tool_executor, images_b64, max_steps)
         except Exception as exc:
             logger.warning("LLM tool loop fallback (%s): %s", self.provider, exc)
         return result
-
-    async def _gemini_tool_loop(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        tool_executor: ToolExecutor,
-        images_b64: list[tuple[str, str]] | None,
-        max_steps: int,
-    ) -> AgentLoopResult:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.settings.gemini_api_key)
-        declarations = [
-            types.FunctionDeclaration(
-                name=t["name"],
-                description=t["description"],
-                parameters_json_schema=t["parameters"],
-            )
-            for t in AGENT_TOOL_SCHEMAS
-        ]
-        tool_cfg = types.Tool(function_declarations=declarations)
-
-        parts: list[Any] = [types.Part.from_text(text=user_prompt)]
-        for b64, mime in images_b64 or []:
-            parts.append(types.Part.from_bytes(data=base64.b64decode(b64), mime_type=mime))
-
-        contents: list[Any] = [types.Content(role="user", parts=parts)]
-        model_name = self.settings.gemini_vision_model if images_b64 else self.settings.gemini_model
-        out = AgentLoopResult()
-
-        for _ in range(max_steps):
-            out.turns_executed += 1
-            resp = await client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.1,
-                    tools=[tool_cfg],
-                ),
-            )
-            fn_calls = getattr(resp, "function_calls", None) or []
-            if resp.candidates and resp.candidates[0].content:
-                contents.append(resp.candidates[0].content)
-
-            if not fn_calls:
-                if getattr(resp, "text", None):
-                    out.structured_json = _parse_json_safely(resp.text)
-                break
-
-            response_parts: list[Any] = []
-            for call in fn_calls:
-                args = dict(call.args or {})
-                tool_res = await tool_executor(call.name, args)
-                out.tool_calls.append(
-                    AgentToolCallRecord(tool_name=call.name, arguments=args, result=tool_res)
-                )
-                response_parts.append(
-                    types.Part.from_function_response(name=call.name, response=tool_res)
-                )
-            contents.append(types.Content(role="user", parts=response_parts))
-
-        return out
 
     async def _openai_tool_loop(
         self,
@@ -382,45 +301,6 @@ class UnifiedLLMClient:
                     )
 
         return out
-
-    async def _gemini_vision(self, image_b64: str, mime_type: str, prompt: str) -> str | None:
-        return await self._gemini_generate(
-            "Eres un especialista en extracción documental multimodal (OCR + visión) de presupuestos y cotizaciones.",
-            prompt,
-            images_b64=[(image_b64, mime_type)],
-            json_mode=False,
-        )
-
-    async def _gemini_generate(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        images_b64: list[tuple[str, str]] | None,
-        json_mode: bool,
-    ) -> str | None:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.settings.gemini_api_key)
-        parts: list[Any] = [types.Part.from_text(text=user_prompt)]
-        if images_b64:
-            for b64, mime in images_b64:
-                parts.append(types.Part.from_bytes(data=base64.b64decode(b64), mime_type=mime))
-
-        config_kwargs: dict[str, Any] = {
-            "system_instruction": system_prompt,
-            "temperature": 0.1,
-        }
-        if json_mode:
-            config_kwargs["response_mime_type"] = "application/json"
-
-        model_name = self.settings.gemini_vision_model if images_b64 else self.settings.gemini_model
-        response = await client.aio.models.generate_content(
-            model=model_name,
-            contents=[types.Content(role="user", parts=parts)],
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        return response.text
 
     async def _openai_vision(self, image_b64: str, mime_type: str, prompt: str) -> str | None:
         return await self._openai_generate(
