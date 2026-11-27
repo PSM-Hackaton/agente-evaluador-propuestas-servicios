@@ -17,12 +17,9 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function Modal({ open, onClose, title, size = 'md', children, footer }: ModalProps) {
   const titleId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const onCloseRef = useRef(onClose);
 
   useEffect(() => {
@@ -33,31 +30,16 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
   useEffect(() => {
     if (!open) return;
     const previo = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const primero = panel?.querySelector<HTMLElement>(FOCUSABLE);
-    (primero ?? panel)?.focus();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    const primero = dialog.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    (primero ?? dialog).focus();
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== 'Tab' || !panel) return;
-      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('keydown', onKey);
+      if (dialog.open) dialog.close();
       previo?.focus?.();
     };
   }, [open]);
@@ -65,25 +47,20 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="Cerrar ventana"
-        onClick={onClose}
-        className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm"
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className={cn(
-          'relative z-10 flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl focus:outline-none',
-          SIZES[size],
-        )}
-      >
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCloseRef.current();
+      }}
+      className={cn(
+        'm-auto max-h-[90vh] w-[calc(100%-2rem)] overflow-visible border-0 bg-transparent p-0 text-inherit backdrop:bg-slate-900/50 backdrop:backdrop-blur-sm',
+        SIZES[size],
+      )}
+    >
+      <div className="flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl focus:outline-none">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-slate-900">
             {title}
@@ -104,6 +81,6 @@ export function Modal({ open, onClose, title, size = 'md', children, footer }: M
           </div>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }

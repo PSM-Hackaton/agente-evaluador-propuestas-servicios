@@ -52,6 +52,7 @@ export function updateTokens(token: string, refreshToken?: string | null) {
   if (!ss) return;
   ss.setItem(TOKEN_KEY, token);
   if (refreshToken) ss.setItem(REFRESH_KEY, refreshToken);
+  else if (refreshToken === null) ss.removeItem(REFRESH_KEY);
 }
 
 export function clearSession() {
