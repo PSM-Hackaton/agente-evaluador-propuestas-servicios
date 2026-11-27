@@ -10,6 +10,7 @@ import {
   toAuditoria,
   toEvaluacion,
   toEvaluacionResumen,
+  toInvitacion,
   toMensaje,
   toMotivos,
   toPropuesta,
@@ -20,11 +21,14 @@ import {
   toTasaHistorial,
   toTraza,
   toUsuario,
+  toValidacionInvitacion,
   type BAudit,
   type BBcv,
   type BBcvHistoryItem,
   type BChat,
   type BEvaluation,
+  type BInvitation,
+  type BInvitationValidation,
   type BParticipation,
   type BProject,
   type BProposal,
@@ -228,6 +232,26 @@ export const httpApi: Api = {
       const t = await req<BToken>('/auth/login', { method: 'POST', body: json({ email, password }) });
       const me = await req<BUser>('/auth/me', {}, t.access_token);
       return { token: t.access_token, refreshToken: t.refresh_token, user: toUsuario(me) };
+    },
+    async signup(data) {
+      const t = await req<BToken>('/auth/signup', {
+        method: 'POST',
+        body: json({
+          full_name: data.nombre,
+          email: data.email,
+          password: data.password,
+          ...(data.codigo_invitacion ? { invitation_code: data.codigo_invitacion } : {}),
+        }),
+      });
+      const me = await req<BUser>('/auth/me', {}, t.access_token);
+      return { token: t.access_token, refreshToken: t.refresh_token, user: toUsuario(me) };
+    },
+    async validateInvitation(code) {
+      const res = await req<BInvitationValidation>('/auth/invitations/validate', {
+        method: 'POST',
+        body: json({ code }),
+      });
+      return toValidacionInvitacion(res);
     },
     async refresh(refreshToken) {
       const t = await req<BToken>('/auth/refresh', {
@@ -605,6 +629,20 @@ export const httpApi: Api = {
         }),
       );
     },
+    listInvitations: async () => (await req<BInvitation[]>('/auth/invitations')).map(toInvitacion),
+    createInvitation: async (data) =>
+      toInvitacion(
+        await req<BInvitation>('/auth/invitations', {
+          method: 'POST',
+          body: json({
+            role: data.rol,
+            email: data.email || null,
+            max_uses: data.usos_maximos ?? 1,
+            expires_in_hours: data.horas_vigencia ?? 72,
+          }),
+        }),
+      ),
+    revokeInvitation: (id) => req<void>(`/auth/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 
   currency: {

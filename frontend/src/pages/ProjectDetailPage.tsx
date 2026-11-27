@@ -17,6 +17,7 @@ import {
   MapPin,
   MessageSquare,
   Play,
+  SlidersHorizontal,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -630,17 +631,34 @@ export function ProjectDetailPage() {
             <CardHeader
               title="Requerimiento del proyecto y ejecución del agente"
               action={
-                <Button
-                  onClick={() => {
-                    setEvalParamError(null);
-                    setEvalModalOpen(true);
-                  }}
-                  loading={startEvalMut.isPending}
-                  disabled={!puedeEvaluar}
-                >
-                  <Play className="h-4 w-4" />
-                  Evaluar Propuestas de Servicios
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    title="Opciones avanzadas (búsqueda web, tasa BCV o IVA)"
+                    aria-label="Opciones avanzadas de evaluación"
+                    onClick={() => {
+                      setEvalParamError(null);
+                      setEvalModalOpen(true);
+                    }}
+                    disabled={!puedeEvaluar}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                    <span className="hidden sm:inline">Opciones</span>
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setActionError(null);
+                      startEvalMut.mutate({ enable_web_search: true });
+                    }}
+                    loading={startEvalMut.isPending}
+                    disabled={!puedeEvaluar}
+                  >
+                    <Play className="h-4 w-4" />
+                    Evaluar Propuestas de Servicios
+                  </Button>
+                </div>
               }
             />
             <CardBody className="space-y-3">
@@ -1157,7 +1175,7 @@ export function ProjectDetailPage() {
           setEvalModalOpen(false);
           setEvalParamError(null);
         }}
-        title="Parámetros de evaluación del agente"
+        title="Opciones avanzadas de evaluación"
       >
         <form
           className="space-y-4"
@@ -1182,7 +1200,7 @@ export function ProjectDetailPage() {
           }}
         >
           <p className="text-sm text-slate-600">
-            Configura las condiciones financieras y de verificación antes de iniciar el análisis de {propuestas.length} propuestas.
+            Ajustes opcionales para el análisis de {propuestas.length} propuestas. El IVA de referencia (16 %) solo se suma automáticamente si una propuesta excluye explícitamente el impuesto («+ IVA»).
           </p>
 
           {evalParamError && (

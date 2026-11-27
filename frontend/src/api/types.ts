@@ -19,6 +19,40 @@ export interface NuevoUsuario {
   password: string;
 }
 
+export interface RegistroPublicoInput {
+  nombre: string;
+  email: string;
+  password: string;
+  codigo_invitacion?: string;
+}
+
+export interface Invitacion {
+  id: string;
+  codigo?: string | null;
+  codigo_prefijo: string;
+  rol: Rol;
+  email: string | null;
+  usos_maximos: number;
+  usos_actuales: number;
+  expira_en: string;
+  revocada: boolean;
+  creado_en: string;
+}
+
+export interface NuevaInvitacion {
+  rol: Rol;
+  email?: string | null;
+  usos_maximos?: number;
+  horas_vigencia?: number;
+}
+
+export interface ValidacionInvitacion {
+  valida: boolean;
+  rol: Rol;
+  email_bloqueado: string | null;
+  expira_en: string;
+}
+
 export type EstadoProyecto =
   | 'EN_RECEPCION'
   | 'EN_EVALUACION'
@@ -310,6 +344,8 @@ export interface DashboardStats {
 export interface Api {
   auth: {
     login(email: string, password: string): Promise<{ token: string; refreshToken?: string | null; user: Usuario }>;
+    signup(data: RegistroPublicoInput): Promise<{ token: string; refreshToken?: string | null; user: Usuario }>;
+    validateInvitation(code: string): Promise<ValidacionInvitacion>;
     refresh(refreshToken: string): Promise<{ token: string; refreshToken?: string | null }>;
     me(): Promise<Usuario>;
   };
@@ -375,6 +411,9 @@ export interface Api {
     list(): Promise<Usuario[]>;
     create(data: NuevoUsuario): Promise<Usuario>;
     update(id: string, data: Partial<Pick<Usuario, 'nombre' | 'rol' | 'activo'>>): Promise<Usuario>;
+    listInvitations(): Promise<Invitacion[]>;
+    createInvitation(data: NuevaInvitacion): Promise<Invitacion>;
+    revokeInvitation(id: string): Promise<void>;
   };
   currency: {
     bcv(refresh?: boolean): Promise<TasaCambio>;
