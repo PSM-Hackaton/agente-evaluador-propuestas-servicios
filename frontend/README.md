@@ -25,7 +25,7 @@ npm run build      # Verificación de tipos y compilación de producción (tsc -
 ## Modos de funcionamiento
 
 ### 1. Modo demostración (sin backend)
-Por defecto en `.env.example`, `VITE_USE_MOCK=true`. En este modo toda la plataforma funciona en el navegador usando `localStorage`, simulando la carga de archivos, la trazabilidad en vivo del agente, el chat sobre los documentos, las alertas de proveedores y la bitácora de auditoría.
+Se activa solo con `VITE_USE_MOCK=true` en `frontend/.env` (el valor por defecto es `false`, la API real). En este modo toda la plataforma funciona en el navegador usando `localStorage`, simulando la carga de archivos, la trazabilidad en vivo del agente, el chat sobre los documentos, las alertas de proveedores y la bitácora de auditoría.
 
 **Cuentas de demostración** (contraseña: `demo1234`):
 - `admin@demo.ve` — Administrador (acceso total)
