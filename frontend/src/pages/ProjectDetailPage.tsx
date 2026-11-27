@@ -86,6 +86,7 @@ export function ProjectDetailPage() {
   const [recDetalle, setRecDetalle] = useState<ResultadoPropuesta | null>(null);
   const [verOtrasValidas, setVerOtrasValidas] = useState(false);
   const [evalModalOpen, setEvalModalOpen] = useState(false);
+  const [evalParamError, setEvalParamError] = useState<string | null>(null);
   const [paramWebSearch, setParamWebSearch] = useState(true);
   const [paramIvaPct, setParamIvaPct] = useState('16');
   const [paramBcvOverride, setParamBcvOverride] = useState('');
@@ -359,10 +360,27 @@ export function ProjectDetailPage() {
   const otrasValidas = ordenada.filter((r) => r.valida && r.propuesta_id !== recomendada?.propuesta_id);
 
   const abrirDescarga = async (getUrl: () => Promise<string | null>) => {
+    const popup = window.open('', '_blank');
+    if (popup) popup.opener = null;
     try {
       const url = await getUrl();
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      if (!url) {
+        if (popup && !popup.closed) popup.close();
+        return;
+      }
+      if (popup && !popup.closed) {
+        popup.location.replace(url);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
     } catch (e) {
+      if (popup && !popup.closed) popup.close();
       setActionError(e instanceof Error ? e.message : 'No se pudo autorizar la descarga');
     }
   };
@@ -563,7 +581,10 @@ export function ProjectDetailPage() {
               title="Requerimiento del proyecto y ejecución del agente"
               action={
                 <Button
-                  onClick={() => setEvalModalOpen(true)}
+                  onClick={() => {
+                    setEvalParamError(null);
+                    setEvalModalOpen(true);
+                  }}
                   loading={startEvalMut.isPending}
                   disabled={!puedeEvaluar}
                 >
@@ -1074,7 +1095,10 @@ export function ProjectDetailPage() {
       {/* Modal parámetros de evaluación */}
       <Modal
         open={evalModalOpen}
-        onClose={() => setEvalModalOpen(false)}
+        onClose={() => {
+          setEvalModalOpen(false);
+          setEvalParamError(null);
+        }}
         title="Parámetros de evaluación del agente"
       >
         <form
@@ -1084,13 +1108,14 @@ export function ProjectDetailPage() {
             const ivaNum = Number(paramIvaPct.replace(',', '.'));
             const bcvNum = paramBcvOverride.trim() ? Number(paramBcvOverride.replace(',', '.')) : null;
             if (!Number.isFinite(ivaNum) || ivaNum < 0 || ivaNum > 50) {
-              setActionError('La alícuota de IVA debe estar entre 0 % y 50 %.');
+              setEvalParamError('La alícuota de IVA debe estar entre 0 % y 50 %.');
               return;
             }
             if (bcvNum != null && (!Number.isFinite(bcvNum) || bcvNum <= 0)) {
-              setActionError('La tasa BCV de anulación debe ser mayor a 0.');
+              setEvalParamError('La tasa BCV de anulación debe ser mayor a 0.');
               return;
             }
+            setEvalParamError(null);
             startEvalMut.mutate({
               enable_web_search: paramWebSearch,
               iva_rate: ivaNum / 100,
@@ -1101,6 +1126,12 @@ export function ProjectDetailPage() {
           <p className="text-sm text-slate-600">
             Configura las condiciones financieras y de verificación antes de iniciar el análisis de {propuestas.length} propuestas.
           </p>
+
+          {evalParamError && (
+            <div role="alert">
+              <Alert tone="error">{evalParamError}</Alert>
+            </div>
+          )}
 
           <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-800">
             <input
@@ -1127,7 +1158,10 @@ export function ProjectDetailPage() {
                 required
                 className="input"
                 value={paramIvaPct}
-                onChange={(e) => setParamIvaPct(e.target.value)}
+                onChange={(e) => {
+                  setParamIvaPct(e.target.value);
+                  setEvalParamError(null);
+                }}
               />
             </div>
 
@@ -1142,14 +1176,24 @@ export function ProjectDetailPage() {
                 min="0.01"
                 className="input"
                 value={paramBcvOverride}
-                onChange={(e) => setParamBcvOverride(e.target.value)}
+                onChange={(e) => {
+                  setParamBcvOverride(e.target.value);
+                  setEvalParamError(null);
+                }}
                 placeholder="Usar tasa BCV activa"
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
-            <Button variant="secondary" type="button" onClick={() => setEvalModalOpen(false)}>
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                setEvalModalOpen(false);
+                setEvalParamError(null);
+              }}
+            >
               Cancelar
             </Button>
             <Button type="submit" loading={startEvalMut.isPending}>
