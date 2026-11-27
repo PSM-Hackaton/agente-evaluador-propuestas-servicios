@@ -350,7 +350,8 @@ async def create_invitation(
     now_utc = utcnow()
     inv = InvitationCode(
         code_hash=code_h,
-        code_prefix=code[:8],
+        # Solo «INV-» y 2 caracteres: el prefijo aparece en listados y auditoría y no debe reducir la entropía.
+        code_prefix=code[:6],
         role=payload.role.value,
         email=locked_email,
         email_hash=locked_email_h,
@@ -469,6 +470,12 @@ async def signup(
     assigned_role = UserRole.CARGADOR.value
     invitation_used_id: str | None = None
     raw_code = (payload.invitation_code or "").strip().upper()
+
+    if not raw_code and not get_settings().public_signup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro requiere un código de invitación del administrador.",
+        )
 
     if raw_code:
         code_h = blind_index(raw_code) or ""

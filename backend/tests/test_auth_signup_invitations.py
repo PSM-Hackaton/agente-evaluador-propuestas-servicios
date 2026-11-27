@@ -40,7 +40,7 @@ async def test_invitations_crud_and_security(app_client: AsyncClient) -> None:
     assert r_create.status_code == 201
     created = r_create.json()
     assert created["code"].startswith("INV-")
-    assert created["code_prefix"] == created["code"][:8]
+    assert created["code_prefix"] == created["code"][:6]
     assert created["role"] == "revisor"
     assert created["email"] == "nuevo.revisor@evaluador.ve"
     assert created["max_uses"] == 2
@@ -124,7 +124,17 @@ async def test_invitation_validate_invalid_expired_and_exhausted(app_client: Asy
 async def test_public_signup_open_and_with_invitation(app_client: AsyncClient) -> None:
     admin_hdr = await _auth_headers(app_client, "admin@evaluador.ve", "Admin2026!")
 
-    # 1. Open signup without invitation assigns minimum role 'cargador'
+    # 0. By default, signup without invitation is closed (403)
+    from app.core.config import get_settings
+
+    r_closed = await app_client.post(
+        "/api/v1/auth/signup",
+        json={"full_name": "Sin Invitación", "email": "cerrado.issue70@evaluador.ve", "password": "PasswordSegura2026!"},
+    )
+    assert r_closed.status_code == 403
+
+    # 1. When enabled, open signup without invitation assigns minimum role 'cargador'
+    get_settings().public_signup_enabled = True
     r_open = await app_client.post(
         "/api/v1/auth/signup",
         json={
@@ -133,6 +143,7 @@ async def test_public_signup_open_and_with_invitation(app_client: AsyncClient) -
             "password": "PasswordSegura2026!",
         },
     )
+    get_settings().public_signup_enabled = False
     assert r_open.status_code == 201
     open_tok = r_open.json()
     assert open_tok["role"] == "cargador"
