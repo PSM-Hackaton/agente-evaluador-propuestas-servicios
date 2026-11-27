@@ -141,7 +141,12 @@ class UnifiedLLMClient:
         """Use local Vision LLM API to transcribe handwritten budgets, noisy scans, or chat screenshots."""
         if not self.is_available:
             return None
-        return await self._openai_vision(image_b64, mime_type, prompt)
+        try:
+            return await self._openai_vision(image_b64, mime_type, prompt)
+        except Exception as exc:
+            # Igual que el resto de llamadas: si la IA local no responde, la ingesta sigue con el OCR local.
+            logger.warning("LLM extract_from_image fallback to OCR (%s): %s", self.provider, exc)
+            return None
 
     async def generate_json(
         self,
