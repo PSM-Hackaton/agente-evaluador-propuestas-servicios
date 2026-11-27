@@ -10,7 +10,7 @@ import { Alert, Button, Card, CardBody, CardHeader, Spinner } from './ui';
 
 const SUGERENCIAS = [
   '¿Cuál es la propuesta recomendada?',
-  '¿Por qué se descartó la 841?',
+  '¿Qué propuestas se descartaron y por qué?',
   '¿Qué proveedor ofrece mejor garantía?',
   '¿Qué costos ocultos se encontraron?',
 ];
