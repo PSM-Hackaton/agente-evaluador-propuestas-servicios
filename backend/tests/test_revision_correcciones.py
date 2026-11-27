@@ -300,6 +300,9 @@ async def test_adjudication_rejects_foreign_proposal_and_reports_include_cost_br
 # Seguridad: secretos por defecto
 # ---------------------------------------------------------------------------
 def test_insecure_secret_settings_detects_placeholders() -> None:
+    import base64
+    import secrets
+
     from app.core.config import Settings
 
     weak = Settings(
@@ -309,8 +312,8 @@ def test_insecure_secret_settings_detects_placeholders() -> None:
     assert weak == ["MASTER_ENCRYPTION_KEY", "JWT_SECRET_KEY"]
 
     strong = Settings(
-        master_encryption_key="1PqDxv6XUj3WGF0X0Wq5Y0m3nH5o8l7aZgk1V4kq6aE=",
-        jwt_secret_key="b3c1f0e9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1",
+        master_encryption_key=base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
+        jwt_secret_key=secrets.token_hex(32),
     ).insecure_secret_settings()
     assert strong == []
 

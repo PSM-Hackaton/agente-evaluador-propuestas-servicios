@@ -136,6 +136,27 @@ def _check_station_compatibility(section_label: str, seg: str, reasons: list[dic
         )
 
 
+def _score_cpu(seg: str) -> float:
+    """Score CPU tier for programming, 3D rendering, and video editing workloads."""
+    if re.search(r"core\s*i9|ryzen\s*9", seg, re.I):
+        return 5.0
+    if re.search(
+        r"core\s*i7-1[2-5]\d{3}|core\s*ultra\s*7|ryzen\s*7\s*[789]\d{3}|\b1[34]700[a-z]*\b",
+        seg,
+        re.I,
+    ):
+        return 4.0
+    if re.search(
+        r"core\s*i5-1[3-5]\d{3}|\b1[34][45]00[a-z]*\b|core\s*ultra\s*5",
+        seg,
+        re.I,
+    ):
+        return 3.0
+    if re.search(r"ryzen\s*5\s*[789]\d{3}|core\s*i5-12\d{3}", seg, re.I):
+        return 2.0
+    return 1.0
+
+
 def _score_gpu_cpu(seg: str) -> tuple[float, str | None]:
     """Score CPU+GPU combination for a station and extract actual GPU label dynamically."""
     gpu_m = re.search(
@@ -148,20 +169,22 @@ def _score_gpu_cpu(seg: str) -> tuple[float, str | None]:
     gpu_label = re.sub(r"\s+", " ", gpu_m.group(1)).upper() if gpu_m else None
 
     if re.search(r"rtx\s*4070\s*super", seg, re.I):
-        return 39.5, gpu_label
-    if re.search(r"rtx\s*4070\b", seg, re.I):
-        return 37.0, gpu_label
-    if re.search(r"rtx\s*4060\s*ti\s*16\s*gb", seg, re.I):
-        return 36.5, gpu_label
-    if re.search(r"rtx\s*4060\s*ti", seg, re.I):
-        return 33.0, gpu_label
-    if re.search(r"rtx\s*3060\s*12\s*gb", seg, re.I):
-        return 29.5, gpu_label
-    if re.search(r"rtx\s*4060", seg, re.I):
-        return 29.0, gpu_label
-    if re.search(r"rx\s*7600", seg, re.I):
-        return 25.0, gpu_label
-    return 18.0, gpu_label
+        gpu_score = 39.5
+    elif re.search(r"rtx\s*4070\b", seg, re.I):
+        gpu_score = 37.0
+    elif re.search(r"rtx\s*4060\s*ti\s*16\s*gb", seg, re.I):
+        gpu_score = 36.5
+    elif re.search(r"rtx\s*4060\s*ti", seg, re.I):
+        gpu_score = 33.0
+    elif re.search(r"rtx\s*3060\s*12\s*gb", seg, re.I):
+        gpu_score = 29.5
+    elif re.search(r"rtx\s*4060", seg, re.I):
+        gpu_score = 29.0
+    elif re.search(r"rx\s*7600", seg, re.I):
+        gpu_score = 27.0
+    else:
+        gpu_score = 18.0
+    return gpu_score + _score_cpu(seg), gpu_label
 
 
 def audit_proposal_technically(
@@ -348,6 +371,9 @@ def audit_proposal_technically(
     )
     st_ram_gb = int(st_ram_m.group(1)) if st_ram_m else 16
     score_ram = 12.0 if st_ram_gb >= 64 else (10.5 if st_ram_gb >= 32 else 7.0)
+    if re.search(r"\b1\s*x\s*\d+\s*gb\b", student_seg):
+        # Single-channel memory reduces effective bandwidth in 3D/video workloads
+        score_ram = max(4.0, score_ram - 1.0)
 
     st_nvme_m = re.search(r"(\d+)\s*(tb|gb)\s*nvme", student_seg)
     score_storage = 3.0
@@ -417,9 +443,12 @@ def audit_proposal_technically(
     ):
         findings.append("Incluye sistema operativo y herramientas 100% open source ($0/año en licencias).")
 
-    total_tech_score = round(
-        score_cpu_gpu + score_ram_storage + score_peripherals + score_protection + score_warranty_support,
-        2,
+    total_tech_score = min(
+        100.0,
+        round(
+            score_cpu_gpu + score_ram_storage + score_peripherals + score_protection + score_warranty_support,
+            2,
+        ),
     )
 
     return TechnicalAuditResult(
