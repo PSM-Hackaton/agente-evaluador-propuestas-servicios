@@ -28,7 +28,7 @@ def setup_logging(debug: bool = False) -> None:
         "google_genai",
         "openai",
         "PIL",
-        "aiosqlite",
+        "asyncpg",
         "sqlalchemy.engine",
     ):
         logging.getLogger(noisy).setLevel(logging.WARNING)

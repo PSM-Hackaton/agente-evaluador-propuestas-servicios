@@ -1,14 +1,15 @@
-"""Database engine, async session factory, and AES-256-GCM encrypted column types."""
+"""PostgreSQL async database engine, session factory, TLS 1.2+ config, and AES-256-GCM column types."""
 
 from __future__ import annotations
 
 import json
+import ssl
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import DateTime, Text, TypeDecorator, event
+from sqlalchemy import DateTime, Text, TypeDecorator, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -82,7 +83,7 @@ class EncryptedJSON(TypeDecorator):
 
 
 class UTCDateTime(TypeDecorator):
-    """SQLAlchemy DateTime type that preserves UTC tzinfo across SQLite and PostgreSQL."""
+    """SQLAlchemy DateTime type enforcing UTC tzinfo on PostgreSQL TIMESTAMPTZ columns."""
 
     impl = DateTime(timezone=True)
     cache_ok = True
@@ -106,38 +107,98 @@ _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def _ensure_sqlite_dir(database_url: str) -> None:
-    if database_url.startswith("sqlite"):
-        raw_path = database_url.split(":///")[-1]
-        if raw_path and raw_path != ":memory:":
-            Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+def build_postgres_ssl_arg(ssl_mode: str, ca_file: str = "") -> ssl.SSLContext | str | bool:
+    """Build asyncpg `ssl` argument enforcing TLS 1.2+ whenever certificate verification is enabled."""
+    mode = (ssl_mode or "prefer").strip().lower()
+    if mode == "disable":
+        return False
+    if mode == "prefer":
+        return "prefer"
+    if mode in ("require", "verify-ca", "verify-full"):
+        ctx = ssl.create_default_context(cafile=ca_file.strip() or None)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        if mode == "verify-ca":
+            ctx.check_hostname = False
+        return ctx
+    raise ValueError(f"Modo SSL de PostgreSQL no soportado: {ssl_mode!r}")
+
+
+def normalize_database_url(
+    database_url: str,
+    *,
+    default_ssl_mode: str = "prefer",
+    ca_file: str = "",
+    statement_cache_size: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Normalize PostgreSQL URLs to `postgresql+asyncpg://` and extract asyncpg `connect_args`."""
+    raw = (database_url or "").strip()
+    if not raw:
+        raise ValueError("DATABASE_URL no puede estar vacío; debe apuntar a PostgreSQL.")
+
+    parsed = urlsplit(raw)
+    scheme = parsed.scheme.lower()
+    if scheme == "sqlite" or scheme.startswith("sqlite+"):
+        raise ValueError("Solo se admite PostgreSQL (postgresql+asyncpg://...); SQLite no está soportado.")
+    if scheme not in (
+        "postgres",
+        "postgresql",
+        "postgresql+asyncpg",
+        "postgresql+psycopg",
+        "postgresql+psycopg2",
+    ):
+        raise ValueError(f"Esquema de base de datos no soportado ({parsed.scheme!r}); use postgresql+asyncpg://.")
+
+    query_items = parse_qsl(parsed.query, keep_blank_values=True)
+    effective_ssl_mode = default_ssl_mode
+    effective_ca_file = ca_file
+    kept_query: list[tuple[str, str]] = []
+    for key, val in query_items:
+        low_key = key.lower()
+        if low_key == "sslmode":
+            effective_ssl_mode = val
+        elif low_key == "sslrootcert":
+            effective_ca_file = val
+        elif low_key == "channel_binding":
+            continue
+        else:
+            kept_query.append((key, val))
+
+    normalized = urlunsplit(
+        ("postgresql+asyncpg", parsed.netloc, parsed.path, urlencode(kept_query), parsed.fragment)
+    )
+    connect_args: dict[str, Any] = {
+        "ssl": build_postgres_ssl_arg(effective_ssl_mode, effective_ca_file),
+    }
+
+    host = (parsed.hostname or "").lower()
+    if statement_cache_size is not None:
+        connect_args["statement_cache_size"] = statement_cache_size
+    elif parsed.port == 6543 or "pooler.supabase" in host:
+        connect_args["statement_cache_size"] = 0
+
+    return normalized, connect_args
 
 
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        _ensure_sqlite_dir(settings.database_url)
-        connect_args = (
-            {"check_same_thread": False, "timeout": 15}
-            if settings.database_url.startswith("sqlite")
-            else {}
+        normalized_url, connect_args = normalize_database_url(
+            settings.database_url,
+            default_ssl_mode=settings.db_ssl_mode,
+            ca_file=settings.db_ssl_ca_file,
+            statement_cache_size=settings.db_statement_cache_size,
         )
         _engine = create_async_engine(
-            settings.database_url,
+            normalized_url,
             echo=False,
             future=True,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle,
             connect_args=connect_args,
         )
-        if settings.database_url.startswith("sqlite"):
-
-            @event.listens_for(_engine.sync_engine, "connect")
-            def _set_sqlite_pragmas(dbapi_connection: Any, _: Any) -> None:
-                cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL;")
-                cursor.execute("PRAGMA busy_timeout=15000;")
-                cursor.execute("PRAGMA foreign_keys=ON;")
-                cursor.close()
     return _engine
 
 
@@ -154,10 +215,30 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 def reset_engine() -> None:
-    """Reset cached engine/session factory (useful in tests)."""
+    """Reset cached engine/session factory references (useful in tests)."""
     global _engine, _session_factory
     _engine = None
     _session_factory = None
+
+
+async def dispose_engine() -> None:
+    """Dispose the active async connection pool cleanly and reset references."""
+    global _engine, _session_factory
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _session_factory = None
+
+
+async def check_db_health() -> bool:
+    """Verify live PostgreSQL connectivity using a lightweight SELECT 1 probe."""
+    try:
+        engine = get_engine()
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def init_db() -> None:

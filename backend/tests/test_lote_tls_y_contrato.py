@@ -61,27 +61,53 @@ def _make_valid_txt(name: str, rif: str, unit_price: float = 1200.0) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Issue #5: Alembic initial migration on fresh SQLite DB (clean clone without parent dir)
+# Issue #5: Alembic initial migration on clean PostgreSQL DB
 # ---------------------------------------------------------------------------
-def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
-    """Verify `alembic upgrade head` creates missing parent dirs and runs cleanly on a fresh database."""
-    db_file = tmp_path / "clean_clone_data" / "nested" / "alembic_fresh.db"
-    assert not db_file.parent.exists()
+@pytest.mark.asyncio
+async def test_issue5_alembic_upgrade_and_downgrade_clean() -> None:
+    """Verify `alembic upgrade head` -> `downgrade base` -> `upgrade head` cleanly on PostgreSQL."""
+    import asyncpg
+
+    from app.db.base import normalize_database_url
+
+    alembic_db_url = os.environ.get(
+        "TEST_ALEMBIC_DATABASE_URL",
+        "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_alembic_test",
+    )
+    normalized_url, connect_args = normalize_database_url(alembic_db_url, default_ssl_mode="disable")
+    raw_dsn = normalized_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
+    finally:
+        await conn.close()
+
     env = {
         **os.environ,
-        "DATABASE_URL": f"sqlite+aiosqlite:///{db_file}",
+        "DATABASE_URL": alembic_db_url,
+        "DB_SSL_MODE": "disable",
         "MASTER_ENCRYPTION_KEY": "dev-insecure-default-key-replace-in-production-32b",
     }
     alembic_bin = str(Path(sys.executable).parent / "alembic")
 
     up = subprocess.run([alembic_bin, "upgrade", "head"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert up.returncode == 0, f"alembic upgrade failed:\n{up.stdout}\n{up.stderr}"
-    assert db_file.exists()
 
-    import sqlite3
+    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    try:
+        rows = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+        tables = {r["table_name"] for r in rows}
+        bcv_cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'bcv_rate_snapshots'"
+        )
+        bcv_col_names = {r["column_name"] for r in bcv_cols}
+    finally:
+        await conn.close()
 
-    with sqlite3.connect(str(db_file)) as conn:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     expected_tables = {
         "alembic_version",
         "users",
@@ -98,12 +124,45 @@ def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
         "bcv_rate_snapshots",
     }
     assert expected_tables.issubset(tables)
+    assert "fetched_at" in bcv_col_names
+    assert "created_at" not in bcv_col_names
 
     down = subprocess.run([alembic_bin, "downgrade", "base"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert down.returncode == 0, f"alembic downgrade failed:\n{down.stdout}\n{down.stderr}"
 
+    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    try:
+        rem_rows = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+        remaining = {r["table_name"] for r in rem_rows}
+    finally:
+        await conn.close()
+    assert remaining.issubset({"alembic_version"})
+
     up2 = subprocess.run([alembic_bin, "upgrade", "head"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert up2.returncode == 0
+
+
+def test_postgres_url_normalization_tls_and_sqlite_rejection() -> None:
+    """Verify PostgreSQL URL normalization, TLS 1.2+ SSLContext, PgBouncer cache=0, and SQLite rejection."""
+    from app.db.base import normalize_database_url
+
+    with pytest.raises(ValueError, match="PostgreSQL"):
+        normalize_database_url("sqlite+aiosqlite:///./data/evaluador.db")
+
+    norm, cargs = normalize_database_url("postgres://usuario@db.ejemplo.com:5432/appdb?sslmode=require")
+    assert norm == "postgresql+asyncpg://usuario@db.ejemplo.com:5432/appdb"
+    ssl_ctx = cargs["ssl"]
+    assert isinstance(ssl_ctx, ssl.SSLContext)
+    assert ssl_ctx.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert ssl_ctx.verify_mode == ssl.CERT_REQUIRED
+
+    pool_norm, pool_cargs = normalize_database_url(
+        "postgresql://usuario@aws-0.pooler.supabase.com:6543/postgres?sslmode=verify-full"
+    )
+    assert pool_norm == "postgresql+asyncpg://usuario@aws-0.pooler.supabase.com:6543/postgres"
+    assert pool_cargs["statement_cache_size"] == 0
 
 
 # ---------------------------------------------------------------------------
