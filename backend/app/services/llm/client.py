@@ -176,7 +176,9 @@ class UnifiedLLMClient:
         if not self.is_available:
             return None
         try:
-            return await self._openai_generate(system_prompt, user_prompt, None, json_mode=False)
+            raw = await self._openai_generate(system_prompt, user_prompt, None, json_mode=False)
+            cleaned = _strip_thinking_blocks(raw or "")
+            return cleaned or None
         except Exception as exc:
             logger.warning("LLM generate_text failed (%s): %s", self.provider, exc)
         return None
@@ -257,12 +259,19 @@ class UnifiedLLMClient:
                     "tools": tools,
                 }
                 if is_local:
-                    create_kwargs["max_tokens"] = 650
-                resp = await client.chat.completions.create(**create_kwargs)
+                    create_kwargs["max_tokens"] = (
+                        self.settings.llm_local_vision_max_tokens
+                        if images_b64
+                        else self.settings.llm_local_max_tokens
+                    )
+                    if self.settings.llm_disable_thinking:
+                        create_kwargs["extra_body"] = {"think": False}
+                resp = await self._create_completion(client, create_kwargs)
                 msg = resp.choices[0].message
                 tool_calls = msg.tool_calls or []
+                cleaned_content = _strip_thinking_blocks(msg.content or "")
 
-                assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+                assistant_msg: dict[str, Any] = {"role": "assistant", "content": cleaned_content}
                 if tool_calls:
                     assistant_msg["tool_calls"] = [
                         {
@@ -282,8 +291,8 @@ class UnifiedLLMClient:
                 messages.append(assistant_msg)
 
                 if not tool_calls:
-                    if msg.content:
-                        out.structured_json = _parse_json_safely(msg.content)
+                    if cleaned_content:
+                        out.structured_json = _parse_json_safely(cleaned_content)
                     break
 
                 for idx, tc in enumerate(tool_calls):
@@ -308,12 +317,33 @@ class UnifiedLLMClient:
         return out
 
     async def _openai_vision(self, image_b64: str, mime_type: str, prompt: str) -> str | None:
-        return await self._openai_generate(
+        raw = await self._openai_generate(
             "Eres un especialista en extracción documental multimodal (OCR + visión) de presupuestos y cotizaciones.",
             prompt,
             images_b64=[(image_b64, mime_type)],
             json_mode=False,
         )
+        cleaned = _strip_thinking_blocks(raw or "")
+        return cleaned or None
+
+    async def _create_completion(self, client: Any, kwargs: dict[str, Any]) -> Any:
+        """Invoke chat.completions.create with safe fallback when extra_body or response_format is rejected."""
+        try:
+            return await client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            retry_kwargs = dict(kwargs)
+            if "extra_body" in retry_kwargs and _is_unsupported_param_error(exc):
+                logger.debug("Retrying LLM completion without extra_body after error: %s", exc)
+                retry_kwargs.pop("extra_body", None)
+                try:
+                    return await client.chat.completions.create(**retry_kwargs)
+                except Exception as exc2:
+                    exc = exc2
+            if "response_format" in retry_kwargs and _is_unsupported_param_error(exc):
+                logger.debug("Retrying LLM completion without response_format after error: %s", exc)
+                retry_kwargs.pop("response_format", None)
+                return await client.chat.completions.create(**retry_kwargs)
+            raise
 
     async def _openai_generate(
         self,
@@ -352,23 +382,49 @@ class UnifiedLLMClient:
             ],
         }
         if is_local:
-            kwargs["max_tokens"] = 900 if images_b64 else 650
+            kwargs["max_tokens"] = (
+                self.settings.llm_local_vision_max_tokens
+                if images_b64
+                else self.settings.llm_local_max_tokens
+            )
+            if self.settings.llm_disable_thinking:
+                kwargs["extra_body"] = {"think": False}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
         async with AsyncOpenAI(**client_kwargs) as client:
-            try:
-                resp = await client.chat.completions.create(**kwargs)
-            except Exception:
-                if not json_mode:
-                    raise
-                kwargs.pop("response_format", None)
-                resp = await client.chat.completions.create(**kwargs)
+            resp = await self._create_completion(client, kwargs)
             return resp.choices[0].message.content
 
 
+def _is_unsupported_param_error(exc: Exception) -> bool:
+    """Return True when the provider likely rejected an optional parameter (HTTP 400/422 or TypeError)."""
+    status_code = getattr(exc, "status_code", None)
+    if status_code in (400, 422):
+        return True
+    return isinstance(exc, (TypeError, ValueError))
+
+
+def _strip_thinking_blocks(raw: str) -> str:
+    """Strip <think>...</think> reasoning blocks (including unclosed trailing blocks) in O(n) time."""
+    if not raw:
+        return ""
+    text = raw
+    while True:
+        lower = text.lower()
+        start = lower.find("<think>")
+        if start == -1:
+            break
+        end = lower.find("</think>", start + 7)
+        if end == -1:
+            text = text[:start]
+            break
+        text = text[:start] + text[end + 8 :]
+    return text.strip()
+
+
 def _parse_json_safely(raw: str) -> dict[str, Any] | None:
-    cleaned = raw.strip()
+    cleaned = _strip_thinking_blocks(raw)
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
         if lines and lines[0].startswith("```"):
