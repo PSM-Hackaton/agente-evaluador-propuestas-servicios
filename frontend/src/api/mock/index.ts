@@ -29,6 +29,25 @@ const delay = (ms = 160) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+const textEncoder = new TextEncoder();
+
+function secureRandomFraction(): number {
+  const buf = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(buf);
+  return buf[0] / 0x100000000;
+}
+
+export function constantTimeEqual(a: string, b: string): boolean {
+  const ab = textEncoder.encode(a);
+  const bb = textEncoder.encode(b);
+  const maxLen = Math.max(ab.length, bb.length);
+  let diff = ab.length ^ bb.length;
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 export function resetMockData() {
   db = reiniciarDB();
 }
@@ -36,7 +55,7 @@ export function resetMockData() {
 // ── Utilidades ───────────────────────────────────────────────────────────────
 function usuarioActual(): Usuario {
   const token = getToken();
-  const user = token ? db.usuarios.find((u) => `mock-${u.id}` === token) : undefined;
+  const user = token ? db.usuarios.find((u) => constantTimeEqual(`mock-${u.id}`, token)) : undefined;
   if (!user || !user.activo) throw new ApiError(401, 'Sesión no válida');
   return user;
 }
@@ -225,7 +244,7 @@ function ejecutar(ev: Evaluacion, pasos: Paso[]) {
     (db.trazas[ev.id] ??= []).push(t);
     persist();
     runners.get(ev.id)?.listeners.forEach((l) => l(t));
-    setTimeout(tick, 90 + Math.random() * 170);
+    setTimeout(tick, 90 + secureRandomFraction() * 170);
   };
   setTimeout(tick, 300);
 }
@@ -291,7 +310,9 @@ export const mockApi: Api = {
     async login(email, password) {
       await delay(300);
       const user = db.usuarios.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-      if (!user || password !== DEMO_PASSWORD) throw new ApiError(401, 'Correo o contraseña incorrectos');
+      if (!user || !constantTimeEqual(password, DEMO_PASSWORD)) {
+        throw new ApiError(401, 'Correo o contraseña incorrectos');
+      }
       if (!user.activo) throw new ApiError(403, 'Usuario desactivado');
       registrar(user.nombre, 'auth.login', 'usuario', user.id);
       persist();
@@ -299,7 +320,7 @@ export const mockApi: Api = {
     },
     async refresh(refreshToken) {
       await delay(80);
-      const user = db.usuarios.find((u) => `mock-rt-${u.id}` === refreshToken);
+      const user = db.usuarios.find((u) => constantTimeEqual(`mock-rt-${u.id}`, refreshToken));
       if (!user || !user.activo) throw new ApiError(401, 'Sesión expirada');
       return { token: `mock-${user.id}`, refreshToken };
     },
@@ -638,8 +659,15 @@ export const mockApi: Api = {
             .filter((e) => e.proyecto_id === prop.proyecto_id && e.estado === 'completada')
             .sort((a, b) => b.inicio.localeCompare(a.inicio))[0];
           const r = ev?.resultados.find((x) => x.propuesta_id === prop.id);
+          const adjudicatedId = ev ? (proyecto.propuesta_adjudicada_id ?? ev.recomendada_id) : proyecto.propuesta_adjudicada_id;
           let resultado: Participacion['resultado'] = 'pendiente';
-          if (r) resultado = !r.valida ? 'descartada' : proyecto.estado === 'ADJUDICADO' && ev.recomendada_id === prop.id ? 'adjudicada' : 'valida';
+          if (r) {
+            resultado = !r.valida
+              ? 'descartada'
+              : proyecto.estado === 'ADJUDICADO' && adjudicatedId === prop.id
+                ? 'adjudicada'
+                : 'valida';
+          }
           return {
             proyecto_id: proyecto.id,
             proyecto_nombre: proyecto.nombre,
