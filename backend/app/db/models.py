@@ -89,6 +89,27 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
+class InvitationCode(Base):
+    """Single- or multi-use invitation codes for role-scoped user onboarding (Issue #70)."""
+
+    __tablename__ = "invitation_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    code_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    email_hash: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    max_uses: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    uses_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
 class Supplier(Base):
     """Centralized Supplier Directory (Section 2.E.3), encrypted at rest."""
 
