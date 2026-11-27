@@ -151,6 +151,7 @@ async function raw(
   const url = buildApiUrl(path);
   let res: Response;
   try {
+    // nosemgrep: nodejs_scan.javascript-ssrf-rule-node_ssrf -- código de navegador (no servidor Node); buildApiUrl solo admite rutas relativas al API_BASE del mismo origen y rechaza esquemas, '//', '\\', '..' y caracteres de control
     res = await fetch(url, { ...opts, headers });
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifique que el backend esté en ejecución.');

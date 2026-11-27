@@ -33,8 +33,15 @@ class Settings(BaseSettings):
         "https://localhost:3000,http://localhost:3000,http://127.0.0.1:3000"
     )
 
-    # Database & Encrypted Storage
-    database_url: str = "sqlite+aiosqlite:///./data/evaluador.db"
+    # Database (PostgreSQL) & Encrypted Storage
+    database_url: str = "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_propuestas"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_recycle: int = 1800
+    db_ssl_mode: Literal["disable", "prefer", "require", "verify-ca", "verify-full"] = "prefer"
+    db_ssl_ca_file: str = ""
+    db_statement_cache_size: int | None = None
+    db_auto_create_tables: bool = False
     storage_dir: str = "./data/storage"
 
     # Security: AES-256-GCM & JWT & TLS 1.2/1.3
@@ -60,20 +67,17 @@ class Settings(BaseSettings):
     tls_cert_file: str = "./certs/server.crt"
     tls_key_file: str = "./certs/server.key"
 
-    # LLM Configuration
-    llm_provider: Literal["auto", "gemini", "openai", "heuristic"] = "auto"
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_vision_model: str = "gemini-2.5-flash"
+    # LLM Configuration (local OpenAI-compatible API recommended: Ollama / llama.cpp)
+    llm_provider: Literal["auto", "openai", "heuristic"] = "auto"
+    llm_timeout_seconds: float = 120.0
 
     openai_api_key: str = ""
     openai_base_url: str = ""
-    openai_model: str = "gpt-4o-mini"
-    openai_vision_model: str = "gpt-4o-mini"
+    openai_model: str = "qwen2.5:3b"
+    openai_vision_model: str = "qwen2.5vl:3b"
 
     # Web Search & Finance
     web_search_enabled: bool = True
-    tavily_api_key: str = ""
     bcv_fallback_rate: float = 52.50
     default_iva_rate: float = 0.16
     abusive_surcharge_pct_threshold: float = 50.0
@@ -126,19 +130,19 @@ class Settings(BaseSettings):
                 weak.append(name)
         return weak
 
-    def resolved_llm_provider(self) -> Literal["gemini", "openai", "heuristic"]:
-        if self.llm_provider == "gemini" and self.gemini_api_key:
-            return "gemini"
-        if self.llm_provider == "openai" and self.openai_api_key:
+    def resolved_llm_provider(self) -> Literal["openai", "heuristic"]:
+        if self.llm_provider == "openai" and (self.openai_api_key or self.openai_base_url):
             return "openai"
         if self.llm_provider == "heuristic":
             return "heuristic"
         # Auto detection
-        if self.gemini_api_key:
-            return "gemini"
-        if self.openai_api_key:
+        if self.openai_api_key or self.openai_base_url:
             return "openai"
         return "heuristic"
+
+    @property
+    def is_local_llm(self) -> bool:
+        return self.resolved_llm_provider() == "openai" and bool(self.openai_base_url.strip())
 
 
 @lru_cache

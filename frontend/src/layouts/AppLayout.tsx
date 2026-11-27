@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api, isMock } from '../api';
 import { resetMockData } from '../api/mock';
+import { InstitutionalHeader } from '../components/InstitutionalHeader';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
 import { datetime, number } from '../lib/format';
@@ -29,10 +30,23 @@ export function AppLayout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [bcvModalOpen, setBcvModalOpen] = useState(false);
   const [manualRate, setManualRate] = useState('');
   const [manualNote, setManualNote] = useState('');
   const [bcvError, setBcvError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const cerrarConEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSidebarOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', cerrarConEscape);
+    return () => window.removeEventListener('keydown', cerrarConEscape);
+  }, [sidebarOpen]);
 
   const { data: tasa } = useQuery({
     queryKey: ['bcv'],
@@ -100,21 +114,21 @@ export function AppLayout() {
   };
 
   const sidebarContent = (
-    <div className="flex h-full flex-col bg-slate-900 text-slate-200">
-      <div className="flex h-16 items-center justify-between border-b border-slate-800 px-5">
+    <div className="flex h-full flex-col bg-navegacion text-white">
+      <div className="flex h-16 items-center justify-between border-b border-white/15 px-5">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
             <Bot className="h-5 w-5" />
           </div>
           <div className="leading-tight">
             <p className="text-sm font-semibold text-white">Agente Evaluador</p>
-            <p className="text-[11px] text-slate-400">Propuestas de Servicios</p>
+            <p className="text-[11px] text-[color:var(--lateral-texto-2)]">Propuestas de Servicios</p>
           </div>
         </div>
         <button
           type="button"
           onClick={() => setSidebarOpen(false)}
-          className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white lg:hidden"
+          className="min-h-12 min-w-12 rounded-lg p-2 text-[color:var(--lateral-texto-2)] hover:bg-white/10 hover:text-white lg:hidden"
           aria-label="Cerrar menú"
         >
           <X className="h-5 w-5" />
@@ -132,10 +146,10 @@ export function AppLayout() {
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  'flex items-center gap-3 rounded-r-lg border-l-[3px] border-transparent px-3 py-2.5 text-sm font-medium transition-colors',
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white',
+                    ? 'border-l-[color:var(--amarillo-bandera)] bg-white/15 text-white shadow-sm'
+                    : 'text-[color:var(--lateral-texto-2)] hover:bg-white/10 hover:text-white',
                 )
               }
             >
@@ -146,122 +160,130 @@ export function AppLayout() {
         })}
       </nav>
 
-      <div className="border-t border-slate-800 p-4 text-xs text-slate-400">
-        <p className="font-medium text-slate-300">{user.nombre}</p>
+      <div className="border-t border-white/15 p-4 text-xs text-[color:var(--lateral-texto-2)]">
+        <p className="font-medium text-white">{user.nombre}</p>
         <p className="mt-0.5 truncate">{user.email}</p>
-        <p className="mt-1 text-[11px] text-indigo-300">{ROL_LABEL[user.rol]}</p>
+        <p className="mt-1 text-[11px] text-[color:var(--amarillo-bandera)]">{ROL_LABEL[user.rol]}</p>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 lg:flex">
+    <div className="min-h-screen bg-slate-50">
       <a
         href="#contenido"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-indigo-700 focus:shadow"
+        className="saltar-contenido"
       >
-        Saltar al contenido
+        Saltar al contenido principal
       </a>
-      {/* Sidebar escritorio */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col print:hidden">
-        {sidebarContent}
-      </aside>
+      <InstitutionalHeader />
+      <div className="min-h-[calc(100vh-49px)] lg:flex">
+        {/* Sidebar escritorio */}
+        <aside className="hidden lg:fixed lg:bottom-0 lg:top-[49px] lg:flex lg:w-[248px] lg:flex-col print:hidden">
+          {sidebarContent}
+        </aside>
 
-      {/* Drawer móvil */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden print:hidden">
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Cerrar menú lateral"
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 bg-slate-900/50"
-          />
-          <aside className="relative z-10 w-64 max-w-xs">
-            {sidebarContent}
-          </aside>
-        </div>
-      )}
-
-      {/* Contenido principal */}
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-64 print:pl-0">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 print:hidden">
-          <div className="flex items-center gap-3">
+        {/* Drawer móvil */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-50 flex lg:hidden print:hidden">
             <button
               type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
-              aria-label="Abrir menú"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            {tasa && (
-              <button
-                type="button"
-                onClick={() => {
-                  setBcvError(null);
-                  setBcvModalOpen(true);
-                }}
-                title="Consultar fuente, historial o fijar tasa BCV manual"
-                className="inline-flex items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <Badge tone={tasa.fuente === 'manual' ? 'amber' : 'indigo'}>
-                  BCV: Bs. {number(tasa.usd_ves)} / USD
-                  {tasa.fuente === 'manual' ? ' (manual)' : ''}
-                </Badge>
-              </button>
-            )}
-            {isMock && (
-              <div className="hidden items-center gap-2 sm:flex">
-                <Badge tone="amber">Modo demo</Badge>
-                <Button variant="ghost" size="sm" onClick={handleResetDemo} title="Restaurar datos de prueba">
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Reiniciar demo
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-slate-800">{user.nombre}</p>
-              <p className="text-xs text-slate-500">{ROL_LABEL[user.rol]}</p>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              aria-label="Cerrar sesión"
+              tabIndex={-1}
+              aria-label="Cerrar menú lateral"
               onClick={() => {
-                logout();
-                navigate('/login');
+                setSidebarOpen(false);
+                menuButtonRef.current?.focus();
               }}
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Salir</span>
-            </Button>
-          </div>
-        </header>
-
-        {sessionExpiringSoon && (
-          <div
-            role="status"
-            className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 sm:px-6 print:hidden"
-          >
-            <span>Tu sesión está por expirar pronto. Renueva el acceso para evitar interrupciones.</span>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={renewing}
-              onClick={() => void renewSession()}
-            >
-              Renovar sesión
-            </Button>
+              className="fixed inset-0 bg-slate-900/50"
+            />
+            <aside className="relative z-10 w-[min(300px,84vw)]">
+              {sidebarContent}
+            </aside>
           </div>
         )}
 
-        <main id="contenido" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-7xl flex-1 p-4 sm:p-6 print:p-0">
-          <Outlet />
-        </main>
+        {/* Contenido principal */}
+        <div className="flex min-w-0 flex-1 flex-col lg:pl-[248px] print:pl-0">
+          <header className="sticky top-[49px] z-30 flex h-[60px] items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 print:hidden">
+            <div className="flex items-center gap-3">
+              <button
+                ref={menuButtonRef}
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                aria-expanded={sidebarOpen}
+                className="min-h-12 min-w-12 rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
+                aria-label="Abrir menú"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              {tasa && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBcvError(null);
+                    setBcvModalOpen(true);
+                  }}
+                  title="Consultar fuente, historial o fijar tasa BCV manual"
+                  className="inline-flex items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <Badge tone={tasa.fuente === 'manual' ? 'amber' : 'indigo'}>
+                    BCV: Bs. {number(tasa.usd_ves)} / USD
+                    {tasa.fuente === 'manual' ? ' (manual)' : ''}
+                  </Badge>
+                </button>
+              )}
+              {isMock && (
+                <div className="hidden items-center gap-2 sm:flex">
+                  <Badge tone="amber">Modo demo</Badge>
+                  <Button variant="ghost" size="sm" onClick={handleResetDemo} title="Restaurar datos de prueba">
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reiniciar demo
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-medium text-slate-800">{user.nombre}</p>
+                <p className="text-xs text-slate-500">{ROL_LABEL[user.rol]}</p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label="Cerrar sesión"
+                onClick={() => {
+                  logout();
+                  navigate('/login');
+                }}
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Salir</span>
+              </Button>
+            </div>
+          </header>
+
+          {sessionExpiringSoon && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 sm:px-6 print:hidden"
+            >
+              <span>Tu sesión está por expirar pronto. Renueva el acceso para evitar interrupciones.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={renewing}
+                onClick={() => void renewSession()}
+              >
+                Renovar sesión
+              </Button>
+            </div>
+          )}
+
+          <main id="contenido" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-[1480px] flex-1 p-4 sm:p-6 print:p-0">
+            <Outlet />
+          </main>
+        </div>
       </div>
 
       <Modal

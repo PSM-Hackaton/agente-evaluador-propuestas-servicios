@@ -181,10 +181,16 @@ export function ComparisonTable({ resultados, recomendadaId, tasaBcv, evaluacion
                       <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-100">
                         <div
                           className={cn(
-                            'h-full rounded-full',
+                            'barra-puntaje h-full rounded-full',
                             r.valida ? 'bg-indigo-600' : 'bg-slate-300',
                           )}
-                          style={{ width: `${Math.min(100, Math.max(0, r.puntaje_tecnico))}%` }}
+                          aria-hidden="true"
+                          ref={(element) => {
+                            element?.style.setProperty(
+                              '--progreso',
+                              `${Math.min(100, Math.max(0, r.puntaje_tecnico))}%`,
+                            );
+                          }}
                         />
                       </div>
                       <span className="text-xs font-medium tabular-nums text-slate-700">

@@ -1,4 +1,4 @@
-"""Initial encrypted schema for SQLite & PostgreSQL/Supabase.
+"""Initial encrypted PostgreSQL schema.
 
 Revision ID: 0001_initial_schema
 Revises:
@@ -151,6 +151,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["supplier_id"], ["suppliers.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index(op.f("ix_supplier_alerts_evaluation_id"), "supplier_alerts", ["evaluation_id"], unique=False)
+    op.create_index(op.f("ix_supplier_alerts_project_id"), "supplier_alerts", ["project_id"], unique=False)
     op.create_index(op.f("ix_supplier_alerts_supplier_id"), "supplier_alerts", ["supplier_id"], unique=False)
 
     op.create_table(
@@ -213,6 +215,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_agent_trace_steps_evaluation_run_id"), "agent_trace_steps", ["evaluation_run_id"], unique=False)
+    op.create_index("ix_agent_trace_steps_run_step", "agent_trace_steps", ["evaluation_run_id", "step_number"], unique=False)
 
     op.create_table(
         "human_reviews",
@@ -277,12 +280,14 @@ def upgrade() -> None:
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("is_manual_override", sa.Boolean(), nullable=False),
         sa.Column("recorded_by", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("fetched_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index(op.f("ix_bcv_rate_snapshots_fetched_at"), "bcv_rate_snapshots", ["fetched_at"], unique=False)
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_bcv_rate_snapshots_fetched_at"), table_name="bcv_rate_snapshots")
     op.drop_table("bcv_rate_snapshots")
     op.drop_index(op.f("ix_chat_messages_project_id"), table_name="chat_messages")
     op.drop_table("chat_messages")
@@ -294,12 +299,15 @@ def downgrade() -> None:
     op.drop_table("audit_logs")
     op.drop_index(op.f("ix_human_reviews_evaluation_run_id"), table_name="human_reviews")
     op.drop_table("human_reviews")
+    op.drop_index("ix_agent_trace_steps_run_step", table_name="agent_trace_steps")
     op.drop_index(op.f("ix_agent_trace_steps_evaluation_run_id"), table_name="agent_trace_steps")
     op.drop_table("agent_trace_steps")
     op.drop_index(op.f("ix_proposal_evaluations_proposal_id"), table_name="proposal_evaluations")
     op.drop_index(op.f("ix_proposal_evaluations_evaluation_run_id"), table_name="proposal_evaluations")
     op.drop_table("proposal_evaluations")
     op.drop_index(op.f("ix_supplier_alerts_supplier_id"), table_name="supplier_alerts")
+    op.drop_index(op.f("ix_supplier_alerts_project_id"), table_name="supplier_alerts")
+    op.drop_index(op.f("ix_supplier_alerts_evaluation_id"), table_name="supplier_alerts")
     op.drop_table("supplier_alerts")
     op.drop_index(op.f("ix_evaluation_runs_project_id"), table_name="evaluation_runs")
     op.drop_table("evaluation_runs")
