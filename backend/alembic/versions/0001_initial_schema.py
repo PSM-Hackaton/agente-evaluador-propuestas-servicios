@@ -277,12 +277,19 @@ def upgrade() -> None:
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("is_manual_override", sa.Boolean(), nullable=False),
         sa.Column("recorded_by", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("fetched_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        op.f("ix_bcv_rate_snapshots_fetched_at"),
+        "bcv_rate_snapshots",
+        ["fetched_at"],
+        unique=False,
     )
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_bcv_rate_snapshots_fetched_at"), table_name="bcv_rate_snapshots")
     op.drop_table("bcv_rate_snapshots")
     op.drop_index(op.f("ix_chat_messages_project_id"), table_name="chat_messages")
     op.drop_table("chat_messages")

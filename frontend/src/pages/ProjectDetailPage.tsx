@@ -80,6 +80,7 @@ export function ProjectDetailPage() {
     error: string | null;
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [evalParamError, setEvalParamError] = useState<string | null>(null);
 
   const [transicionModal, setTransicionModal] = useState<Transicion | null>(null);
   const [transicionNota, setTransicionNota] = useState('');
@@ -359,10 +360,18 @@ export function ProjectDetailPage() {
   const otrasValidas = ordenada.filter((r) => r.valida && r.propuesta_id !== recomendada?.propuesta_id);
 
   const abrirDescarga = async (getUrl: () => Promise<string | null>) => {
+    const popup = window.open('about:blank', '_blank');
+    if (!popup) {
+      setActionError('El navegador bloqueó la ventana de descarga. Permite ventanas emergentes e inténtalo de nuevo.');
+      return;
+    }
+    popup.opener = null;
     try {
       const url = await getUrl();
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      if (url) popup.location.href = url;
+      else popup.close();
     } catch (e) {
+      popup.close();
       setActionError(e instanceof Error ? e.message : 'No se pudo autorizar la descarga');
     }
   };
@@ -1084,13 +1093,14 @@ export function ProjectDetailPage() {
             const ivaNum = Number(paramIvaPct.replace(',', '.'));
             const bcvNum = paramBcvOverride.trim() ? Number(paramBcvOverride.replace(',', '.')) : null;
             if (!Number.isFinite(ivaNum) || ivaNum < 0 || ivaNum > 50) {
-              setActionError('La alícuota de IVA debe estar entre 0 % y 50 %.');
+              setEvalParamError('La alícuota de IVA debe estar entre 0 % y 50 %.');
               return;
             }
             if (bcvNum != null && (!Number.isFinite(bcvNum) || bcvNum <= 0)) {
-              setActionError('La tasa BCV de anulación debe ser mayor a 0.');
+              setEvalParamError('La tasa BCV de anulación debe ser mayor a 0.');
               return;
             }
+            setEvalParamError(null);
             startEvalMut.mutate({
               enable_web_search: paramWebSearch,
               iva_rate: ivaNum / 100,
@@ -1098,6 +1108,7 @@ export function ProjectDetailPage() {
             });
           }}
         >
+          {evalParamError && <Alert tone="error">{evalParamError}</Alert>}
           <p className="text-sm text-slate-600">
             Configura las condiciones financieras y de verificación antes de iniciar el análisis de {propuestas.length} propuestas.
           </p>
@@ -1127,7 +1138,10 @@ export function ProjectDetailPage() {
                 required
                 className="input"
                 value={paramIvaPct}
-                onChange={(e) => setParamIvaPct(e.target.value)}
+                onChange={(e) => {
+                  setParamIvaPct(e.target.value);
+                  setEvalParamError(null);
+                }}
               />
             </div>
 
@@ -1142,7 +1156,10 @@ export function ProjectDetailPage() {
                 min="0.01"
                 className="input"
                 value={paramBcvOverride}
-                onChange={(e) => setParamBcvOverride(e.target.value)}
+                onChange={(e) => {
+                  setParamBcvOverride(e.target.value);
+                  setEvalParamError(null);
+                }}
                 placeholder="Usar tasa BCV activa"
               />
             </div>

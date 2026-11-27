@@ -81,6 +81,8 @@ def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
 
     with sqlite3.connect(str(db_file)) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        bcv_columns = {row[1] for row in conn.execute("PRAGMA table_info(bcv_rate_snapshots)").fetchall()}
+        bcv_indexes = {row[1] for row in conn.execute("PRAGMA index_list(bcv_rate_snapshots)").fetchall()}
     expected_tables = {
         "alembic_version",
         "users",
@@ -97,6 +99,9 @@ def test_issue5_alembic_upgrade_and_downgrade_clean(tmp_path: Path) -> None:
         "bcv_rate_snapshots",
     }
     assert expected_tables.issubset(tables)
+    assert "fetched_at" in bcv_columns
+    assert "created_at" not in bcv_columns
+    assert "ix_bcv_rate_snapshots_fetched_at" in bcv_indexes
 
     down = subprocess.run([alembic_bin, "downgrade", "base"], cwd=str(BACKEND_DIR), env=env, capture_output=True, text=True)
     assert down.returncode == 0, f"alembic downgrade failed:\n{down.stdout}\n{down.stderr}"

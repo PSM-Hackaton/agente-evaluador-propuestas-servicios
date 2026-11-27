@@ -639,7 +639,7 @@ export const mockApi: Api = {
             .sort((a, b) => b.inicio.localeCompare(a.inicio))[0];
           const r = ev?.resultados.find((x) => x.propuesta_id === prop.id);
           let resultado: Participacion['resultado'] = 'pendiente';
-          if (r) resultado = !r.valida ? 'descartada' : proyecto.estado === 'ADJUDICADO' && ev.recomendada_id === prop.id ? 'adjudicada' : 'valida';
+          if (r) resultado = !r.valida ? 'descartada' : proyecto.estado === 'ADJUDICADO' && proyecto.propuesta_adjudicada_id === prop.id ? 'adjudicada' : 'valida';
           return {
             proyecto_id: proyecto.id,
             proyecto_nombre: proyecto.nombre,

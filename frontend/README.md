@@ -1,5 +1,7 @@
 # Frontend — Agente Evaluador de Propuestas de Servicios
 
+La guía visual y pasos de prueba manual están en [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md).
+
 Aplicación web SPA construida con **React + Vite + TypeScript + TailwindCSS**, **React Router** y **TanStack Query**.
 
 ## Puesta en marcha
@@ -57,8 +59,8 @@ El backend expone campos en inglés; `adapters.ts` los traduce a los tipos de `t
 | Propuestas | `GET/POST /projects/{id}/proposals` (campo `files`), `DELETE /proposals/{id}` | Carga masiva y gestión |
 | Evaluación | `POST /projects/{id}/evaluate` `{run_in_background: true}` | Botón «Evaluar Propuestas de Servicios» |
 | Evaluación | `GET /evaluations/{id}` | Resultados, trazas persistidas y revisiones |
-| Evaluación | `GET /evaluations/{id}/stream?token=` | SSE: eventos `trace_step`, `completed`, `failed`, `heartbeat` |
-| Exportación | `GET /evaluations/{id}/export/{pdf\|xlsx}` | Informe PDF y comparativa Excel (Markdown/CSV se generan en el navegador) |
+| Evaluación | `POST /auth/stream-ticket` + `GET /evaluations/{id}/stream?ticket=` | SSE: eventos `trace_step`, `completed`, `failed`, `heartbeat` |
+| Exportación | `GET /evaluations/{id}/export/{pdf\|markdown\|csv\|xlsx\|salida-json}` | Descarga de todos los formatos desde el backend |
 | Revisiones | `POST /evaluations/{id}/reviews` `{decision, notes}` | Nota, confirmación, aprobación, rechazo |
 | Proveedores | `GET /suppliers`, `GET /suppliers/{id}` | Directorio, alertas e historial |
 | Auditoría | `GET /audit-logs` | Registro de cambios |

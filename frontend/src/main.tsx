@@ -6,6 +6,22 @@ import { AuthProvider } from './context/AuthContext';
 import { App } from './App';
 import './index.css';
 
+function initializeTheme() {
+  let savedTheme: string | null = null;
+  try {
+    savedTheme = window.localStorage.getItem('aeps.tema');
+  } catch {
+    // El tema del sistema sigue disponible si el almacenamiento está bloqueado.
+  }
+  const dark =
+    savedTheme === 'oscuro' ||
+    (savedTheme !== 'claro' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.tema = dark ? 'oscuro' : 'claro';
+  document.documentElement.classList.toggle('tema-oscuro', dark);
+}
+
+initializeTheme();
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
