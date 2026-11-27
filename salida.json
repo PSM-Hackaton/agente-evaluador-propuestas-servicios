@@ -1,49 +1,49 @@
 {
   "reto": "propuesta_servicios",
   "repositorio": "grupo/chuao/chuao_grupo4/propuesta_servicios",
-  "commit": "2a8c80436cebaeb38afbefc5c25c64ee0199386d",
-  "inicio": "2026-11-27T17:15:16-04:00",
-  "fin": "2026-11-27T17:16:25-04:00",
+  "commit": "d4a47ed35951ccfc40b30dc268e3b55ac6304a51",
+  "inicio": "2026-11-27T17:33:29-04:00",
+  "fin": "2026-11-27T17:34:13-04:00",
   "procesados": [
     {
       "archivo": "Propuesta_147_Oficina_Basica_Tech_CA.png",
-      "hora": "2026-11-27T17:15:20-04:00"
+      "hora": "2026-11-27T17:33:34-04:00"
     },
     {
       "archivo": "Propuesta_195_Consorcio_Enterprise_Caracas_SA.pdf",
-      "hora": "2026-11-27T17:15:20-04:00"
+      "hora": "2026-11-27T17:33:34-04:00"
     },
     {
       "archivo": "Propuesta_284_Licencias__Hardware_Global_CA.pdf",
-      "hora": "2026-11-27T17:15:20-04:00"
+      "hora": "2026-11-27T17:33:34-04:00"
     },
     {
       "archivo": "Propuesta_376_Soluciones_Tecnologicas_Merida_CA.png",
-      "hora": "2026-11-27T17:15:24-04:00"
+      "hora": "2026-11-27T17:33:39-04:00"
     },
     {
       "archivo": "Propuesta_519_Saldos__Remates_TI_CA.png",
-      "hora": "2026-11-27T17:15:32-04:00"
+      "hora": "2026-11-27T17:33:52-04:00"
     },
     {
       "archivo": "Propuesta_628_DataCenter__Workstations_CA.xlsx",
-      "hora": "2026-11-27T17:15:32-04:00"
+      "hora": "2026-11-27T17:33:53-04:00"
     },
     {
       "archivo": "Propuesta_712_MegaPC_Directo_CA.jpg",
-      "hora": "2026-11-27T17:15:37-04:00"
+      "hora": "2026-11-27T17:33:57-04:00"
     },
     {
       "archivo": "Propuesta_761_NovaTech_Soluciones_Integrales_CA.png",
-      "hora": "2026-11-27T17:16:21-04:00"
+      "hora": "2026-11-27T17:34:06-04:00"
     },
     {
       "archivo": "Propuesta_853_Importadora_Relampago_Logistic_CA.xlsx",
-      "hora": "2026-11-27T17:16:21-04:00"
+      "hora": "2026-11-27T17:34:06-04:00"
     },
     {
       "archivo": "Propuesta_904_Vertice_Sistemas_Integrados_CA.jpg",
-      "hora": "2026-11-27T17:16:25-04:00"
+      "hora": "2026-11-27T17:34:13-04:00"
     }
   ],
   "ranking": [
@@ -57,5 +57,548 @@
     "Propuesta_712_MegaPC_Directo_CA",
     "Propuesta_853_Importadora_Relampago_Logistic_CA",
     "Propuesta_904_Vertice_Sistemas_Integrados_CA"
+  ],
+  "lote": {
+    "carpeta": "lote-oficial",
+    "propuestas_recibidas": 10,
+    "validas": 4,
+    "descartadas": 6,
+    "recomendada": "Propuesta_376_Soluciones_Tecnologicas_Merida_CA",
+    "tasa_bcv": {
+      "bs_por_usd": 926.36,
+      "fuente": "bcv_dolarapi_oficial"
+    },
+    "motor": "heuristic"
+  },
+  "detalle": [
+    {
+      "puesto": 1,
+      "propuesta": "Propuesta_376_Soluciones_Tecnologicas_Merida_CA",
+      "archivo": "Propuesta_376_Soluciones_Tecnologicas_Merida_CA.png",
+      "procesado": "2026-11-27T17:33:39-04:00",
+      "estado": "valida",
+      "proveedor": {
+        "nombre": "Soluciones Tecnológicas Mérida C.A.",
+        "rif": "J-40192837-5",
+        "representante": null,
+        "telefono": "+58 414-5369367",
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 28980.0,
+        "total_declarado_usd": 28980.0,
+        "subtotal_calculado_usd": 4180.0,
+        "envio_usd": 480.0,
+        "instalacion_usd": 550.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 28980.0,
+        "costo_total_real_ves": 26845889.62
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (14% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 96.2,
+        "economico": 100.0,
+        "global": 96.77
+      },
+      "motivos_descarte": [],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Aceleración gráfica detectada: estudiantes con RTX 4070 TI y docente con RTX 4080 SUPER 16GB.",
+        "Monitores especificados: ASUS ProArt PA278CV 27\" QHD IPS Calibrado De.",
+        "Protección eléctrica declarada: UPS Interactivo APC Smart-UPS.",
+        "Garantía declarada: 36 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Puesto #1 (Válida) — Calidad técnica 96.2/100, TCO real $28,980.00 USD. Aceleración gráfica detectada: estudiantes con RTX 4070 TI y docente con RTX 4080 SUPER 16GB.; Monitores especificados: ASUS ProArt PA278CV 27\" QHD IPS Calibrado De.; Protección eléctrica declarada: UPS Interactivo APC Smart-UPS."
+    },
+    {
+      "puesto": 2,
+      "propuesta": "Propuesta_628_DataCenter__Workstations_CA",
+      "archivo": "Propuesta_628_DataCenter__Workstations_CA.xlsx",
+      "procesado": "2026-11-27T17:33:53-04:00",
+      "estado": "valida",
+      "proveedor": {
+        "nombre": "Datacenter & Workstations C.A.",
+        "rif": "J-30991122-8",
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 32600.0,
+        "total_declarado_usd": 32600.0,
+        "subtotal_calculado_usd": 32600.0,
+        "envio_usd": 250.0,
+        "instalacion_usd": 600.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 32600.0,
+        "costo_total_real_ves": 30199309.92
+      },
+      "aritmetica": {
+        "verificada": true,
+        "correcta": true,
+        "diferencia_usd": 0.0
+      },
+      "puntajes": {
+        "tecnico": 78.5,
+        "economico": 92.28,
+        "global": 80.57
+      },
+      "motivos_descarte": [],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Monitores especificados: (Dell Precision 3680 Tower, NUEVO).",
+        "Protección eléctrica declarada: UPS Online Doble Conversión Eaton 9PX 1500VA (1 por cada 2 PCs + docente de.",
+        "Garantía declarada: 36 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [
+        "Condición comercial: pagos en Bolívares a tasa BCV aplican +4% por gestión cambiaria."
+      ],
+      "dictamen": "Puesto #2 (Válida) — Calidad técnica 78.5/100, TCO real $32,600.00 USD. Monitores especificados: (Dell Precision 3680 Tower, NUEVO).; Protección eléctrica declarada: UPS Online Doble Conversión Eaton 9PX 1500VA (1 por cada 2 PCs + docente de.; Garantía declarada: 36 meses."
+    },
+    {
+      "puesto": 3,
+      "propuesta": "Propuesta_195_Consorcio_Enterprise_Caracas_SA",
+      "archivo": "Propuesta_195_Consorcio_Enterprise_Caracas_SA.pdf",
+      "procesado": "2026-11-27T17:33:34-04:00",
+      "estado": "valida",
+      "proveedor": {
+        "nombre": "Consorcio Enterprise Caracas SA",
+        "rif": null,
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 44550.0,
+        "total_declarado_usd": 44550.0,
+        "subtotal_calculado_usd": 2100.0,
+        "envio_usd": 300.0,
+        "instalacion_usd": 850.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 44550.0,
+        "costo_total_real_ves": 41269302.36
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (5% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 73.0,
+        "economico": 66.81,
+        "global": 72.07
+      },
+      "motivos_descarte": [],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Monitores especificados: Dell Precision 3680 Ada-4000 (NUEVO).",
+        "Protección eléctrica declarada: UPS Online Doble Conversión Eaton 9PX 3000VA.",
+        "Garantía declarada: 60 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [
+        "Condición comercial: pagos en Bolívares a tasa BCV aplican +4% por gestión cambiaria."
+      ],
+      "dictamen": "Puesto #3 (Válida) — Calidad técnica 73.0/100, TCO real $44,550.00 USD. Monitores especificados: Dell Precision 3680 Ada-4000 (NUEVO).; Protección eléctrica declarada: UPS Online Doble Conversión Eaton 9PX 3000VA.; Garantía declarada: 60 meses."
+    },
+    {
+      "puesto": 4,
+      "propuesta": "Propuesta_761_NovaTech_Soluciones_Integrales_CA",
+      "archivo": "Propuesta_761_NovaTech_Soluciones_Integrales_CA.png",
+      "procesado": "2026-11-27T17:34:06-04:00",
+      "estado": "valida",
+      "proveedor": {
+        "nombre": "NovaTech Soluciones Integrales CA",
+        "rif": "J-40990011-3",
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 45400.0,
+        "total_declarado_usd": 45400.0,
+        "subtotal_calculado_usd": 23437.5,
+        "envio_usd": 250.0,
+        "instalacion_usd": 800.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 45400.0,
+        "costo_total_real_ves": 42056707.68
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (52% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 59.8,
+        "economico": 65.0,
+        "global": 60.58
+      },
+      "motivos_descarte": [],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Monitores especificados: Lenovo ThinkVision P27u-20 27\" 4K UHD 99.1% DCI-P3 — $423.50.",
+        "Protección eléctrica declarada: UPS Online (desglose por componentes):.",
+        "Garantía declarada: 60 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [
+        "Condición comercial: pagos en Bolívares a tasa BCV aplican +4% por gestión cambiaria."
+      ],
+      "dictamen": "Puesto #4 (Válida) — Calidad técnica 59.8/100, TCO real $45,400.00 USD. Monitores especificados: Lenovo ThinkVision P27u-20 27\" 4K UHD 99.1% DCI-P3 — $423.50.; Protección eléctrica declarada: UPS Online (desglose por componentes):.; Garantía declarada: 60 meses."
+    },
+    {
+      "puesto": 5,
+      "propuesta": "Propuesta_147_Oficina_Basica_Tech_CA",
+      "archivo": "Propuesta_147_Oficina_Basica_Tech_CA.png",
+      "procesado": "2026-11-27T17:33:34-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "Oficina Básica Tech C.A.",
+        "rif": "J-50889900-4",
+        "representante": null,
+        "telefono": "+58 414-3766961",
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 20500.0,
+        "total_declarado_usd": 20500.0,
+        "subtotal_calculado_usd": 2600.0,
+        "envio_usd": 180.0,
+        "instalacion_usd": 320.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 20500.0,
+        "costo_total_real_ves": 18990363.6
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (13% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 86.5,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "incompatibilidad_tecnica",
+          "detalle": "Incompatibilidad física de gabinete: tarjeta gráfica dedicada de tamaño completo no cabe en gabinete slim/SFF."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Aceleración gráfica detectada en estaciones: RTX 4070 .",
+        "Monitores especificados: Dell 24\" IPS FHD ($196.90).",
+        "Protección eléctrica declarada: UPS Interactivo 1200VA ($71.60).",
+        "Garantía declarada: 18 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Propuesta Propuesta_147_Oficina_Basica_Tech_CA DESCARTADA: [incompatibilidad_tecnica] Incompatibilidad física de gabinete: tarjeta gráfica dedicada de tamaño completo no cabe en gabinete slim/SFF."
+    },
+    {
+      "puesto": 6,
+      "propuesta": "Propuesta_284_Licencias__Hardware_Global_CA",
+      "archivo": "Propuesta_284_Licencias__Hardware_Global_CA.pdf",
+      "procesado": "2026-11-27T17:33:34-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "Licencias & Hardware Global C.A.",
+        "rif": "J-50778899-6",
+        "representante": "Ricardo Fuenmayor",
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 15960.0,
+        "total_declarado_usd": 15960.0,
+        "subtotal_calculado_usd": 4810.0,
+        "envio_usd": 4460.0,
+        "instalacion_usd": 350.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 15960.0,
+        "costo_total_real_ves": 14784692.83
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (30% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 68.0,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "inyeccion_prompt",
+          "detalle": "Se detectaron instrucciones ocultas / intento de inyección de prompt dirigidas al sistema de IA para manipular la evaluación."
+        },
+        {
+          "codigo": "costos_condiciones_abusivas",
+          "detalle": "Condición abusiva de garantía: garantía válida solo fuera del país o inexistente."
+        },
+        {
+          "codigo": "alcance_incompleto",
+          "detalle": "Alcance incompleto en cantidad de equipos: se requieren 10 estaciones de estudiantes y 1 de docente (detectadas: 0 estudiantes, 0 docente)."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": true,
+      "hallazgos_tecnicos": [
+        "Aceleración gráfica detectada en estaciones: RTX 4060.",
+        "Monitores especificados: USA-Direct R5-4060 (NUEVO).",
+        "Protección eléctrica declarada: Regulador AVR 1200VA.",
+        "Garantía declarada: 12 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Propuesta Propuesta_284_Licencias__Hardware_Global_CA DESCARTADA: [inyeccion_prompt] Se detectaron instrucciones ocultas / intento de inyección de prompt dirigidas al sistema de IA para manipular la evaluación.; [costos_condiciones_abusivas] Condición abusiva de garantía: garantía válida solo fuera del país o inexistente.; [alcance_incompleto] Alcance incompleto en cantidad de equipos: se requieren 10 estaciones de estudiantes y 1 de docente (detectadas: 0 estudiantes, 0 docente)."
+    },
+    {
+      "puesto": 7,
+      "propuesta": "Propuesta_519_Saldos__Remates_TI_CA",
+      "archivo": "Propuesta_519_Saldos__Remates_TI_CA.png",
+      "procesado": "2026-11-27T17:33:52-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "Saldos & Remates TI CA",
+        "rif": "J-50001122-8",
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 55850.0,
+        "total_declarado_usd": 55850.0,
+        "subtotal_calculado_usd": 42026.0,
+        "envio_usd": 350.0,
+        "instalacion_usd": 600.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 55850.0,
+        "costo_total_real_ves": 51737161.32
+      },
+      "aritmetica": {
+        "verificada": false,
+        "correcta": null,
+        "nota": "Partidas leídas parcialmente (75% del total declarado): no se declara error aritmético."
+      },
+      "puntajes": {
+        "tecnico": 50.4,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "incompatibilidad_tecnica",
+          "detalle": "Incompatibilidad física de socket en Estación Docente: procesador Intel LGA1700 con placa incompatible."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Monitores especificados: Monitores 24\" FHD marcas varias — $544.50 c/u ($5,445.00).",
+        "Protección eléctrica declarada: Regulador AVR 1200VA — $198.00 c/u ($1,980.00).",
+        "Garantía declarada: 12 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [
+        "Condición comercial: pagos en Bolívares a tasa BCV aplican +4% por gestión cambiaria."
+      ],
+      "dictamen": "Propuesta Propuesta_519_Saldos__Remates_TI_CA DESCARTADA: [incompatibilidad_tecnica] Incompatibilidad física de socket en Estación Docente: procesador Intel LGA1700 con placa incompatible."
+    },
+    {
+      "puesto": 8,
+      "propuesta": "Propuesta_712_MegaPC_Directo_CA",
+      "archivo": "Propuesta_712_MegaPC_Directo_CA.jpg",
+      "procesado": "2026-11-27T17:33:57-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "MegaPC Directo C.A.",
+        "rif": "J-50556677-3",
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 0.0,
+        "total_declarado_usd": 0.0,
+        "subtotal_calculado_usd": 2420.0,
+        "envio_usd": 180.0,
+        "instalacion_usd": 0.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 2420.0,
+        "costo_total_real_ves": 2241789.26
+      },
+      "aritmetica": {
+        "verificada": true,
+        "correcta": true,
+        "diferencia_usd": 0.0
+      },
+      "puntajes": {
+        "tecnico": 83.9,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "capacidad_insuficiente",
+          "detalle": "Protección eléctrica/UPS insuficiente (500VA) para soportar estación de gama media-alta."
+        },
+        {
+          "codigo": "capacidad_insuficiente",
+          "detalle": "Capacidad real del UPS insuficiente (250W) para la carga del equipo."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Aceleración gráfica detectada en estaciones: RTX 4070 .",
+        "Monitores especificados: LG 27 QHD ($206.80).",
+        "Protección eléctrica declarada: UPS Forza 500VA /250W ($75.20) =.",
+        "Garantía declarada: 18 meses.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Propuesta Propuesta_712_MegaPC_Directo_CA DESCARTADA: [capacidad_insuficiente] Protección eléctrica/UPS insuficiente (500VA) para soportar estación de gama media-alta.; [capacidad_insuficiente] Capacidad real del UPS insuficiente (250W) para la carga del equipo."
+    },
+    {
+      "puesto": 9,
+      "propuesta": "Propuesta_853_Importadora_Relampago_Logistic_CA",
+      "archivo": "Propuesta_853_Importadora_Relampago_Logistic_CA.xlsx",
+      "procesado": "2026-11-27T17:34:06-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "Importadora Relámpago Logistic C.A.",
+        "rif": "J-50334455-2",
+        "representante": null,
+        "telefono": null,
+        "correo": null,
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 21750.0,
+        "total_declarado_usd": 21750.0,
+        "subtotal_calculado_usd": 21750.0,
+        "envio_usd": 220.0,
+        "instalacion_usd": 380.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 21750.0,
+        "costo_total_real_ves": 20148312.6
+      },
+      "aritmetica": {
+        "verificada": true,
+        "correcta": true,
+        "diferencia_usd": 0.0
+      },
+      "puntajes": {
+        "tecnico": 92.0,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "capacidad_insuficiente",
+          "detalle": "Fuente de poder insuficiente (450W) para la GPU ofertada (requiere al menos 700W)."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Aceleración gráfica detectada en estaciones: RTX 4070 TI.",
+        "Monitores especificados: (Relámpago Render-4070TiS, NUEVO).",
+        "Protección eléctrica declarada: UPS Interactivo 1200VA.",
+        "Incluye sistema operativo y herramientas 100% open source ($0/año en licencias)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Propuesta Propuesta_853_Importadora_Relampago_Logistic_CA DESCARTADA: [capacidad_insuficiente] Fuente de poder insuficiente (450W) para la GPU ofertada (requiere al menos 700W)."
+    },
+    {
+      "puesto": 10,
+      "propuesta": "Propuesta_904_Vertice_Sistemas_Integrados_CA",
+      "archivo": "Propuesta_904_Vertice_Sistemas_Integrados_CA.jpg",
+      "procesado": "2026-11-27T17:34:13-04:00",
+      "estado": "descartada",
+      "proveedor": {
+        "nombre": "Vertice Sistemas Integrados CA",
+        "rif": "J-40334455-7",
+        "representante": null,
+        "telefono": "+584228008204",
+        "correo": "VSI@gmail.com",
+        "ubicacion": "Caracas"
+      },
+      "montos": {
+        "moneda_declarada": "USD",
+        "total_declarado": 0.0,
+        "total_declarado_usd": 0.0,
+        "subtotal_calculado_usd": 12586.0,
+        "envio_usd": 2.0,
+        "instalacion_usd": 0.0,
+        "recargos_ocultos_usd": 0.0,
+        "iva_usd": 0.0,
+        "costo_total_real_usd": 12586.0,
+        "costo_total_real_ves": 11659156.89
+      },
+      "aritmetica": {
+        "verificada": true,
+        "correcta": true,
+        "diferencia_usd": 0.0
+      },
+      "puntajes": {
+        "tecnico": 49.0,
+        "economico": 0.0,
+        "global": 0.0
+      },
+      "motivos_descarte": [
+        {
+          "codigo": "alcance_incompleto",
+          "detalle": "Alcance incompleto en cantidad de equipos: se requieren 10 estaciones de estudiantes y 1 de docente (detectadas: 0 estudiantes, 0 docente)."
+        },
+        {
+          "codigo": "alcance_incompleto",
+          "detalle": "Alcance incompleto: no incluye monitores para las estaciones de trabajo."
+        },
+        {
+          "codigo": "alcance_incompleto",
+          "detalle": "Alcance incompleto: no contempla la entrega, instalación y puesta en funcionamiento en sitio."
+        }
+      ],
+      "instrucciones_ocultas_detectadas": false,
+      "hallazgos_tecnicos": [
+        "Protección eléctrica declarada: Ups APC ÁCCONA (SPA)."
+      ],
+      "letra_pequena": [],
+      "dictamen": "Propuesta Propuesta_904_Vertice_Sistemas_Integrados_CA DESCARTADA: [alcance_incompleto] Alcance incompleto en cantidad de equipos: se requieren 10 estaciones de estudiantes y 1 de docente (detectadas: 0 estudiantes, 0 docente).; [alcance_incompleto] Alcance incompleto: no incluye monitores para las estaciones de trabajo.; [alcance_incompleto] Alcance incompleto: no contempla la entrega, instalación y puesta en funcionamiento en sitio."
+    }
   ]
 }
