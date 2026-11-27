@@ -66,18 +66,50 @@ def _make_valid_txt(name: str, rif: str, unit_price: float = 1200.0) -> bytes:
 @pytest.mark.asyncio
 async def test_issue5_alembic_upgrade_and_downgrade_clean() -> None:
     """Verify `alembic upgrade head` -> `downgrade base` -> `upgrade head` cleanly on PostgreSQL."""
+    from urllib.parse import urlsplit, urlunsplit
+
     import asyncpg
 
     from app.db.base import normalize_database_url
 
-    alembic_db_url = os.environ.get(
-        "TEST_ALEMBIC_DATABASE_URL",
-        "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_alembic_test",
-    )
-    normalized_url, connect_args = normalize_database_url(alembic_db_url, default_ssl_mode="disable")
+    base_test_url = os.environ.get("TEST_DATABASE_URL", "").strip()
+    alembic_db_url = os.environ.get("TEST_ALEMBIC_DATABASE_URL", "").strip()
+    if not alembic_db_url:
+        if base_test_url:
+            parts = urlsplit(base_test_url)
+            alembic_db_url = urlunsplit(
+                (parts.scheme, parts.netloc, "/evaluador_alembic_test", parts.query, parts.fragment)
+            )
+        else:
+            alembic_db_url = "postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_alembic_test"
+
+    default_ssl = os.environ.get("TEST_DB_SSL_MODE", "disable")
+    normalized_url, connect_args = normalize_database_url(alembic_db_url, default_ssl_mode=default_ssl)
     raw_dsn = normalized_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
-    conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    # Ensure isolated Alembic test DB exists on the same PostgreSQL server as TEST_DATABASE_URL
+    try:
+        conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+    except asyncpg.InvalidCatalogNameError:
+        target_db = urlsplit(raw_dsn).path.lstrip("/")
+        if not target_db.replace("_", "").isalnum():
+            raise ValueError(f"Unsafe Alembic test database name: {target_db!r}") from None
+        admin_source = base_test_url or alembic_db_url
+        admin_parts = urlsplit(admin_source)
+        admin_url = urlunsplit(
+            (admin_parts.scheme, admin_parts.netloc, "/postgres", admin_parts.query, admin_parts.fragment)
+        )
+        admin_norm, admin_args = normalize_database_url(admin_url, default_ssl_mode=default_ssl)
+        admin_dsn = admin_norm.replace("postgresql+asyncpg://", "postgresql://", 1)
+        admin_conn = await asyncpg.connect(admin_dsn, ssl=admin_args.get("ssl", False))
+        try:
+            exists = await admin_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", target_db)
+            if not exists:
+                await admin_conn.execute(f'CREATE DATABASE "{target_db}"')
+        finally:
+            await admin_conn.close()
+        conn = await asyncpg.connect(raw_dsn, ssl=connect_args.get("ssl", False))
+
     try:
         await conn.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
     finally:
@@ -86,7 +118,7 @@ async def test_issue5_alembic_upgrade_and_downgrade_clean() -> None:
     env = {
         **os.environ,
         "DATABASE_URL": alembic_db_url,
-        "DB_SSL_MODE": "disable",
+        "DB_SSL_MODE": default_ssl,
         "MASTER_ENCRYPTION_KEY": "dev-insecure-default-key-replace-in-production-32b",
     }
     alembic_bin = str(Path(sys.executable).parent / "alembic")

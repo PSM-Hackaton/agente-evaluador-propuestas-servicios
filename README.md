@@ -185,11 +185,14 @@ podman run -d --name evaluador-ollama \
 podman exec evaluador-ollama ollama pull qwen2.5:3b      # 1.9 GB — texto y tool calling
 podman exec evaluador-ollama ollama pull qwen2.5vl:3b    # 3.2 GB — visión multimodal (manuscritos/escaneos)
 
-# 2. Levantar PostgreSQL 16 local
+# 2. Levantar PostgreSQL 16 local (o una instancia propia con TLS 1.2+): base de la aplicación y bases de pruebas
 podman run -d --name evaluador-postgres \
   -e POSTGRES_USER=postgres -e POSTGRES_HOST_AUTH_METHOD=trust \
   -e POSTGRES_DB=evaluador_propuestas \
   -p 127.0.0.1:5432:5432 docker.io/library/postgres:16-alpine
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_test;"
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_alembic_test;"
+# (con docker, el mismo comando cambiando podman por docker; con un PostgreSQL ya instalado, createdb)
 ```
 
 ### Paso 3. Backend (con TLS 1.2/1.3)
@@ -200,6 +203,8 @@ sudo apt install tesseract-ocr tesseract-ocr-spa
 
 cd backend
 cp .env.example .env
+# Editar .env: DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_propuestas, DB_SSL_MODE,
+# MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY, TLS_ENABLED=true y configuración de Ollama local.
 # Generar claves propias para MASTER_ENCRYPTION_KEY y JWT_SECRET_KEY (32 bytes):
 python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 # Generar certificados TLS 1.2/1.3 locales:
@@ -211,6 +216,9 @@ uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"
 alembic upgrade head
 # Iniciar backend HTTPS (TLS 1.2/1.3) conectado a Ollama local:
 python -m app.run
+
+# Pruebas automatizadas (requiere PostgreSQL 16; respeta TEST_DATABASE_URL y TEST_ALEMBIC_DATABASE_URL)
+pytest -v
 ```
 
 ### Paso 4. Frontend
