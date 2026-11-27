@@ -53,3 +53,46 @@ class UserOut(BaseModel):
 class UserRoleUpdate(BaseModel):
     role: UserRole
     is_active: bool | None = None
+
+
+class InvitationCreateRequest(BaseModel):
+    role: UserRole = UserRole.REVISOR
+    email: EmailStr | None = None
+    max_uses: int = Field(default=1, ge=1, le=100)
+    expires_in_hours: int = Field(default=72, ge=1, le=24 * 90)
+
+
+class InvitationOut(BaseModel):
+    id: str
+    code_prefix: str
+    role: str
+    email: str | None = None
+    max_uses: int
+    uses_count: int
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class InvitationCreatedOut(InvitationOut):
+    code: str
+
+
+class InvitationValidateRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=64)
+
+
+class InvitationValidateResponse(BaseModel):
+    valid: bool = True
+    role: str
+    email_locked: str | None = None
+    expires_at: datetime
+
+
+class SignupRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=255)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    invitation_code: str | None = Field(default=None, max_length=64)
