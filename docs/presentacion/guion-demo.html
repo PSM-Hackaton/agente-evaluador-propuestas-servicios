@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guion de demostración · Agente Evaluador de Propuestas de Servicios</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  body { font-family: "Noto Sans", "DejaVu Sans", Arial, sans-serif; color: #1B2440; font-size: 11pt; line-height: 1.45; margin: 0; }
+  .franja { height: 6px; background: linear-gradient(90deg, #FFCC00 0 33.3%, #00247D 33.3% 66.6%, #CF142B 66.6%); margin-bottom: 14px; }
+  h1 { font-size: 20pt; color: #0A1A4F; margin: 0 0 4px; }
+  .sub { color: #4A5578; margin: 0 0 14px; }
+  h2 { font-size: 13.5pt; color: #00247D; border-bottom: 2px solid #D8DEEE; padding-bottom: 3px; margin: 18px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 10pt; }
+  th, td { border: 1px solid #C9D2E6; padding: 5px 7px; vertical-align: top; text-align: left; }
+  th { background: #EEF2FB; color: #0A1A4F; }
+  td.t { white-space: nowrap; font-weight: 600; color: #00247D; width: 70px; }
+  code, pre { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; }
+  pre { background: #0E1B3D; color: #E8EDFA; padding: 9px 11px; border-radius: 6px; white-space: pre-wrap; }
+  .nota { background: #FFF8DD; border-left: 4px solid #E0B400; padding: 7px 10px; margin: 8px 0; font-size: 10pt; }
+  ul { margin: 4px 0 8px 18px; padding: 0; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+<div class="franja"></div>
+<h1>Guion de demostración (6–8 minutos)</h1>
+<p class="sub">Agente Evaluador de Propuestas de Servicios · Reto Grupal 3 · Hackatón 2026 · Equipo PSM-Hackaton</p>
+
+<p><b>Repositorio de la entrega (GitLab del evento):</b> <code>https://gitlab.nube.gob.ve/grupo/chuao/chuao_grupo4/propuesta_servicios</code>.
+Pasos de instalación y guía de uso: <code>README.md</code> (Pasos 1 a 7).</p>
+
+<h2>0. Preparación (15 minutos antes)</h2>
+<pre># Terminal 1 — servicios locales (sin depender de la red del evento)
+podman start evaluador-postgres evaluador-ollama        # PostgreSQL 16 y Ollama con qwen2.5:3b y qwen2.5vl:3b
+
+# Terminal 2 — backend con TLS 1.2/1.3 e IA local
+cd backend &amp;&amp; source .venv/bin/activate
+alembic upgrade head
+python -m app.run                                        # https://localhost:8000 · /health → tls_enabled: true
+
+# Terminal 3 — frontend contra la API real
+cd frontend &amp;&amp; npm run dev                               # http://localhost:5173
+
+# Terminal 4 — modo lote (letra grande)
+cd backend &amp;&amp; HACKATHON_REPO_PATH=grupo/chuao/chuao_grupo4/propuesta_servicios \
+  python -m app.cli.batch --lote ../docs/reto --output ../salida.json</pre>
+<ul>
+  <li>Navegador en <code>http://localhost:5173</code> con sesión de <b>administrador</b> (<code>admin@evaluador.ve</code>); otra ventana privada con <b>revisor</b> o <b>aprobador</b>.</li>
+  <li>Proyecto de ensayo ya evaluado (para el plan B) y un proyecto vacío para la demo en vivo.</li>
+  <li>Carpeta <code>docs/reto/</code> abierta: <code>proyecto.pdf</code> y las 10 propuestas.</li>
+  <li><code>curl -k https://localhost:8000/health</code> en pantalla: PostgreSQL conectado, AES-256-GCM, TLS activo e IA local.</li>
+</ul>
+
+<h2>1. Guion</h2>
+<table>
+  <tr><th>Tiempo</th><th>Qué se muestra</th><th>Qué se dice</th></tr>
+  <tr><td class="t">0:00–0:45</td><td>Panel inicial.</td><td>El problema: comparar propuestas en formatos distintos (PDF, escaneos, manuscritos, chats, Excel) y detectar trampas: costos ocultos, equipos reciclados, aritmética errónea e instrucciones ocultas para la IA.</td></tr>
+  <tr><td class="t">0:45–1:45</td><td><b>Nuevo proyecto</b> → subir <code>proyecto.pdf</code> → pestaña <b>Propuestas</b> → arrastrar las 10.</td><td>Ingesta multimodal: cada archivo se cifra con AES-256-GCM al guardarse. Admite de 3 a 20 propuestas.</td></tr>
+  <tr><td class="t">1:45–3:15</td><td><b>Parámetros de evaluación del agente</b> (tasa BCV oficial, IVA) → <b>Evaluar Propuestas de Servicios</b> → pestaña <b>Trazabilidad</b>.</td><td>El agente trabaja con IA local (Ollama) por una API compatible con OpenAI: lee cada documento, calcula el costo total real con herramientas, revisa la letra pequeña y contrasta precios en internet sin servicios de IA externos.</td></tr>
+  <tr><td class="t">3:15–4:30</td><td>Pestaña <b>Informe</b>: recomendada, tabla comparativa y dictamen de descarte.</td><td>Válidas 602 · 923 · 841 · 832 · 638. Descartadas: 131 por <b>inyección de instrucciones</b> (texto oculto para manipular a la IA), 331 por costos abusivos, 734 por incompatibilidad técnica, 898 por equipos reciclados y 975 por alcance incompleto.</td></tr>
+  <tr><td class="t">4:30–5:15</td><td>Exportar el informe en PDF y Excel; abrir el PDF.</td><td>Informe listo para el expediente, con el desglose del costo real en USD y Bs.</td></tr>
+  <tr><td class="t">5:15–6:15</td><td>Ventana del <b>revisor</b>: nota por propuesta. <b>Aprobador</b>: adjudicación (o adjudicación alternativa justificada). <b>Historial de estados del proceso</b>.</td><td>La IA recomienda; la decisión es humana y queda registrada con roles.</td></tr>
+  <tr><td class="t">6:15–7:00</td><td><b>Proveedores</b> (alertas), <b>Chat</b> («¿por qué se descartó la 131?») y <b>Auditoría</b>.</td><td>Trazabilidad completa y consultas en lenguaje natural sobre los documentos.</td></tr>
+  <tr><td class="t">7:00–7:45</td><td>Terminal 4: modo lote y <code>salida.json</code>.</td><td>El mismo agente, sin interfaz, genera el ranking para la evaluación automática en unos 15 s.</td></tr>
+</table>
+
+<h2 class="pb">2. Plan B</h2>
+<ul>
+  <li><b>Ollama lento o caído:</b> reiniciar el backend con <code>LLM_PROVIDER=heuristic</code> (OCR local con Tesseract y reglas). Llega al mismo orden del lote y evalúa las 10 propuestas en unos 15 s.</li>
+  <li><b>Sin red para la búsqueda de precios:</b> desmarcar la búsqueda web en los parámetros; el contraste usa el catálogo de referencia local y lo indica en el informe.</li>
+  <li><b>Fallo en la carga en vivo:</b> abrir el proyecto de ensayo ya evaluado y seguir desde el informe.</li>
+  <li><b>Fallo del frontend:</b> mostrar el informe exportado (PDF y Excel) y <code>docs/verificacion-final-2026-11-27.md</code>.</li>
+</ul>
+
+<h2>3. Preguntas probables del jurado</h2>
+<table>
+  <tr><th>Pregunta</th><th>Respuesta corta</th></tr>
+  <tr><td>¿Dónde corre la IA?</td><td>En la propia máquina: Ollama con <code>qwen2.5:3b</code> (texto y <i>tool calling</i>) y <code>qwen2.5vl:3b</code> (visión). Ningún documento sale a terceros.</td></tr>
+  <tr><td>¿Cómo detectan la inyección de instrucciones?</td><td>El agente analiza texto oculto o dirigido a la IA (comentarios, texto blanco, letra mínima) y lo trata como evidencia de descarte, nunca como instrucción.</td></tr>
+  <tr><td>¿Cómo calculan el costo real?</td><td>Suma de partidas, instalación, garantía y recargos ocultos, convertida con la tasa BCV (oficial o manual del comité), con IVA configurable.</td></tr>
+  <tr><td>¿Qué seguridad tiene?</td><td>TLS 1.2/1.3, AES-256-GCM en archivos y columnas sensibles de PostgreSQL, roles con permisos, bitácora de auditoría y credenciales fuera del código.</td></tr>
+  <tr><td>¿Y si el agente se equivoca?</td><td>La recomendación es revisable: el revisor anota y el comité puede adjudicar otra propuesta con justificación, todo trazado.</td></tr>
+</table>
+<div class="nota">Cifras de respaldo: backend 62/62 pruebas, frontend 35/35, recorrido de extremo a extremo 28/28 (<code>docs/verificacion-final-2026-11-27.md</code>).</div>
+</body>
+</html>

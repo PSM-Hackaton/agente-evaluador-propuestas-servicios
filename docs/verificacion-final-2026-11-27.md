@@ -64,5 +64,5 @@ El mismo orden figura en `salida.json` (raíz del repositorio), generado por el 
 
 ## 5. Cómo repetir esta verificación
 
-Seguir el `README.md` (Pasos 1 a 5) sobre un clon limpio. El orden de la tabla 3 y el formato de `salida.json`
+Seguir el `README.md` (Pasos 1 a 7) sobre un clon limpio. El orden de la tabla 3 y el formato de `salida.json`
 deben coincidir; un orden distinto indica un cambio en las reglas del agente.
