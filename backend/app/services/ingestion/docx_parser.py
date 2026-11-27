@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import io
-import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
+from typing import Any
+
+from defusedxml import ElementTree as DefusedET
 
 _W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -16,7 +18,17 @@ class DocxExtractionResult:
     hidden_findings: list[dict[str, str]] = field(default_factory=list)
 
 
-def _is_run_hidden(run: ET.Element) -> bool:
+def _parse_xml_safe(xml_bytes: bytes) -> Any:
+    """Parse DOCX XML forbidding DTDs, entity expansion, and external entities (XXE)."""
+    return DefusedET.fromstring(
+        xml_bytes,
+        forbid_dtd=True,
+        forbid_entities=True,
+        forbid_external=True,
+    )
+
+
+def _is_run_hidden(run: Any) -> bool:
     """Detect Word hidden text (`w:vanish`, `w:webHidden`, white font `#FFFFFF`, or micro size <= 3pt)."""
     rpr = run.find(f"{_W_NS}rPr")
     if rpr is None:
@@ -39,7 +51,7 @@ def _is_run_hidden(run: ET.Element) -> bool:
     return False
 
 
-def _extract_paragraph(p: ET.Element) -> tuple[str, str]:
+def _extract_paragraph(p: Any) -> tuple[str, str]:
     visible_parts: list[str] = []
     hidden_parts: list[str] = []
     for run in p.findall(f".//{_W_NS}r"):
@@ -55,7 +67,7 @@ def _extract_paragraph(p: ET.Element) -> tuple[str, str]:
 
 
 def _extract_xml_body(xml_bytes: bytes, source_label: str) -> tuple[list[str], list[dict[str, str]]]:
-    root = ET.fromstring(xml_bytes)
+    root = _parse_xml_safe(xml_bytes)
     lines: list[str] = []
     hidden_findings: list[dict[str, str]] = []
 
@@ -116,7 +128,7 @@ def extract_docx(content: bytes) -> DocxExtractionResult:
 
         # Comments (inspect for hidden prompt injections)
         if "word/comments.xml" in names:
-            root = ET.fromstring(zf.read("word/comments.xml"))
+            root = _parse_xml_safe(zf.read("word/comments.xml"))
             for comment in root.findall(f".//{_W_NS}comment"):
                 ctext = "".join(t.text or "" for t in comment.findall(f".//{_W_NS}t")).strip()
                 if ctext:
