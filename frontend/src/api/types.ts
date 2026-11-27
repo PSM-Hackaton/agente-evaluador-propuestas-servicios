@@ -328,6 +328,8 @@ export interface Api {
     ): Promise<Proyecto>;
     history(id: string): Promise<HistorialEstado[]>;
     documentUrl(id: string): Promise<string | null>;
+    /** Sube o reemplaza el documento de requerimientos del proyecto. */
+    uploadDocument(id: string, archivo: File): Promise<Proyecto>;
   };
   proposals: {
     list(projectId: string): Promise<Propuesta[]>;

@@ -6,7 +6,7 @@ import logging
 import re
 import ssl
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import desc, select
@@ -28,6 +28,26 @@ class BcvRateInfo:
 
 _CACHE: BcvRateInfo | None = None
 _CACHE_TTL = timedelta(minutes=30)
+
+
+def _local_tz() -> timezone:
+    """Venezuela timezone from settings.timezone_offset (e.g. "-04:00")."""
+    raw = (get_settings().timezone_offset or "-04:00").strip()
+    sign = -1 if raw.startswith("-") else 1
+    hours, _, minutes = raw.lstrip("+-").partition(":")
+    return timezone(sign * timedelta(hours=int(hours or 0), minutes=int(minutes or 0)))
+
+
+def manual_override_is_current(fetched_at: datetime, now: datetime | None = None) -> bool:
+    """A committee override applies only on the local calendar day it was set.
+
+    The next day the official live rate is used again, so a stale manual rate can never silently
+    leak into later evaluations.
+    """
+    tz = _local_tz()
+    ref = now or datetime.now(UTC)
+    stamp = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=UTC)
+    return stamp.astimezone(tz).date() == ref.astimezone(tz).date()
 
 
 def _create_tls12_ssl_context() -> ssl.SSLContext:
@@ -93,7 +113,7 @@ async def fetch_live_bcv_rate() -> BcvRateInfo:
 
 
 async def get_active_bcv_rate(db: AsyncSession | None = None, force_refresh: bool = False) -> BcvRateInfo:
-    """Return latest manual override if present in DB, otherwise fetch live BCV rate."""
+    """Return today's manual override if present in DB, otherwise fetch the live BCV rate."""
     global _CACHE
     if force_refresh:
         _CACHE = None
@@ -103,7 +123,7 @@ async def get_active_bcv_rate(db: AsyncSession | None = None, force_refresh: boo
             select(BcvRateSnapshot).order_by(desc(BcvRateSnapshot.fetched_at)).limit(1)
         )
         snap = result.scalar_one_or_none()
-        if snap and snap.is_manual_override:
+        if snap and snap.is_manual_override and manual_override_is_current(snap.fetched_at):
             return BcvRateInfo(
                 usd_to_ves=snap.usd_to_ves,
                 source=snap.source,
