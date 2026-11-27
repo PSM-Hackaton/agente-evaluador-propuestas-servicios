@@ -424,8 +424,11 @@ def extract_proposal_structured_heuristic(identifier: str, text: str) -> dict[st
 class AgentToolbox:
     """Structured tool-calling dispatcher for the autonomous procurement evaluation agent."""
 
-    def __init__(self, db: AsyncSession | None = None) -> None:
+    def __init__(self, db: AsyncSession | None = None, exclude_project_id: str | None = None) -> None:
         self.db = db
+        # Las alertas que generó este mismo proyecto en evaluaciones anteriores no son antecedentes:
+        # sin esta exclusión, reevaluar un proyecto penalizaba a sus proveedores por su propio resultado.
+        self.exclude_project_id = exclude_project_id
 
     async def tool_get_bcv_exchange_rate(self) -> dict[str, Any]:
         info = await get_active_bcv_rate(self.db)
@@ -516,12 +519,16 @@ class AgentToolbox:
         if supplier is None:
             return {"found": False, "alerts": [], "has_prior_prompt_injection": False}
 
-        alerts_res = await self.db.execute(
+        query = (
             select(SupplierAlert, Project.name)
             .outerjoin(Project, SupplierAlert.project_id == Project.id)
             .where(SupplierAlert.supplier_id == supplier.id)
-            .order_by(SupplierAlert.created_at.desc())
         )
+        if self.exclude_project_id:
+            query = query.where(
+                (SupplierAlert.project_id.is_(None)) | (SupplierAlert.project_id != self.exclude_project_id)
+            )
+        alerts_res = await self.db.execute(query.order_by(SupplierAlert.created_at.desc()))
         rows = alerts_res.all()
         formatted_alerts = []
         has_prior_injection = False
