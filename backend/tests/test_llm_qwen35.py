@@ -98,12 +98,14 @@ async def test_local_generate_passes_think_false_and_configurable_max_tokens(mon
     text = await client.generate_text("sys", "usr")
     assert text == "Respuesta limpia"
     assert captured_calls[0]["max_tokens"] == 777
+    assert captured_calls[0]["reasoning_effort"] == "none"
     assert captured_calls[0]["extra_body"] == {"think": False}
     assert captured_calls[0]["model"] == "qwen3.5:4b"
 
     vision = await client.extract_from_image("AAAA", "image/png", "leer")
     assert vision == "Respuesta limpia"
     assert captured_calls[1]["max_tokens"] == 1111
+    assert captured_calls[1]["reasoning_effort"] == "none"
     assert captured_calls[1]["extra_body"] == {"think": False}
     assert captured_calls[1]["model"] == "qwen3.5:4b"
 
