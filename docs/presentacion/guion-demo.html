@@ -31,7 +31,7 @@ Pasos de instalación y guía de uso: <code>README.md</code> (Pasos 1 a 7).</p>
 
 <h2>0. Preparación (15 minutos antes)</h2>
 <pre># Terminal 1 — servicios locales (sin depender de la red del evento)
-podman start evaluador-postgres evaluador-ollama        # PostgreSQL 16 y Ollama con qwen2.5:3b y qwen2.5vl:3b
+podman start evaluador-postgres evaluador-ollama        # PostgreSQL 16 y Ollama con qwen3.5:4b
 
 # Terminal 2 — backend con TLS 1.2/1.3 e IA local
 cd backend &amp;&amp; source .venv/bin/activate
@@ -75,12 +75,12 @@ cd backend &amp;&amp; HACKATHON_REPO_PATH=grupo/chuao/chuao_grupo4/propuesta_ser
 <h2>3. Preguntas probables del jurado</h2>
 <table>
   <tr><th>Pregunta</th><th>Respuesta corta</th></tr>
-  <tr><td>¿Dónde corre la IA?</td><td>En la propia máquina: Ollama con <code>qwen2.5:3b</code> (texto y <i>tool calling</i>) y <code>qwen2.5vl:3b</code> (visión). Ningún documento sale a terceros.</td></tr>
+  <tr><td>¿Dónde corre la IA?</td><td>En la propia máquina: Ollama con <code>qwen3.5:4b</code>, un solo modelo multimodal (texto, <i>tool calling</i> y visión). Ningún documento sale a terceros.</td></tr>
   <tr><td>¿Cómo detectan la inyección de instrucciones?</td><td>El agente analiza texto oculto o dirigido a la IA (comentarios, texto blanco, letra mínima) y lo trata como evidencia de descarte, nunca como instrucción.</td></tr>
   <tr><td>¿Cómo calculan el costo real?</td><td>Suma de partidas, instalación, garantía y recargos ocultos, convertida con la tasa BCV (oficial o manual del comité), con IVA configurable.</td></tr>
   <tr><td>¿Qué seguridad tiene?</td><td>TLS 1.2/1.3, AES-256-GCM en archivos y columnas sensibles de PostgreSQL, roles con permisos, bitácora de auditoría y credenciales fuera del código.</td></tr>
   <tr><td>¿Y si el agente se equivoca?</td><td>La recomendación es revisable: el revisor anota y el comité puede adjudicar otra propuesta con justificación, todo trazado.</td></tr>
 </table>
-<div class="nota">Cifras de respaldo: backend 62/62 pruebas, frontend 35/35, recorrido de extremo a extremo 28/28 (<code>docs/verificacion-final-2026-11-27.md</code>).</div>
+<div class="nota">Cifras de respaldo: backend 74/74 pruebas, frontend 39/39, recorrido de extremo a extremo 28/28 (<code>docs/verificacion-final-2026-11-27.md</code>).</div>
 </body>
 </html>

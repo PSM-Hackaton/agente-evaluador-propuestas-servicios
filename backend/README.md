@@ -71,14 +71,13 @@ podman run -d --name evaluador-ollama \
   -p 127.0.0.1:11434:11434 \
   -v evaluador-ollama-models:/root/.ollama \
   docker.io/ollama/ollama:latest
-podman exec evaluador-ollama ollama pull qwen2.5:3b
-podman exec evaluador-ollama ollama pull qwen2.5vl:3b
+podman exec evaluador-ollama ollama pull qwen3.5:4b
 
 # 3. Configurar variables y entorno Python
 cd backend
 cp .env.example .env
 # Configurar DATABASE_URL, DB_SSL_MODE, MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y TLS_ENABLED=true en .env
-# (OPENAI_BASE_URL=http://127.0.0.1:11434/v1, OPENAI_API_KEY=local, OPENAI_MODEL=qwen2.5:3b, OPENAI_VISION_MODEL=qwen2.5vl:3b)
+# (OPENAI_BASE_URL=http://127.0.0.1:11434/v1, OPENAI_API_KEY=local, OPENAI_MODEL=qwen3.5:4b, OPENAI_VISION_MODEL=qwen3.5:4b)
 
 uv venv
 source .venv/bin/activate
