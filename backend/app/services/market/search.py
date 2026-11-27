@@ -5,19 +5,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import ssl
+import threading
 import time
 from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
-import httpx
-
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_PRICE_RE = re.compile(r"\$\s*([0-9]{2,5}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)")
+_PRICE_RE = re.compile(
+    r"(?<!save\s)(?<!off\s)(?:\$|US\$|USD\s*)\s*([0-9]{2,5}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+    re.I,
+)
+_DDGS_LOCK = threading.Lock()
 
 # In-memory TTL cache for web searches (query -> (timestamp, sources, provider))
 _SEARCH_CACHE: dict[str, tuple[float, list[dict[str, Any]], str]] = {}
@@ -79,6 +81,26 @@ def _build_focused_query(item_description: str) -> str:
     return f"{clean[:80]} price USD"
 
 
+def _build_fallback_query(item_description: str, primary_query: str) -> str | None:
+    """Build a shorter hardware-focused fallback query when the primary query yields < 2 priced web sources."""
+    gpu_m = re.search(r"(?:rtx|gtx)\s*\d{4}(?:\s*(?:ti|super))?|rx\s*\d{4}", item_description, re.I)
+    if gpu_m:
+        cand = f"{gpu_m.group(0).strip()} desktop PC price"
+        if cand.lower() != primary_query.lower():
+            return cand
+    for pat, suffix in (
+        (r"(?:asus\s+proart|lg\s+ultragear|aoc|samsung|viewsonic|dell)\s+[a-z0-9\-]{3,20}", "monitor price"),
+        (r"(?:cyberpower|apc|forza|tripp\s*lite)\s+[a-z0-9\-\s]{3,24}\d{3,4}\s*va", "UPS price"),
+    ):
+        m = re.search(pat, item_description, re.I)
+        if m:
+            norm_tok = re.sub(r"\s+", " ", m.group(0)).strip()
+            cand = f"{norm_tok} {suffix}"
+            if cand.lower() != primary_query.lower():
+                return cand
+    return None
+
+
 def _extract_prices_from_text(text: str) -> list[float]:
     prices: list[float] = []
     for m in _PRICE_RE.findall(text):
@@ -91,65 +113,43 @@ def _extract_prices_from_text(text: str) -> list[float]:
     return prices
 
 
-async def _search_tavily(query: str, api_key: str) -> list[dict[str, Any]]:
-    ctx = ssl.create_default_context()
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    now_iso = datetime.now(UTC).replace(microsecond=0).isoformat()
-    async with httpx.AsyncClient(timeout=12.0, verify=ctx) as client:
-        resp = await client.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": api_key,
-                "query": query,
-                "search_depth": "basic",
-                "max_results": 5,
-            },
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            out: list[dict[str, Any]] = []
-            for r in data.get("results", []):
-                title = str(r.get("title", ""))
-                snippet = str(r.get("content", ""))[:300]
-                prices = _extract_prices_from_text(f"{title} {snippet}")
-                out.append(
-                    {
-                        "title": title,
-                        "url": str(r.get("url", "")),
-                        "snippet": snippet,
-                        "extracted_price_usd": median(prices) if prices else None,
-                        "retrieved_at": now_iso,
-                    }
-                )
-            return out
-    return []
-
-
 async def _search_ddgs(query: str) -> list[dict[str, Any]]:
     now_iso = datetime.now(UTC).replace(microsecond=0).isoformat()
 
     def _run() -> list[dict[str, Any]]:
         from ddgs import DDGS
 
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
-            out: list[dict[str, Any]] = []
-            for r in results:
-                title = str(r.get("title", ""))
-                snippet = str(r.get("body", ""))[:300]
-                prices = _extract_prices_from_text(f"{title} {snippet}")
-                out.append(
-                    {
-                        "title": title,
-                        "url": str(r.get("href", "")),
-                        "snippet": snippet,
-                        "extracted_price_usd": median(prices) if prices else None,
-                        "retrieved_at": now_iso,
-                    }
-                )
-            return out
+        with _DDGS_LOCK:
+            last_exc: Exception | None = None
+            for attempt in range(2):
+                try:
+                    with DDGS() as ddgs:
+                        results = list(ddgs.text(query, max_results=6))
+                    out: list[dict[str, Any]] = []
+                    for r in results:
+                        title = str(r.get("title", ""))
+                        snippet = str(r.get("body", ""))[:300]
+                        prices = _extract_prices_from_text(f"{title} {snippet}")
+                        out.append(
+                            {
+                                "title": title,
+                                "url": str(r.get("href", "")),
+                                "snippet": snippet,
+                                "extracted_price_usd": median(prices) if prices else None,
+                                "retrieved_at": now_iso,
+                            }
+                        )
+                    out.sort(key=lambda item: item["extracted_price_usd"] is None)
+                    return out
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt == 0:
+                        time.sleep(0.4)
+            if last_exc is not None:
+                raise last_exc
+            return []
 
-    return await asyncio.wait_for(asyncio.to_thread(_run), timeout=20.0)
+    return await asyncio.wait_for(asyncio.to_thread(_run), timeout=25.0)
 
 
 def _is_service_or_logistics_item(item_spec: str) -> bool:
@@ -215,8 +215,8 @@ def extract_market_searchable_items(
     # If peripherals/UPS were bundled into "$0.00 Incluido", still run informational component checks
     if len(candidates) < max_items and raw_text:
         for pat in (
-            r"(?:monitor\s*[:\-]?\s*[^\n|]{8,80})",
-            r"(?:protecci[oó]n|ups|regulador)\s*[:\-]?\s*[^\n|]{8,80}",
+            r"(?:monitor\s*[:\-]?\s*(?:asus|lg|samsung|aoc|dell|hp|benq|viewsonic|acer|msi|gigabyte)[^\n|]{3,65})",
+            r"(?:(?:cyberpower|apc|forza|tripp\s*lite|eaton|cdp)[^\n|]{3,65})",
         ):
             if len(candidates) >= max_items:
                 break
@@ -271,17 +271,35 @@ async def search_market_price(
             sources, search_provider = cached[1], f"{cached[2]}_cached"
         else:
             try:
-                if settings.tavily_api_key:
-                    sources = await _search_tavily(query, settings.tavily_api_key)
-                    search_provider = "tavily_web_search"
-                else:
-                    sources = await _search_ddgs(query)
-                    search_provider = "duckduckgo_web_search"
-                if sources:
-                    _SEARCH_CACHE[cache_key] = (now, sources, search_provider)
+                sources = await _search_ddgs(query)
+                search_provider = "autonomous_web_search"
             except Exception as exc:
                 logger.debug("Web search fallback triggered for '%s': %s", query, exc)
                 search_provider = "baseline_catalog_fallback"
+
+            priced_count = sum(
+                1 for s in sources if isinstance(s.get("extracted_price_usd"), (int, float)) and s["extracted_price_usd"] > 0
+            )
+            if priced_count < 2:
+                fallback_q = _build_fallback_query(item_description, query)
+                if fallback_q:
+                    try:
+                        extra = await _search_ddgs(fallback_q)
+                        seen_urls = {str(s.get("url", "")) for s in sources if s.get("url")}
+                        for item in extra:
+                            u = str(item.get("url", ""))
+                            if not u or u not in seen_urls:
+                                sources.append(item)
+                                if u:
+                                    seen_urls.add(u)
+                        if extra and search_provider == "baseline_catalog_fallback":
+                            search_provider = "autonomous_web_search"
+                    except Exception as exc:
+                        logger.debug("Secondary web search fallback failed for '%s': %s", fallback_q, exc)
+
+            sources.sort(key=lambda item: item.get("extracted_price_usd") is None)
+            if sources:
+                _SEARCH_CACHE[cache_key] = (now, sources, search_provider)
 
         for src in sources:
             p = src.get("extracted_price_usd")

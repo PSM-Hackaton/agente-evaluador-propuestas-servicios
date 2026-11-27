@@ -121,7 +121,7 @@ def _preprocess_for_ocr(img: Image.Image) -> tuple[Image.Image, float]:
     return gray, deskew_angle
 
 
-def _prepare_for_vision(img: Image.Image, max_dim: int = 1800) -> tuple[str, str]:
+def _prepare_for_vision(img: Image.Image, max_dim: int = 1280) -> tuple[str, str]:
     """Normalize image orientation and resize cleanly for multimodal Vision LLM APIs."""
     img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "L"):

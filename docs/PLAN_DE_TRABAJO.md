@@ -49,7 +49,7 @@ Reglas:
 ### 3.1 Cómo se garantiza que migre sin rehacer nada
 1. **Un solo `DATABASE_URL`** en `.env`:
    - Desarrollo: `DATABASE_URL=sqlite:///./data/app.db`
-   - Supabase: `DATABASE_URL=postgresql+psycopg://postgres:<clave>@db.<proyecto>.supabase.co:5432/postgres?sslmode=require`
+   - Supabase: `DATABASE_URL=postgresql+psycopg://postgres@db.<proyecto>.supabase.co:5432/postgres?sslmode=require` (contraseña en `PGPASSWORD`)
 2. **Solo tipos portables** de SQLAlchemy: `String`, `Text`, `Integer`, `Numeric(14,2)` para dinero, `Boolean`, `DateTime(timezone=True)`, `JSON`. Nada específico de SQLite.
 3. **IDs UUID** (guardados como texto en SQLite, `uuid` en Postgres) → no hay choques al importar datos.
 4. **Alembic** para todas las migraciones. Nunca se crean tablas a mano. En Supabase solo se ejecuta `alembic upgrade head`.
