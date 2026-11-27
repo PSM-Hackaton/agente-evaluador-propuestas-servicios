@@ -956,3 +956,19 @@ def test_issue40_cpu_tier_and_single_channel_ram_scoring() -> None:
     assert a1.is_technically_valid and a2.is_technically_valid
     assert a1.score_breakdown["ram_almacenamiento"] > a2.score_breakdown["ram_almacenamiento"]
     assert a1.technical_score > a2.technical_score
+
+
+def test_issue52_cpu_regex_ignores_bare_prices_and_codes() -> None:
+    """Ensure `_score_cpu` never matches bare numbers like prices ($13700) or SKUs (REF-14700)."""
+    from app.services.agent.technical_audit import _score_cpu
+
+    # Negative cases: prices, totals, and product reference codes without CPU brand/series
+    assert _score_cpu("Total de la oferta: $13700 USD | Referencia REF-14700 | Subtotal 14400") == 1.0
+    assert _score_cpu("Cotización 13400 Bs y envío 14500 con código SKU-14900") == 1.0
+
+    # Positive anchored cases
+    assert _score_cpu("AMD Ryzen 9 7900 (12C/24T)") == 5.0
+    assert _score_cpu("Intel Core i7-13700F (16C/24T)") == 4.0
+    assert _score_cpu("Core i#-14700F 32GB DDR5") == 4.0
+    assert _score_cpu("Intel Core i5-14400F") == 3.0
+    assert _score_cpu("AMD Ryzen 5 7600 (6C/12T)") == 2.0
