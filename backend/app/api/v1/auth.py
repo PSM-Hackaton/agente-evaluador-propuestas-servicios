@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import math
+import secrets
 import time
 from collections import deque
+from datetime import timedelta
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +18,7 @@ from app.core.config import get_settings
 from app.core.crypto import blind_index
 from app.core.security import (
     ROLES_ADMIN,
+    UserRole,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -23,11 +26,17 @@ from app.core.security import (
     verify_password,
 )
 from app.db.base import get_db
-from app.db.models import User
+from app.db.models import InvitationCode, User, utcnow
 from app.schemas.auth import (
+    InvitationCreatedOut,
+    InvitationCreateRequest,
+    InvitationOut,
+    InvitationValidateRequest,
+    InvitationValidateResponse,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    SignupRequest,
     StreamTicketResponse,
     TokenResponse,
     UserOut,
@@ -40,12 +49,22 @@ router = APIRouter(prefix="/auth", tags=["Autenticación y Roles"])
 # Sliding-window failed login tracker keyed by client IP and blind-indexed email
 _FAILED_LOGINS_BY_IP: dict[str, deque[float]] = {}
 _FAILED_LOGINS_BY_EMAIL: dict[str, deque[float]] = {}
+_INVITE_VALIDATE_BY_IP: dict[str, deque[float]] = {}
+_SIGNUP_BY_IP: dict[str, deque[float]] = {}
+
+_INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_INVITE_VALIDATE_MAX_ATTEMPTS = 20
+_INVITE_VALIDATE_WINDOW_SECONDS = 300
+_SIGNUP_MAX_ATTEMPTS = 10
+_SIGNUP_WINDOW_SECONDS = 300
 
 
 def reset_login_rate_limiter() -> None:
-    """Clear in-memory failed login windows (used in test isolation)."""
+    """Clear in-memory auth rate-limit windows (used in test isolation)."""
     _FAILED_LOGINS_BY_IP.clear()
     _FAILED_LOGINS_BY_EMAIL.clear()
+    _INVITE_VALIDATE_BY_IP.clear()
+    _SIGNUP_BY_IP.clear()
 
 
 def _prune_window(dq: deque[float], now: float, window_seconds: int) -> None:
@@ -254,3 +273,257 @@ async def update_user_role(
     await db.commit()
     await db.refresh(target)
     return target
+
+
+def _generate_invitation_code() -> str:
+    """Generate a cryptographically secure invitation code like INV-XXXX-XXXX."""
+    part1 = "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(4))
+    part2 = "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(4))
+    return f"INV-{part1}-{part2}"
+
+
+def _enforce_ip_rate_limit(
+    store: dict[str, deque[float]],
+    ip: str,
+    max_attempts: int,
+    window_seconds: int,
+) -> None:
+    if not ip:
+        return
+    now = time.monotonic()
+    dq = store.setdefault(ip, deque())
+    _prune_window(dq, now, window_seconds)
+    if len(dq) >= max_attempts:
+        retry_after = max(1, math.ceil((dq[0] + window_seconds) - now))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas solicitudes desde esta IP. Intente más tarde.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    dq.append(now)
+
+
+def _validate_invitation_state(inv: InvitationCode | None) -> InvitationCode:
+    if inv is None or inv.revoked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Código de invitación inválido o revocado.",
+        )
+    if inv.expires_at <= utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="El código de invitación ha expirado.",
+        )
+    if inv.uses_count >= inv.max_uses:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="El código de invitación ya alcanzó su límite de usos.",
+        )
+    return inv
+
+
+@router.post("/invitations", response_model=InvitationCreatedOut, status_code=status.HTTP_201_CREATED)
+async def create_invitation(
+    payload: InvitationCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_roles(ROLES_ADMIN)),
+) -> InvitationCreatedOut:
+    code = ""
+    code_h = ""
+    for _ in range(5):
+        candidate = _generate_invitation_code()
+        candidate_h = blind_index(candidate) or ""
+        exists = await db.execute(select(InvitationCode.id).where(InvitationCode.code_hash == candidate_h))
+        if exists.scalar_one_or_none() is None:
+            code = candidate
+            code_h = candidate_h
+            break
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar un código de invitación único.",
+        )
+
+    locked_email = payload.email.lower() if payload.email else None
+    locked_email_h = blind_index(locked_email) if locked_email else None
+    now_utc = utcnow()
+    inv = InvitationCode(
+        code_hash=code_h,
+        # Solo «INV-» y 2 caracteres: el prefijo aparece en listados y auditoría y no debe reducir la entropía.
+        code_prefix=code[:6],
+        role=payload.role.value,
+        email=locked_email,
+        email_hash=locked_email_h,
+        max_uses=payload.max_uses,
+        uses_count=0,
+        expires_at=now_utc + timedelta(hours=payload.expires_in_hours),
+        created_by_id=admin_user.id,
+        created_at=now_utc,
+    )
+    db.add(inv)
+    await db.flush()
+    await record_audit(
+        db,
+        action="invitation.create",
+        resource_type="invitation_code",
+        resource_id=inv.id,
+        user=admin_user,
+        ip_address=get_client_ip(request),
+        details={
+            "code_prefix": inv.code_prefix,
+            "role": inv.role,
+            "max_uses": inv.max_uses,
+            "email_restricted": bool(locked_email),
+        },
+    )
+    await db.commit()
+    await db.refresh(inv)
+    return InvitationCreatedOut(
+        id=inv.id,
+        code=code,
+        code_prefix=inv.code_prefix,
+        role=inv.role,
+        email=inv.email,
+        max_uses=inv.max_uses,
+        uses_count=inv.uses_count,
+        expires_at=inv.expires_at,
+        revoked_at=inv.revoked_at,
+        created_at=inv.created_at,
+    )
+
+
+@router.get("/invitations", response_model=list[InvitationOut])
+async def list_invitations(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(ROLES_ADMIN)),
+) -> list[InvitationCode]:
+    res = await db.execute(select(InvitationCode).order_by(InvitationCode.created_at.desc()))
+    return list(res.scalars().all())
+
+
+@router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invitation(
+    invitation_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_roles(ROLES_ADMIN)),
+) -> Response:
+    inv = await db.get(InvitationCode, invitation_id)
+    if inv is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitación no encontrada.")
+    if inv.revoked_at is None:
+        inv.revoked_at = utcnow()
+        await record_audit(
+            db,
+            action="invitation.revoke",
+            resource_type="invitation_code",
+            resource_id=inv.id,
+            user=admin_user,
+            ip_address=get_client_ip(request),
+            details={"code_prefix": inv.code_prefix, "role": inv.role},
+        )
+        await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/invitations/validate", response_model=InvitationValidateResponse)
+async def validate_invitation(
+    payload: InvitationValidateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> InvitationValidateResponse:
+    ip = get_client_ip(request)
+    _enforce_ip_rate_limit(
+        _INVITE_VALIDATE_BY_IP,
+        ip,
+        _INVITE_VALIDATE_MAX_ATTEMPTS,
+        _INVITE_VALIDATE_WINDOW_SECONDS,
+    )
+    normalized = payload.code.strip().upper()
+    code_h = blind_index(normalized) or ""
+    res = await db.execute(select(InvitationCode).where(InvitationCode.code_hash == code_h))
+    inv = _validate_invitation_state(res.scalar_one_or_none())
+    return InvitationValidateResponse(
+        valid=True,
+        role=inv.role,
+        email_locked=inv.email,
+        expires_at=inv.expires_at,
+    )
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def signup(
+    payload: SignupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    ip = get_client_ip(request)
+    _enforce_ip_rate_limit(_SIGNUP_BY_IP, ip, _SIGNUP_MAX_ATTEMPTS, _SIGNUP_WINDOW_SECONDS)
+
+    email = payload.email.lower()
+    email_h = blind_index(email) or ""
+    existing = await db.execute(select(User.id).where(User.email_hash == email_h))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El correo ya está registrado.")
+
+    assigned_role = UserRole.CARGADOR.value
+    invitation_used_id: str | None = None
+    raw_code = (payload.invitation_code or "").strip().upper()
+
+    if not raw_code and not get_settings().public_signup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro requiere un código de invitación del administrador.",
+        )
+
+    if raw_code:
+        code_h = blind_index(raw_code) or ""
+        res = await db.execute(
+            select(InvitationCode).where(InvitationCode.code_hash == code_h).with_for_update()
+        )
+        inv = _validate_invitation_state(res.scalar_one_or_none())
+        if inv.email_hash and inv.email_hash != email_h:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Este código de invitación está restringido a otro correo electrónico.",
+            )
+        assigned_role = inv.role
+        inv.uses_count += 1
+        invitation_used_id = inv.id
+
+    new_user = User(
+        email=email,
+        email_hash=email_h,
+        full_name=payload.full_name.strip(),
+        hashed_password=hash_password(payload.password),
+        role=assigned_role,
+        is_active=True,
+    )
+    db.add(new_user)
+    await db.flush()
+    await record_audit(
+        db,
+        action="auth.signup",
+        resource_type="user",
+        resource_id=new_user.id,
+        user=new_user,
+        ip_address=ip,
+        details={
+            "role": assigned_role,
+            "invitation_id": invitation_used_id,
+            "via_invitation": bool(invitation_used_id),
+        },
+    )
+    await db.commit()
+    await db.refresh(new_user)
+
+    access = create_access_token(new_user.id, new_user.role, extra={"email": new_user.email})
+    refresh = create_refresh_token(new_user.id, new_user.role)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        role=new_user.role,
+        user_id=new_user.id,
+        full_name=new_user.full_name,
+    )
