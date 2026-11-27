@@ -187,9 +187,17 @@ cd agente-evaluador-propuestas-servicios
 # Tesseract para el OCR local (Debian/Ubuntu)
 sudo apt install tesseract-ocr tesseract-ocr-spa
 
+# PostgreSQL 16 local (o una instancia propia con TLS 1.2+): base de la aplicación y bases de pruebas
+podman run -d --name evaluador-postgres -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_DB=evaluador_propuestas -p 127.0.0.1:5432:5432 docker.io/library/postgres:16-alpine
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_test;"
+podman exec evaluador-postgres psql -U postgres -c "CREATE DATABASE evaluador_alembic_test;"
+# (con docker, el mismo comando cambiando podman por docker; con un PostgreSQL ya instalado, createdb)
+
 cd backend
 cp .env.example .env
-# Editar .env: MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y, si se usa IA por API, GEMINI_API_KEY u OPENAI_API_KEY.
+# Editar .env: DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1:5432/evaluador_propuestas, DB_SSL_MODE,
+# MASTER_ENCRYPTION_KEY, JWT_SECRET_KEY y la configuración del modelo de IA.
 # Clave AES-256 nueva:
 python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 
@@ -205,7 +213,8 @@ alembic upgrade head
 # Servidor de desarrollo: http://localhost:8000 (documentación de la API en /docs)
 python -m app.run
 
-# Pruebas automatizadas (requiere PostgreSQL activo; usa TEST_DATABASE_URL o evaluador_test local)
+# Pruebas automatizadas (requiere PostgreSQL activo; TEST_DATABASE_URL y TEST_ALEMBIC_DATABASE_URL
+# apuntan por defecto a evaluador_test y evaluador_alembic_test en 127.0.0.1:5432)
 pytest -v
 ```
 
