@@ -148,3 +148,40 @@ async def test_word_docx_csv_tsv_and_txt_ingestion_with_hidden_injection() -> No
     assert txt_doc.ingestion_method == "plain_txt"
     assert "Garantía: 24 meses" in txt_doc.visible_text
     assert "$15,000.00" in txt_doc.visible_text
+
+
+def test_docx_rejects_xxe_in_document_and_comments() -> None:
+    """Reject .docx XML payloads containing DTD/external entity declarations (Issue #47)."""
+    import io
+    import zipfile
+
+    from defusedxml.common import DefusedXmlException
+
+    from app.services.ingestion.docx_parser import extract_docx
+
+    xxe_doc = """<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body><w:p><w:r><w:t>&xxe;</w:t></w:r></w:p></w:body>
+    </w:document>"""
+    buf_doc = io.BytesIO()
+    with zipfile.ZipFile(buf_doc, "w") as zf:
+        zf.writestr("word/document.xml", xxe_doc)
+    with pytest.raises(DefusedXmlException):
+        extract_docx(buf_doc.getvalue())
+
+    clean_doc = """<?xml version="1.0" encoding="UTF-8"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body><w:p><w:r><w:t>Oferta limpia</w:t></w:r></w:p></w:body>
+    </w:document>"""
+    xxe_comments = """<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>
+    <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:comment><w:p><w:r><w:t>&xxe;</w:t></w:r></w:p></w:comment>
+    </w:comments>"""
+    buf_comments = io.BytesIO()
+    with zipfile.ZipFile(buf_comments, "w") as zf:
+        zf.writestr("word/document.xml", clean_doc)
+        zf.writestr("word/comments.xml", xxe_comments)
+    with pytest.raises(DefusedXmlException):
+        extract_docx(buf_comments.getvalue())
